@@ -4,11 +4,14 @@ Tools:
   - resolve_protein: protein/gene name -> UniProt accession candidates.
   - search_literature: UniProt accession -> papers from Europe PMC
     (PubMed/MEDLINE records, PMC full-text records and, optionally, preprints).
+  - get_structures: UniProt accession -> a few experimental PDB structures
+    (RCSB) plus the AlphaFold DB model with its confidence.
 
 IMPORTANT: this server talks to Claude Desktop over stdio.
 Never use print() here: anything written to stdout corrupts the protocol.
 Use logging (goes to stderr) instead.
 """
+import asyncio
 import html
 import logging
 import re
@@ -322,6 +325,404 @@ async def search_literature(
             "ambiguous symbols can bring unrelated papers, so check titles.",
             "Only abstracts are returned, not full text.",
             "All links are built from IDs returned by Europe PMC.",
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Step 3: 3D structures (RCSB PDB experimental + AlphaFold DB prediction)
+# ---------------------------------------------------------------------------
+# >>> EDIT THIS LINE to change how many experimental PDB structures are returned <<<
+MAX_PDB_MODELS = 7
+
+CANDIDATE_POOL = 100  # best-resolution PDB entries examined before choosing
+
+RCSB_SEARCH = "https://search.rcsb.org/rcsbsearch/v2/query"
+RCSB_GRAPHQL = "https://data.rcsb.org/graphql"
+ALPHAFOLD_API = "https://alphafold.ebi.ac.uk/api/prediction/{accession}"
+
+_MUTATION_RE = re.compile(r"[A-Z]\d{1,4}[A-Z]")                 # e.g. G12C
+_TITLE_MUTATION_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z]\d{1,4}[A-Z])(?![A-Za-z0-9])")
+_NOT_MUTATIONS = {"H2O"}
+
+# Components that appear in many crystals but are not the ligand of interest.
+_NUCLEOTIDES = {"GDP", "GTP", "GNP", "GCP", "GSP", "ADP", "ATP", "ANP", "ACP"}
+_ADDITIVES = {
+    "MG", "ZN", "CA", "NA", "K", "CL", "MN", "CO", "NI", "FE", "CD", "IOD", "BR",
+    "SO4", "PO4", "NO3", "GOL", "EDO", "PEG", "PGE", "PG4", "DMS", "ACT", "TRS",
+    "MES", "BME", "FMT", "EPE", "IMD", "CIT", "TLA", "MPD",
+}
+# Cofactors / prosthetic groups: part of the protein's own machinery, not a
+# drug-like ligand. Listed separately so they do not pollute the ligand table.
+_COFACTORS = {
+    "HEM", "HEC", "HEA", "HEB", "FAD", "FMN", "NAD", "NAP", "NDP", "NAI",
+    "SAM", "SAH", "COA", "PLP", "TPP", "BTN", "CLA", "BCL", "SF4", "FES",
+}
+
+_ENTRIES_QUERY = """
+query ($ids: [String!]!) {
+  entries(entry_ids: $ids) {
+    rcsb_id
+    struct { title }
+    exptl { method }
+    rcsb_entry_info { resolution_combined }
+    rcsb_accession_info { initial_release_date }
+    rcsb_primary_citation { pdbx_database_id_PubMed pdbx_database_id_DOI }
+    polymer_entities {
+      rcsb_polymer_entity { pdbx_description pdbx_mutation }
+      rcsb_polymer_entity_container_identifiers { uniprot_ids }
+    }
+    nonpolymer_entities {
+      nonpolymer_comp { chem_comp { id name } }
+    }
+  }
+}
+"""
+
+
+def _short(value, limit: int = 80):
+    text = _clean_text(value)
+    if len(text) > limit:
+        return text[: limit - 3] + "..."
+    return text or None
+
+
+def _plddt_band(score) -> str:
+    """Standard AlphaFold confidence bands for a pLDDT score."""
+    if not isinstance(score, (int, float)):
+        return "unknown"
+    if score >= 90:
+        return "very high"
+    if score >= 70:
+        return "confident"
+    if score >= 50:
+        return "low"
+    return "very low"
+
+
+def _pdb_search_payload(accession: str, rows: int, mutation: str = "") -> dict:
+    nodes = [
+        {"type": "terminal", "service": "text", "parameters": {
+            "attribute": "rcsb_polymer_entity_container_identifiers."
+                         "reference_sequence_identifiers.database_name",
+            "operator": "exact_match", "value": "UniProt"}},
+        {"type": "terminal", "service": "text", "parameters": {
+            "attribute": "rcsb_polymer_entity_container_identifiers."
+                         "reference_sequence_identifiers.database_accession",
+            "operator": "exact_match", "value": accession}},
+    ]
+    if mutation:
+        # Server-side text filter, so the 100-entry pool is built from entries that
+        # already match (otherwise a rare variant never enters the best-resolution pool).
+        nodes.append({"type": "terminal", "service": "full_text",
+                      "parameters": {"value": mutation}})
+    return {
+        "query": {
+            "type": "group",
+            "logical_operator": "and",
+            "nodes": nodes,
+        },
+        "return_type": "entry",
+        "request_options": {
+            "paginate": {"start": 0, "rows": rows},
+            "sort": [{"sort_by": "rcsb_entry_info.resolution_combined", "direction": "asc"}],
+            "results_content_type": ["experimental"],
+        },
+    }
+
+
+def _res_sort_key(resolution):
+    """Best resolution first; entries without resolution (e.g. NMR) go last."""
+    return (resolution is None, resolution if resolution is not None else 0.0)
+
+
+def _parse_pdb_entry(e: dict, accession: str) -> dict:
+    """Flatten one RCSB entry. Links are built ONLY from returned IDs."""
+    pdb_id = e.get("rcsb_id")
+    res = (e.get("rcsb_entry_info") or {}).get("resolution_combined")
+    resolution = res[0] if isinstance(res, list) and res else None
+    if isinstance(resolution, (int, float)):
+        resolution = round(resolution, 3)  # RCSB sometimes returns 1.82202726164
+    methods = [m.get("method") for m in (e.get("exptl") or []) if m and m.get("method")]
+    title = _clean_text((e.get("struct") or {}).get("title"))
+
+    # `pdbx_mutation` is free text typed by the depositor: it can hold "YES", be
+    # empty although the title names the mutation, or list real mutations. Keep
+    # the three cases separate and never treat "empty" as proof of wild type.
+    mutations, unparsed, partners = [], [], []
+    for ent in e.get("polymer_entities") or []:
+        info = (ent or {}).get("rcsb_polymer_entity") or {}
+        ids = ((ent or {}).get("rcsb_polymer_entity_container_identifiers") or {}).get("uniprot_ids") or []
+        if accession in ids:
+            raw = (info.get("pdbx_mutation") or "").strip()
+            for token in (t.strip() for t in raw.split(",") if t.strip()):
+                (mutations if _MUTATION_RE.fullmatch(token) else unparsed).append(token)
+        elif info.get("pdbx_description"):
+            partners.append(_short(info["pdbx_description"], 60))
+    title_muts = {m for m in _TITLE_MUTATION_RE.findall(title) if m not in _NOT_MUTATIONS}
+    title_muts -= set(mutations)
+
+    comps = {}
+    for ent in e.get("nonpolymer_entities") or []:
+        chem = (((ent or {}).get("nonpolymer_comp") or {}).get("chem_comp")) or {}
+        if chem.get("id"):
+            comps[chem["id"]] = chem.get("name")
+    ligands = [
+        {"id": i, "name": _short(n, 60)}
+        for i, n in sorted(comps.items())
+        if i not in _NUCLEOTIDES and i not in _ADDITIVES and i not in _COFACTORS
+    ]
+
+    citation = e.get("rcsb_primary_citation") or {}
+    pubmed, doi = citation.get("pdbx_database_id_PubMed"), citation.get("pdbx_database_id_DOI")
+    links = {}
+    if pdb_id:
+        links["rcsb"] = f"https://www.rcsb.org/structure/{pdb_id}"
+        links["download_cif"] = f"https://files.rcsb.org/download/{pdb_id}.cif"
+    if pubmed:
+        links["pubmed"] = f"https://pubmed.ncbi.nlm.nih.gov/{pubmed}/"
+    if doi:
+        links["doi"] = f"https://doi.org/{doi}"
+    return {
+        "pdb_id": pdb_id,
+        "title": title if len(title) <= 140 else title[:137] + "...",
+        "method": "; ".join(methods) or None,
+        "resolution_angstrom": resolution,
+        "release_date": ((e.get("rcsb_accession_info") or {}).get("initial_release_date") or "")[:10] or None,
+        "mutations": sorted(set(mutations)),
+        "mutations_from_title": sorted(title_muts),  # mentioned in the title, not in the mutation field
+        "mutations_unparsed": sorted(set(unparsed)),  # depositor text that is not a mutation (e.g. "YES")
+        "nucleotides": sorted(i for i in comps if i in _NUCLEOTIDES),
+        "ligands": ligands,
+        "cofactors": sorted(i for i in comps if i in _COFACTORS),
+        "partner_chains": partners[:3],
+        "links": links,
+    }
+
+
+def _coarse_key(s: dict):
+    muts = tuple(sorted(set(s["mutations"]) | set(s["mutations_from_title"]) | set(s["mutations_unparsed"])))
+    return (muts, tuple(s["nucleotides"]), bool(s["ligands"]))
+
+
+def _select_diverse(entries: list, limit: int) -> list:
+    """Pick up to `limit` entries. `entries` must be sorted best resolution first.
+
+    Pass 1: the best-resolution entry for each distinct combination of
+    (mutations, nucleotide, has-ligand), so the picks cover different states
+    instead of ten near-identical structures. Pass 2: fill remaining slots with
+    the next best resolution.
+    """
+    chosen, seen_keys, chosen_ids = [], set(), set()
+    for s in entries:
+        key = _coarse_key(s)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            chosen.append(s)
+            chosen_ids.add(s["pdb_id"])
+            if len(chosen) == limit:
+                return chosen
+    for s in entries:
+        if s["pdb_id"] not in chosen_ids:
+            chosen.append(s)
+            chosen_ids.add(s["pdb_id"])
+            if len(chosen) == limit:
+                break
+    return chosen
+
+
+async def _fetch_pdb(client, accession: str, limit: int, mutation: str = "") -> dict:
+    # 1) Which experimental entries contain this UniProt protein (best resolution first).
+    empty_note = (
+        f"No experimental PDB structures found for this accession matching '{mutation}'."
+        if mutation else "No experimental PDB structures found for this accession."
+    )
+    try:
+        resp = await client.post(
+            RCSB_SEARCH, json=_pdb_search_payload(accession, CANDIDATE_POOL, mutation)
+        )
+        if resp.status_code == 204:  # RCSB answers 204 No Content when nothing matches
+            return {"ok": True, "total_entries": 0, "returned": 0, "structures": [],
+                    "mutation_filter": mutation or None, "note": empty_note}
+        resp.raise_for_status()
+        sdata = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.error("RCSB search failed: %s", exc)
+        return {"ok": False, "error": f"RCSB search failed: {exc}"}
+    if not isinstance(sdata, dict) or "result_set" not in sdata:
+        return {"ok": False, "error": "Unexpected RCSB search response format.",
+                "response_keys": sorted(sdata.keys()) if isinstance(sdata, dict) else None}
+    ids = [r.get("identifier") for r in sdata["result_set"] if isinstance(r, dict) and r.get("identifier")]
+    total = sdata.get("total_count")
+    if not ids:
+        return {"ok": True, "total_entries": total or 0, "returned": 0, "structures": [],
+                "mutation_filter": mutation or None, "note": empty_note}
+
+    # 2) Details for the candidates in ONE GraphQL request.
+    try:
+        resp = await client.post(RCSB_GRAPHQL, json={"query": _ENTRIES_QUERY, "variables": {"ids": ids}})
+        resp.raise_for_status()
+        gdata = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.error("RCSB GraphQL failed: %s", exc)
+        return {"ok": False, "error": f"RCSB details request failed: {exc}"}
+    raw = ((gdata or {}).get("data") or {}).get("entries") if isinstance(gdata, dict) else None
+    if raw is None:
+        return {"ok": False, "error": "Unexpected RCSB GraphQL response format.",
+                "graphql_errors": str((gdata or {}).get("errors"))[:300] if isinstance(gdata, dict) else None}
+
+    parsed = [_parse_pdb_entry(e, accession) for e in raw if isinstance(e, dict)]
+    parsed.sort(key=lambda s: _res_sort_key(s["resolution_angstrom"]))
+    chosen = _select_diverse(parsed, limit)
+    chosen.sort(key=lambda s: _res_sort_key(s["resolution_angstrom"]))
+    return {
+        "ok": True,
+        "total_entries": total,
+        "mutation_filter": mutation or None,
+        "examined": len(parsed),
+        "returned": len(chosen),
+        "selection": (
+            (f"Filtered by text '{mutation}' (RCSB full-text match: it may also hit entries that "
+             "merely mention it; check each title). " if mutation else "")
+            + f"Examined the {len(parsed)} best-resolution entries of {total}; picked up to {limit}: "
+            "first the best-resolution entry for each distinct (mutations, nucleotide, ligand yes/no) "
+            "combination, then the next best resolution."
+        ),
+        "structures": chosen,
+    }
+
+
+async def _fetch_alphafold(client, accession: str) -> dict:
+    try:
+        resp = await client.get(ALPHAFOLD_API.format(accession=accession))
+        if resp.status_code == 404:
+            return {"ok": True, "available": False, "note": "No AlphaFold DB model for this accession."}
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.error("AlphaFold request failed: %s", exc)
+        return {"ok": False, "error": f"AlphaFold DB request failed: {exc}"}
+    models = [m for m in (data if isinstance(data, list) else [data]) if isinstance(m, dict)]
+    if not models:
+        return {"ok": True, "available": False, "note": "AlphaFold DB returned no model."}
+
+    def score(m):
+        value = m.get("globalMetricValue")
+        return value if isinstance(value, (int, float)) else 0
+
+    def isoform_of(m):
+        """'AF-P01116-2-F1' -> 'P01116-2'; canonical entries ('AF-P01116-F1') -> None."""
+        mo = re.fullmatch(r"AF-([A-Z0-9]+)-(\d+)-F\d+", str(m.get("entryId") or ""))
+        return f"{mo.group(1)}-{mo.group(2)}" if mo else None
+
+    best = max(models, key=score)
+    plddt = best.get("globalMetricValue")
+    start, end = best.get("uniprotStart"), best.get("uniprotEnd")
+    best_isoform = isoform_of(best)
+    return {
+        "ok": True,
+        "available": True,
+        "entry_id": best.get("entryId"),
+        "isoform": best_isoform,  # None = the canonical UniProt sequence
+        "is_canonical_sequence": best_isoform is None,
+        "other_models": [
+            {"entry_id": m.get("entryId"), "isoform": isoform_of(m), "mean_plddt": m.get("globalMetricValue")}
+            for m in models if m is not best
+        ],
+        "mean_plddt": plddt,
+        "confidence_band": _plddt_band(plddt),
+        "fraction_of_residues": {
+            "very_high_over_90": best.get("fractionPlddtVeryHigh"),
+            "confident_70_90": best.get("fractionPlddtConfident"),
+            "low_50_70": best.get("fractionPlddtLow"),
+            "very_low_under_50": best.get("fractionPlddtVeryLow"),
+        },
+        "residues": f"{start}-{end}" if start and end else None,
+        "model_version": best.get("latestVersion"),
+        "created": best.get("modelCreatedDate"),
+        "models_considered": len(models),
+        "links": {
+            "alphafold": f"https://alphafold.ebi.ac.uk/entry/{accession}",
+            "pdb": best.get("pdbUrl"),
+            "cif": best.get("cifUrl"),
+            "pae_image": best.get("paeImageUrl"),
+        },
+    }
+
+
+async def _safe(coro, label: str) -> dict:
+    """The API shapes are partly unverified: never let one source crash the tool."""
+    try:
+        return await coro
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s failed", label)
+        return {"ok": False, "error": f"{label} failed unexpectedly: {exc!r}"}
+
+
+@mcp.tool()
+async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "") -> dict:
+    """Get 3D structures for a protein: experimental PDB entries + AlphaFold model.
+
+    Args:
+        uniprot_id: UniProt accession from resolve_protein, e.g. "P01116".
+        max_models: How many experimental PDB structures to return (1-25).
+            0 (default) uses the MAX_PDB_MODELS constant in server.py.
+        mutation: Optional text to restrict the PDB entries to one variant,
+            e.g. "G12D". Use it when the user cares about a specific mutation;
+            without it the picks come from the best-resolution entries overall,
+            which may not include rare variants. Matching is full-text.
+
+    The PDB structures are a SELECTION, not the full list: state "N of
+    total_entries" and read `selection` to explain how they were chosen.
+    The AlphaFold model is the one with the highest mean pLDDT.
+
+    Rules for using the result:
+    - Report only what is in the result; never invent ligands, mutations or
+      resolutions. Link every structure with its `links`.
+    - Mutation data is depositor-written and unreliable. `mutations` is the
+      official field, `mutations_from_title` are mutations named only in the
+      title, `mutations_unparsed` is non-mutation text. An empty `mutations`
+      does NOT prove wild type: check the title and say it is unconfirmed.
+    - Resolution is not binding-site quality: check the ligand density before
+      trusting a pose.
+    - The AlphaFold model may be a non-canonical isoform (see `isoform`,
+      `is_canonical_sequence`, `other_models`): always say which one was chosen.
+    - AlphaFold gives one static prediction with no ligands, nucleotides or ions;
+      do not use it to describe inhibitor-bound conformations.
+    """
+    accession = uniprot_id.strip().upper()
+    if not _ACCESSION_RE.fullmatch(accession):
+        return {
+            "ok": False,
+            "error": (
+                f"'{uniprot_id}' does not look like a UniProt accession "
+                "(e.g. P01116). Use resolve_protein first."
+            ),
+        }
+    limit = max_models if max_models > 0 else MAX_PDB_MODELS
+    limit = max(1, min(limit, 25))
+    mutation = (mutation or "").strip()
+    if mutation and not re.fullmatch(r"[A-Za-z0-9 _\-/.]{1,40}", mutation):
+        return {
+            "ok": False,
+            "error": f"Invalid mutation filter '{mutation}': use letters, digits and - _ / . only (max 40 chars).",
+        }
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        pdb, af = await asyncio.gather(
+            _safe(_fetch_pdb(client, accession, limit, mutation), "RCSB PDB"),
+            _safe(_fetch_alphafold(client, accession), "AlphaFold DB"),
+        )
+
+    return {
+        "ok": bool(pdb.get("ok") or af.get("ok")),
+        "uniprot_id": accession,
+        "experimental": pdb,
+        "alphafold": af,
+        "notes": [
+            "PDB structures are a diverse selection, not the complete list.",
+            "AlphaFold is a single static prediction without ligands, nucleotides or ions.",
+            "All links are built from IDs/URLs returned by RCSB and AlphaFold DB.",
         ],
     }
 
