@@ -335,6 +335,10 @@ async def search_literature(
 # >>> EDIT THIS LINE to change how many experimental PDB structures are returned <<<
 MAX_PDB_MODELS = 7
 
+# >>> EDIT THIS LINE: AlphaFold returns the canonical model and sometimes an isoform model.
+# The canonical one is preferred unless the isoform's mean pLDDT is higher by at least this many points. <<<
+AF_ISOFORM_MARGIN = 5.0
+
 CANDIDATE_POOL = 100  # best-resolution PDB entries examined before choosing
 
 RCSB_SEARCH = "https://search.rcsb.org/rcsbsearch/v2/query"
@@ -505,29 +509,40 @@ def _coarse_key(s: dict):
     return (muts, tuple(s["nucleotides"]), bool(s["ligands"]))
 
 
-def _select_diverse(entries: list, limit: int) -> list:
+def _state_key(s: dict):
+    """Grouping used when the user already fixed the variant: nucleotide + ligand yes/no."""
+    return (tuple(s["nucleotides"]), bool(s["ligands"]))
+
+
+def _select_diverse(entries: list, limit: int, group_by_mutation: bool = True,
+                    prefer_ligand_fill: bool = False) -> list:
     """Pick up to `limit` entries. `entries` must be sorted best resolution first.
 
-    Pass 1: the best-resolution entry for each distinct combination of
-    (mutations, nucleotide, has-ligand), so the picks cover different states
-    instead of ten near-identical structures. Pass 2: fill remaining slots with
-    the next best resolution.
+    Pass 1: the best-resolution entry for each distinct group, so the picks cover
+    different states instead of ten near-identical structures. The group is
+    (mutations, nucleotide, has-ligand), or just (nucleotide, has-ligand) when
+    `group_by_mutation` is False (a mutation filter is active: second-site
+    mutations should not eat the slots).
+    Pass 2: fill the remaining slots with the next best resolution; with
+    `prefer_ligand_fill`, ligand-bound entries go first (still by resolution).
     """
+    key_fn = _coarse_key if group_by_mutation else _state_key
     chosen, seen_keys, chosen_ids = [], set(), set()
     for s in entries:
-        key = _coarse_key(s)
+        key = key_fn(s)
         if key not in seen_keys:
             seen_keys.add(key)
             chosen.append(s)
             chosen_ids.add(s["pdb_id"])
             if len(chosen) == limit:
                 return chosen
-    for s in entries:
-        if s["pdb_id"] not in chosen_ids:
-            chosen.append(s)
-            chosen_ids.add(s["pdb_id"])
-            if len(chosen) == limit:
-                break
+    rest = [s for s in entries if s["pdb_id"] not in chosen_ids]
+    if prefer_ligand_fill:
+        rest.sort(key=lambda s: not s["ligands"])  # stable: keeps resolution order inside each half
+    for s in rest:
+        chosen.append(s)
+        if len(chosen) == limit:
+            break
     return chosen
 
 
@@ -571,23 +586,54 @@ async def _fetch_pdb(client, accession: str, limit: int, mutation: str = "") -> 
         return {"ok": False, "error": "Unexpected RCSB GraphQL response format.",
                 "graphql_errors": str((gdata or {}).get("errors"))[:300] if isinstance(gdata, dict) else None}
 
-    parsed = [_parse_pdb_entry(e, accession) for e in raw if isinstance(e, dict)]
+    raw_entries = [e for e in raw if isinstance(e, dict)]
+    parsed = [_parse_pdb_entry(e, accession) for e in raw_entries]
+    examined = len(parsed)
+
+    dropped = 0
+    if mutation:
+        # RCSB's full-text search also matches entries that merely mention the text
+        # somewhere (e.g. a G12N structure for a G12D query). Keep only entries that
+        # name the mutation in the mutation field or in the (full) title.
+        needle = mutation.lower()
+        kept = []
+        for e, s in zip(raw_entries, parsed):
+            full_title = _clean_text((e.get("struct") or {}).get("title")).lower()
+            named = {m.lower() for m in s["mutations"] + s["mutations_from_title"]}
+            if needle in named or needle in full_title:
+                kept.append(s)
+        dropped = examined - len(kept)
+        parsed = kept
+        if not parsed:
+            return {"ok": True, "total_entries": total, "mutation_filter": mutation, "examined": examined,
+                    "returned": 0, "structures": [],
+                    "note": (f"RCSB text-matched {total} entries, but none names '{mutation}' in its "
+                             "mutation field or title.")}
+
     parsed.sort(key=lambda s: _res_sort_key(s["resolution_angstrom"]))
-    chosen = _select_diverse(parsed, limit)
+    chosen = _select_diverse(parsed, limit, group_by_mutation=not mutation, prefer_ligand_fill=bool(mutation))
     chosen.sort(key=lambda s: _res_sort_key(s["resolution_angstrom"]))
+    if mutation:
+        selection = (
+            f"RCSB text-matched {total} entries for '{mutation}'; examined the {examined} best-resolution ones "
+            f"and kept the {len(parsed)} that name it in the mutation field or title ({dropped} discarded as "
+            f"false matches). Picked up to {limit}: first the best-resolution entry for each "
+            "(nucleotide, ligand yes/no) combination, then ligand-bound entries by resolution, then the rest."
+        )
+    else:
+        selection = (
+            f"Examined the {examined} best-resolution entries of {total}; picked up to {limit}: "
+            "first the best-resolution entry for each distinct (mutations, nucleotide, ligand yes/no) "
+            "combination, then the next best resolution."
+        )
     return {
         "ok": True,
         "total_entries": total,
         "mutation_filter": mutation or None,
-        "examined": len(parsed),
+        "examined": examined,
+        "confirmed_matching_filter": len(parsed) if mutation else None,
         "returned": len(chosen),
-        "selection": (
-            (f"Filtered by text '{mutation}' (RCSB full-text match: it may also hit entries that "
-             "merely mention it; check each title). " if mutation else "")
-            + f"Examined the {len(parsed)} best-resolution entries of {total}; picked up to {limit}: "
-            "first the best-resolution entry for each distinct (mutations, nucleotide, ligand yes/no) "
-            "combination, then the next best resolution."
-        ),
+        "selection": selection,
         "structures": chosen,
     }
 
@@ -615,7 +661,22 @@ async def _fetch_alphafold(client, accession: str) -> dict:
         mo = re.fullmatch(r"AF-([A-Z0-9]+)-(\d+)-F\d+", str(m.get("entryId") or ""))
         return f"{mo.group(1)}-{mo.group(2)}" if mo else None
 
-    best = max(models, key=score)
+    # Prefer the canonical-sequence model unless an isoform model is clearly more
+    # confident (AF_ISOFORM_MARGIN pLDDT points): a ~1 point gap is not meaningful,
+    # while mixing up sequences hurts traceability.
+    top = max(models, key=score)
+    canonical = [m for m in models if isoform_of(m) is None]
+    best, reason = top, "Highest mean pLDDT."
+    if canonical and isoform_of(top) is not None:
+        top_canonical = max(canonical, key=score)
+        gap = round(score(top) - score(top_canonical), 2)
+        if gap < AF_ISOFORM_MARGIN:
+            best = top_canonical
+            reason = (f"Canonical-sequence model preferred: the best isoform model ({top.get('entryId')}) "
+                      f"is only {gap} pLDDT points higher (margin required: {AF_ISOFORM_MARGIN}).")
+        else:
+            reason = (f"Isoform model chosen: it is {gap} pLDDT points above the canonical one "
+                      f"(margin required: {AF_ISOFORM_MARGIN}).")
     plddt = best.get("globalMetricValue")
     start, end = best.get("uniprotStart"), best.get("uniprotEnd")
     best_isoform = isoform_of(best)
@@ -623,6 +684,7 @@ async def _fetch_alphafold(client, accession: str) -> dict:
         "ok": True,
         "available": True,
         "entry_id": best.get("entryId"),
+        "selection_reason": reason,
         "isoform": best_isoform,  # None = the canonical UniProt sequence
         "is_canonical_sequence": best_isoform is None,
         "other_models": [
@@ -670,11 +732,14 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
         mutation: Optional text to restrict the PDB entries to one variant,
             e.g. "G12D". Use it when the user cares about a specific mutation;
             without it the picks come from the best-resolution entries overall,
-            which may not include rare variants. Matching is full-text.
+            which may not include rare variants. RCSB matches it as free text and
+            the tool then keeps only entries that name it in the mutation field or
+            title (see `selection` for how many were discarded).
 
     The PDB structures are a SELECTION, not the full list: state "N of
     total_entries" and read `selection` to explain how they were chosen.
-    The AlphaFold model is the one with the highest mean pLDDT.
+    The AlphaFold model is the canonical-sequence one unless an isoform model is
+    clearly more confident; `selection_reason` says which case applied.
 
     Rules for using the result:
     - Report only what is in the result; never invent ligands, mutations or
