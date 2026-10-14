@@ -110,15 +110,43 @@ async def resolve_protein(
 EUROPEPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 UNIPROT_ENTRY = "https://rest.uniprot.org/uniprotkb/{accession}"
 _ACCESSION_RE = re.compile(r"[A-Z0-9]{6,10}")
-_TAG_RE = re.compile(r"<[^>]+>")
+_INLINE_TAG_RE = re.compile(r"</?(?:sup|sub|i|b|em|strong|u|span)\b[^>]*>", re.I)
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 _SORT_MAP = {"relevance": None, "recent": "P_PDATE_D desc", "cited": "CITED desc"}
 
 
 def _clean_text(value) -> str:
-    """Strip HTML tags/entities that Europe PMC leaves in titles and abstracts."""
+    """Clean HTML that Europe PMC leaves in titles and abstracts.
+
+    Entities are decoded FIRST: Europe PMC often sends escaped tags such as
+    "&lt;sup&gt;", which would turn into real tags if decoded after stripping.
+    Inline tags (sup/sub/i/b...) are removed without a space (KRAS<sup>G13C</sup>
+    -> KRASG13C); block tags (h4, p...) become a space.
+    """
     if not value:
         return ""
-    return html.unescape(_TAG_RE.sub("", str(value))).strip()
+    text = html.unescape(str(value))
+    text = _INLINE_TAG_RE.sub("", text)
+    text = _TAG_RE.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _topic_clause(topic: str) -> str:
+    """Turn the optional topic into a Europe PMC clause, or "" if empty.
+
+    Plain words are restricted to title/abstract and ALL must appear, so papers
+    that only mention the topic in their full text do not add noise. Advanced
+    syntax (contains ":" or parentheses or AND/OR/NOT) is passed through as is.
+    """
+    topic = (topic or "").strip()
+    if not topic:
+        return ""
+    if re.search(r"[:()]|\b(?:AND|OR|NOT)\b", topic):
+        return f"({topic})"
+    parts = []
+    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-]*", topic):
+        parts.append(f'TITLE_ABS:"{word}"' if "-" in word else f"TITLE_ABS:{word}")
+    return "(" + " AND ".join(parts) + ")" if parts else ""
 
 
 def _build_query(gene, protein_name, topic: str, include_preprints: bool) -> str:
@@ -130,8 +158,9 @@ def _build_query(gene, protein_name, topic: str, include_preprints: bool) -> str
     if not terms:
         return ""
     query = "(" + " OR ".join(terms) + ")"
-    if topic and topic.strip():
-        query += f" AND ({topic.strip()})"
+    clause = _topic_clause(topic)
+    if clause:
+        query += f" AND {clause}"
     if not include_preprints:
         query += " NOT SRC:PPR"
     return query
@@ -154,12 +183,17 @@ def _parse_paper(r: dict) -> dict:
     if len(authors) > 150:
         authors = authors[:147] + "..."
     abstract = _clean_text(r.get("abstractText"))
+    # In "core" results the journal and publication types are nested objects.
+    journal_obj = (r.get("journalInfo") or {}).get("journal") or {}
+    journal = _clean_text(journal_obj.get("title") or r.get("journalTitle")) or None
+    raw_types = (r.get("pubTypeList") or {}).get("pubType")
+    pub_types = raw_types if isinstance(raw_types, list) else ([raw_types] if raw_types else [])
     return {
         "title": _clean_text(r.get("title")),
         "authors": authors,
-        "journal": _clean_text(r.get("journalTitle")) or None,
+        "journal": journal,
         "year": r.get("pubYear"),
-        "pub_type": r.get("pubType"),
+        "pub_types": pub_types,  # e.g. "Journal Article", "Review"
         "source_db": source,  # MED = PubMed/MEDLINE, PPR = preprint, PMC = PMC-only
         "is_preprint": source == "PPR",
         "pmid": pmid,
@@ -186,8 +220,10 @@ async def search_literature(
 
     Args:
         uniprot_id: UniProt accession from resolve_protein, e.g. "P01116".
-        topic: Optional extra terms to narrow the search, e.g. "inhibitor",
-            "crystal structure", "allosteric". Plain words or Europe PMC syntax.
+        topic: Optional extra words to narrow the search, e.g. "inhibitor",
+            "crystal structure", "allosteric". Plain words must ALL appear in the
+            title or abstract. Advanced Europe PMC syntax (with ":", "(" or
+            AND/OR/NOT) is passed through unchanged.
         max_results: Papers to return (1-25). Keep it small: abstracts are long.
         sort: "relevance" (default), "recent" or "cited".
         include_preprints: Include bioRxiv/medRxiv etc. Default False. Preprints
