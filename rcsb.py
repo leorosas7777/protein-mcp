@@ -17,7 +17,12 @@ RCSB_SEARCH = "https://search.rcsb.org/rcsbsearch/v2/query"
 RCSB_GRAPHQL = "https://data.rcsb.org/graphql"
 
 _MUTATION_RE = re.compile(r"[A-Z]\d{1,4}[A-Z]")                 # e.g. G12C
-_TITLE_MUTATION_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z]\d{1,4}[A-Z])(?![A-Za-z0-9])")
+# Titles often glue the gene to the variant ("KRASG12D", "KRasG12C", "NRASQ61K"),
+# so a run of 3+ letters may precede it. Only real amino-acid letters are accepted,
+# which keeps isoform names such as "KRAS4B" (-> "S4B") out.
+_AA = "ACDEFGHIKLMNPQRSTVWY"
+_LEFT_EDGE = r"(?:(?<![A-Za-z0-9])|(?<=[A-Za-z]{3}))"
+_TITLE_MUTATION_RE = re.compile(_LEFT_EDGE + rf"([{_AA}]\d{{1,4}}[{_AA}])(?![A-Za-z0-9])")
 _NOT_MUTATIONS = {"H2O"}
 
 # Components that appear in many crystals but are not the ligand of interest.
@@ -202,7 +207,7 @@ def _mutation_matches(s: dict, mutation: str) -> bool:
         if t == wanted or (pos_only and re.fullmatch(re.escape(wanted) + r"[a-z]", t)):
             return True
     suffix = r"[A-Za-z]?" if pos_only else ""
-    pattern = r"(?<![A-Za-z0-9])" + re.escape(mutation.strip()) + suffix + r"(?![A-Za-z0-9])"
+    pattern = _LEFT_EDGE + re.escape(mutation.strip()) + suffix + r"(?![A-Za-z0-9])"
     return re.search(pattern, s["title"], re.I) is not None
 
 

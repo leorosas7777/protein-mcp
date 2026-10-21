@@ -29,7 +29,7 @@ Probadas contra APIs reales, KRAS/P01116.
 3. `get_structures(uniprot_id, max_models=0, mutation="")`: RCSB (Search v2 + GraphQL) y AlphaFold DB en paralelo con `asyncio.gather`.
    - Constantes editables: `MAX_PDB_MODELS = 7` y `CANDIDATE_POOL = 100` (rcsb.py); `AF_ISOFORM_MARGIN = 5.0` (alphafold.py).
    - Selección diversa de PDB (mutaciones, nucleótido, con/sin ligando); informa "N de total".
-   - Filtro de mutación: RCSB busca por texto completo y cada resultado se CONFIRMA (mutación nombrada en el campo de mutación o en el título; una posición sola como "G12" acepta cualquier sustitución). Los no confirmados se listan en `discarded_not_confirmed` (hasta 10) con `discarded_count`; `confirmed_in_examined` cuenta los confirmados. **Falso negativo conocido: ver sección 6 (9TBR).**
+   - Filtro de mutación: RCSB busca por texto completo y cada resultado se CONFIRMA (mutación nombrada en el campo de mutación o en el título; una posición sola como "G12" acepta cualquier sustitución). Los no confirmados se listan en `discarded_not_confirmed` (hasta 10) con `discarded_count`; `confirmed_in_examined` cuenta los confirmados. En el título se acepta el gen pegado a la variante ("KRASG12D", "KRasG12C", "NRASQ61K": 3+ letras delante) y solo letras de aminoácido reales, para que "KRAS4B" no dé "S4B". Prueba offline: `tests/test_rcsb.py`.
    - AlphaFold: se prefiere el modelo canónico salvo que una isoforma lo supere por ≥ `AF_ISOFORM_MARGIN` pLDDT; `selection_reason` explica la elección.
    - Ligandos filtrados: nucleótidos, aditivos y cofactores se separan.
    - Fallos aislados por fuente con `safe`.
@@ -56,7 +56,7 @@ Probadas contra APIs reales, KRAS/P01116.
 - **Lección:** este documento llegó a describir como hechas funciones que no existían en el código. Antes de anotar algo como implementado, verificarlo en el código (por ejemplo `Select-String -Pattern "NOMBRE"`) y en una prueba real. Un resumen de WebFetch no cuenta como evidencia de la forma de una API.
 
 ## 6. Limitaciones conocidas y bugs abiertos
-- **BUG ABIERTO (RCSB):** el filtro `mutation="G12D"` descarta 9TBR ("From KRASG12D to pan-KRAS inhibitors"): el título pega el gen con la mutación y la confirmación no la reconoce (probable límite de palabra en la regex). Falso negativo. Corregir en `rcsb.py` en un commit aparte, con prueba que use ese título.
+- **RCSB, falso negativo del lado del servidor:** la búsqueda `full_text` de RCSB no separa el gen de la variante, así que entradas con el campo de mutación vacío y la variante solo pegada en el título no llegan al conjunto (verificado 2026-10-20: 9GLU "KRasG12D-GDP…" y 5UFQ no aparecen al buscar "G12D"). Nuestra confirmación sí las reconocería. Posible arreglo: añadir al OR una búsqueda por `pdbx_mutation` o por título con prefijos de gen; no validado.
 - **Salida demasiado grande:** `get_ligands` con P01116/G12C devuelve ~55 KB y la herramienta la guarda en un archivo en lugar de mostrarla. Encadenar herramientas por el contexto del modelo no escala: hace falta el expediente en disco y salidas compactas.
 - `get_ligands`: el ranking por mejor pChEMBL favorece mediciones únicas; solo se comprueba `max_phase` en los compuestos devueltos y en los de mecanismo registrado, así que otros compuestos clínicos sin mecanismo pueden no aparecer (el filtro `max_phase__gte` sobre molecule NO está validado). Los ligandos del PDB no se cruzan con ChEMBL. Un ensayo de ChEMBL puede estar mal etiquetado en el sentido contrario (texto sin mutación nombrada y etiqueta equivocada): no se detecta.
 - Filtro de mutación de RCSB: solo se examinan los 100 mejores por resolución de los que RCSB encuentra por texto; la confirmación puede descartar entradas que nombran la variante solo en otros campos (se listan en `discarded_not_confirmed`).
@@ -72,9 +72,10 @@ Probadas contra APIs reales, KRAS/P01116.
 - 2026-10-17: `get_ligands` v1 implementado y probado contra ChEMBL real. La prueba con G12C reveló tres defectos que se corrigieron en v2: un ligando #1 con etiqueta G12C pero ensayo G12D, mezcla de ensayos celulares y bioquímicos, y fármacos enterrados bajo preclínicos de una sola medición. `get_structures` repasado: nuevo falso negativo (9TBR), sin corregir.
 - 2026-10-20: se decide pasar a Claude Code. Se prepara `CLAUDE.md`. Se planeó `probe_profile.ps1` para validar campos reales de UniProt y Open Targets, pero el archivo NO existe en el repo (verificado 2026-10-20).
 - 2026-10-20 (Claude Code): `.gitignore` creado; `test_chembl.py` movido a `tests/` (pasa: ALL OK); commit y push del paso de ChEMBL.
+- 2026-10-20 (Claude Code): **corregido 9TBR** en `rcsb.py` (`_LEFT_EDGE` compartido por `_TITLE_MUTATION_RE` y `_mutation_matches`). El defecto era más amplio: en los 552 títulos de KRAS, 34 entradas ganan su mutación de título y ninguna pierde la que tenía. Prueba real: `G12D` 96 confirmados / 4 descartados de 100 examinados (127 encontrados), 9TBR (puesto 69) confirmado; 9E3S (G12N) sigue descartado; `G12C` 95/5; `Q61H` 12/0.
 
 ## 8. Siguientes tareas (en este orden)
-1. **Corregir 9TBR** en `rcsb.py` (regex de confirmación) + prueba con el título real.
+1. ~~Corregir 9TBR~~ (hecho 2026-10-20).
 2. **Expediente en disco** (`dossiers\P01116\`, en .gitignore): cada herramienta guarda su JSON completo y devuelve al chat solo un resumen compacto con la ruta. `build_report` leerá del disco, no de la conversación.
 3. **`get_protein_profile`** (`profile.py`): UniProt (función con evidencia, localización, comentarios de enfermedad, variantes) y Open Targets (asociaciones diana-enfermedad con score, tractabilidad por modalidad). Mantener separadas las dos fuentes. Primero validar campos reales con `probe_profile.ps1`; no codificar contra resúmenes.
 4. **`build_report`** (Markdown → PDF, ~11 secciones, regla anti-alucinación). Sección de métodos con las limitaciones de la sección 6.
