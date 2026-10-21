@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+dossiers/
+# salidas de prueba / respaldos
+probe.txt
+*_old.py
+/a.json
+/m.json
+/t.json

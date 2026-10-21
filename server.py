@@ -25,6 +25,7 @@ logging.basicConfig(level=logging.INFO)
 
 import europepmc  # noqa: E402
 import uniprot  # noqa: E402
+import chembl
 from alphafold import fetch_alphafold  # noqa: E402
 from common import parse_accession, safe  # noqa: E402
 from rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -147,6 +148,24 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
             "All links are built from IDs/URLs returned by RCSB and AlphaFold DB.",
         ],
     }
+
+@mcp.tool()
+async def get_ligands(uniprot_id: str, mutation: str = "", max_ligands: int = 15):
+    """Get ChEMBL bioactivity for a protein: ligands ranked by potency, with development status.
+
+    Args:
+        uniprot_id: UniProt accession from resolve_protein, e.g. "P01116".
+        mutation: Optional variant, e.g. "G12D" ("G12" matches any substitution).
+            Potency is reported per mutation; 'not stated' does NOT prove wild type.
+        max_ligands: How many top ligands to return (1-50).
+
+    Report only what is in the result. Say "N of ligands_with_qualifying_data".
+    Ranking is by best pChEMBL: potency is not selectivity or developability.
+    name is None for most research compounds: never invent names.
+    Link every document with its `links`. If target is None, say "sin registro en ChEMBL".
+    """
+    return await chembl.get_ligands(uniprot_id, mutation, max_ligands)
+
 
 
 if __name__ == "__main__":
