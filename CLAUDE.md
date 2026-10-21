@@ -21,11 +21,14 @@ Servidor MCP local (Python, `uv`, `mcp[cli]<2`/FastMCP) para Claude Desktop. El 
 - Ejecutar el servidor: `uv --directory C:\bioinformatics\protein-mcp run server.py`
 - Inspector: `uv run mcp dev server.py`
 - Pruebas offline: `uv run python tests/test_chembl.py` (usar el mismo patrón para las demás).
+- Pruebas reales: `uv run python tests/smoke_live.py [--skip-slow | kras pcsk9 egfr notfound]` (APIs reales, expedientes en carpeta temporal; invariantes externas, de regresión y anti-alucinación).
+- Revisión: tras cambiar una herramienta, lanzar el agente `revisor` (`.claude/agents/revisor.md`) en contexto limpio antes del commit.
 - Para que Claude Desktop recargue el código: Quit completo desde la bandeja y abrir un chat nuevo. `query_used` (resolve_protein) y `selection_reason` (AlphaFold) indican qué versión corre.
 - Entorno: Windows, PowerShell. Idioma de trabajo: español.
 
 ## Flujo de trabajo
 - Una tarea por sesión. Al cerrarla, actualiza `ESTADO_PROYECTO.md` (solo con lo verificado).
 - Commits los hace el usuario. No hagas `git push`, no borres archivos, no versiones respaldos (`server_old.py`), `dossiers/`, ni salidas de prueba.
+- Si un cambio sale mal y volver a un commit anterior para reconstruir desde ahí es más limpio que seguir parchando, dilo explícitamente: qué commit, por qué, y qué cambios sin commitear se perderían. No ejecutes `git reset`/`git checkout`/`git restore` sin aprobación del usuario.
 - Respuestas breves; cambios como diffs salvo refactors grandes.
 - Si tocas el comportamiento de una herramienta, ajusta su docstring en `server.py` y su prueba.

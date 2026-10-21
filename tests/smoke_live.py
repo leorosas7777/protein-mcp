@@ -1,0 +1,206 @@
+"""Live smoke test: calls the REAL APIs through server.py and checks invariants.
+
+Two kinds of checks:
+- EXTERNAL: facts that do not come from this code (approved drugs, known
+  diseases). They catch a pipeline that runs fine but tells the analyst
+  something false, which offline fixtures cannot.
+- REGRESSION: real defects already fixed once (9E3S G12N, salts, antibodies).
+Plus anti-hallucination checks on the output: unnamed things stay unnamed,
+every link in the report is backed by the dossier.
+
+Dossiers go to a temp folder; dossiers/ is never touched.
+Run:  uv run python tests/smoke_live.py              (all, ~2-3 min)
+      uv run python tests/smoke_live.py --skip-slow  (without EGFR, ~1 min)
+      uv run python tests/smoke_live.py kras pcsk9   (only these groups)
+Exit code 1 if any check fails.
+"""
+import asyncio
+import json
+import logging
+import re
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
+import common  # noqa: E402
+import server  # noqa: E402
+
+logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+RESULTS = []   # (group, kind, name, ok, detail)
+GROUP = ""
+
+
+def check(kind, name, ok, detail=""):
+    RESULTS.append((GROUP, kind, name, bool(ok), "" if ok else str(detail)[:300]))
+
+
+def names(items):   # non-dict items (old bare-id format) count as unnamed
+    return {x.get("name") for x in items or [] if isinstance(x, dict)}
+
+
+def by_name(items, name):
+    return next((x for x in items or [] if isinstance(x, dict) and x.get("name") == name), {})
+
+
+def links_backed_by_dossier(md, folder):
+    """Every URL in the report is in the dossier, or built from an id that is."""
+    blob = "".join(p.read_text(encoding="utf-8") for p in folder.glob("*.json"))
+    bad = []
+    for url in re.findall(r"\]\((https?://[^)\s]+)\)", md):
+        if url in blob:
+            continue
+        m = re.fullmatch(r"https://pubmed\.ncbi\.nlm\.nih\.gov/(\d+)/", url) \
+            or re.fullmatch(r"https://www\.ebi\.ac\.uk/chembl/target_report_card/(CHEMBL\d+)/", url)
+        if not (m and f'"{m.group(1)}"' in blob):
+            bad.append(url)
+    return bad
+
+
+# ------------------------------------------------------------------ groups
+async def kras():
+    r = await server.resolve_protein("KRAS")
+    check("EXTERNAL", "resolve KRAS -> P01116 first",
+          r["candidates"] and r["candidates"][0]["uniprot_id"] == "P01116", r.get("candidates"))
+
+    lig = await server.get_ligands("P01116", mutation="G12C")
+    ligs = lig.get("ligands") or []
+    for drug in ("SOTORASIB", "ADAGRASIB"):
+        check("EXTERNAL", f"G12C ligands include approved {drug}",
+              (by_name(ligs, drug).get("max_phase") or 0) >= 4, [(l["name"], l["max_phase"]) for l in ligs[:6]])
+    check("REGRESSION", "G12C label/text conflicts are flagged (23 real rows labelled G12C, text G12D)",
+          (lig.get("activities") or {}).get("excluded", {}).get("mutation_label_conflicts_description", 0) > 0,
+          lig.get("activities"))
+    check("ANTI-HALLUCINATION", "unnamed research compounds stay None",
+          any(l.get("name") is None for l in ligs), "every ligand has a name: names may be invented")
+    check("ANTI-HALLUCINATION", "each ligand link is built from its own ChEMBL id",
+          all(l["chembl_id"] in (l.get("link") or "") for l in ligs))
+
+    st = await server.get_structures("P01116", mutation="G12D", max_models=4)
+    exp = st.get("experimental") or {}
+    returned = exp.get("structures") or []
+    check("REGRESSION", "G12D filter: every returned entry names G12D",
+          returned and all("G12D" in (s.get("mutations") or []) + (s.get("mutations_from_title") or [])
+                           for s in returned), [(s.get("pdb_id"), s.get("mutations")) for s in returned])
+    check("REGRESSION", "9E3S (G12N) is never returned for G12D",
+          all(s.get("pdb_id") != "9E3S" for s in returned))
+    af = st.get("alphafold") or {}
+    check("REGRESSION", "AlphaFold keeps the canonical model (not isoform P01116-2)",
+          af.get("is_canonical_sequence") is True, af.get("entry_id"))
+
+    pr = await server.get_protein_profile("P01116", max_diseases=5)
+    dis = ((pr.get("uniprot") or {}).get("diseases") or {}).get("items") or []
+    check("EXTERNAL", "UniProt diseases include Noonan syndrome 3", "Noonan syndrome 3" in names(dis), names(dis))
+    check("ANTI-HALLUCINATION", "diseases without a UniProt name stay None and carry the note",
+          all(d.get("note") for d in dis if d.get("name") is None)
+          and sum(d.get("name") is None for d in dis) >= 1, dis)
+    ot = (pr.get("open_targets") or {})
+    onc = ((ot.get("associations") or {}).get("top_oncology") or [{}])[0]
+    check("EXTERNAL", "Open Targets top oncology = non-small cell lung carcinoma",
+          onc.get("name") == "non-small cell lung carcinoma", onc.get("name"))
+    check("EXTERNAL", "Open Targets: KRAS small molecule has an approved drug",
+          "Approved Drug" in ((ot.get("tractability") or {}).get("small molecule") or {}).get("yes", []))
+
+    lit = await server.search_literature("P01116", max_results=5)
+    papers = lit.get("papers") or []
+    check("REGRESSION", "literature returns papers", len(papers) > 0, lit.get("error"))
+    bad = []
+    for p in papers:
+        for url in re.findall(r"https://pubmed\.ncbi\.nlm\.nih\.gov/(\d+)/", json.dumps(p)):
+            if url != p.get("pmid"):
+                bad.append((p.get("pmid"), url))
+    check("ANTI-HALLUCINATION", "every PubMed link uses the paper's own PMID", not bad, bad)
+
+    rep = await server.build_report("P01116")
+    if rep.get("ok"):
+        md = Path(rep["markdown_path"]).read_text(encoding="utf-8")
+        bad = links_backed_by_dossier(md, Path(rep["markdown_path"]).parent)
+        check("ANTI-HALLUCINATION", "every report link is backed by the dossier", not bad, bad[:5])
+    else:
+        check("REGRESSION", "build_report works", False, rep.get("error"))
+
+
+async def pcsk9():
+    lig = await server.get_ligands("Q8NBP7")
+    mech = lig.get("mechanism_compounds_without_qualifying_activity") or []
+    for drug in ("EVOLOCUMAB", "ALIROCUMAB"):
+        x = by_name(mech, drug)
+        check("EXTERNAL", f"PCSK9: {drug} listed as an approved antibody",
+              x.get("molecule_type") == "Antibody" and (x.get("max_phase") or 0) >= 4, mech[:3])
+    check("REGRESSION", "PCSK9: mechanism compounds are objects, not bare ids",
+          mech and all(isinstance(x, dict) for x in mech), mech[:3])
+    pr = await server.get_protein_profile("Q8NBP7", max_diseases=5)
+    dis = names(((pr.get("uniprot") or {}).get("diseases") or {}).get("items"))
+    check("EXTERNAL", "PCSK9: UniProt disease is familial hypercholesterolemia",
+          any("ypercholesterolemia" in (n or "") for n in dis), dis)
+
+
+async def egfr():
+    t = time.time()
+    lig = await server.get_ligands("P00533")
+    a = lig.get("activities") or {}
+    check("REGRESSION", "EGFR: truncation declared with its pChEMBL cutoff",
+          a.get("truncated") and a.get("ranked_download_cutoff_pchembl") is not None, a)
+    ligs = lig.get("ligands") or []
+    for drug in ("OSIMERTINIB", "ERLOTINIB", "GEFITINIB"):
+        check("EXTERNAL", f"EGFR: approved {drug} is ranked", (by_name(ligs, drug).get("max_phase") or 0) >= 4,
+              sorted(n for n in names(ligs) if n))
+    check("REGRESSION", "EGFR: erlotinib found via its parent id (mechanism recorded on the salt)",
+          by_name(ligs, "ERLOTINIB").get("chembl_id") == "CHEMBL553")
+    mech = names(lig.get("mechanism_compounds_without_qualifying_activity"))
+    for drug in ("CETUXIMAB", "PANITUMUMAB"):
+        check("EXTERNAL", f"EGFR: antibody {drug} listed", drug in mech, mech)
+    conf = lig.get("confidence") or {}
+    check("REGRESSION", "EGFR: every assay record read (5966 > old 5000 cap; a third went unfiltered)",
+          conf.get("assay_records_total") and conf.get("assay_records_read") == conf.get("assay_records_total"), conf)
+    check("INFO", f"EGFR get_ligands time {time.time() - t:.0f}s, chat {len(json.dumps(lig)) / 1024:.0f} KB", True)
+
+    mut = await server.get_ligands("P00533", mutation="C797S")
+    other = names(mut.get("mechanism_compounds_other_variants_only"))
+    none_ = names(mut.get("mechanism_compounds_without_qualifying_activity"))
+    check("REGRESSION", "EGFR C797S: lapatinib (IC50 on other variants) is 'other variants only', not 'no IC50'",
+          "LAPATINIB" in other and "LAPATINIB" not in none_, {"other": sorted(n for n in other if n),
+                                                              "none": sorted(n for n in none_ if n)})
+    check("EXTERNAL", "EGFR C797S: antibody cetuximab still listed as without IC50/Ki/Kd", "CETUXIMAB" in none_, none_)
+
+
+async def notfound():
+    pr = await server.get_protein_profile("P0DZZ9")
+    check("REGRESSION", "nonexistent accession -> clear error in get_protein_profile",
+          pr.get("ok") is False and "not found" in (pr.get("error") or ""), pr)
+    pr = await server.get_protein_profile("Q0ZZZ9")
+    check("REGRESSION", "inactive accession (HTTP 200 Inactive) -> error",
+          pr.get("ok") is False, pr)
+    mouse = await server.get_protein_profile("P32883")
+    check("ANTI-HALLUCINATION", "mouse Kras: Open Targets says 'sin registro' (human only)",
+          (mouse.get("open_targets") or {}).get("found") is False, mouse.get("open_targets"))
+
+
+GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound}
+SLOW = {"egfr"}
+
+
+async def main(argv):
+    global GROUP
+    chosen = [a for a in argv if a in GROUPS] or [g for g in GROUPS
+                                                  if not ("--skip-slow" in argv and g in SLOW)]
+    common.DOSSIER_DIR = Path(tempfile.mkdtemp(prefix="smoke_"))
+    for g in chosen:
+        GROUP = g
+        try:
+            await GROUPS[g]()
+        except Exception as e:   # an API down must show as a failure, not stop the run
+            check("ERROR", f"{g} crashed", False, f"{type(e).__name__}: {e}")
+    fails = [r for r in RESULTS if not r[3]]
+    for g, kind, name, ok, detail in RESULTS:
+        print(f"{'PASS' if ok else 'FAIL'}  [{g}/{kind}] {name}" + (f"\n      -> {detail}" if detail else ""))
+    print(f"\n{len(RESULTS) - len(fails)} passed, {len(fails)} failed. Dossiers: {common.DOSSIER_DIR}")
+    print("ALL OK" if not fails else "FAILURES")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main(sys.argv[1:])))
