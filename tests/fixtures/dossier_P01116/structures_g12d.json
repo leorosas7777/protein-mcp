@@ -1,0 +1,191 @@
+{
+ "tool": "get_structures",
+ "params": {
+  "max_models": 4,
+  "mutation": "G12D"
+ },
+ "retrieved_at": "2026-10-21T04:21:58Z",
+ "result": {
+  "ok": true,
+  "uniprot_id": "P01116",
+  "experimental": {
+   "ok": true,
+   "total_entries": 127,
+   "mutation_filter": "G12D",
+   "examined": 100,
+   "returned": 4,
+   "selection": "RCSB text search for 'G12D' found 127 entries; examined the 100 best-resolution ones, 96 of which name the variant in the mutation field or title (4 discarded). Picked up to 4 from the confirmed ones: first the best-resolution entry for each distinct (mutations, nucleotide, ligand yes/no) combination, then the next best resolution.",
+   "structures": [
+    {
+     "pdb_id": "8AZY",
+     "title": "KRAS-G12D in complex with BI-2865",
+     "method": "X-RAY DIFFRACTION",
+     "resolution_angstrom": 1.09,
+     "release_date": "2023-06-07",
+     "mutations": [],
+     "mutations_from_title": [
+      "G12D"
+     ],
+     "mutations_unparsed": [],
+     "nucleotides": [
+      "GDP"
+     ],
+     "ligands": [
+      {
+       "id": "OFU",
+       "name": "(4S)-2-azanyl-4-methyl-4-[3-[4-[(1S)-1-[(2S)-1-methylpyrr..."
+      }
+     ],
+     "cofactors": [],
+     "partner_chains": [],
+     "links": {
+      "rcsb": "https://www.rcsb.org/structure/8AZY",
+      "download_cif": "https://files.rcsb.org/download/8AZY.cif",
+      "pubmed": "https://pubmed.ncbi.nlm.nih.gov/37258666/",
+      "doi": "https://doi.org/10.1038/s41586-023-06123-3"
+     }
+    },
+    {
+     "pdb_id": "9YMP",
+     "title": "Crystal Structure of human KRAS G12D in complex with GMPPCP and AM-2383",
+     "method": "X-RAY DIFFRACTION",
+     "resolution_angstrom": 1.12,
+     "release_date": "2026-07-22",
+     "mutations": [
+      "C118A",
+      "G12D"
+     ],
+     "mutations_from_title": [],
+     "mutations_unparsed": [],
+     "nucleotides": [
+      "GCP"
+     ],
+     "ligands": [
+      {
+       "id": "A1AG3",
+       "name": "(3R)-1-[(7P)-7-(8-ethyl-7-fluoro-3-hydroxynaphthalen-1-yl..."
+      }
+     ],
+     "cofactors": [],
+     "partner_chains": [],
+     "links": {
+      "rcsb": "https://www.rcsb.org/structure/9YMP",
+      "download_cif": "https://files.rcsb.org/download/9YMP.cif",
+      "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42446418/",
+      "doi": "https://doi.org/10.1021/acs.jmedchem.6c01325"
+     }
+    },
+    {
+     "pdb_id": "8R7W",
+     "title": "Kras G12D in complex with compound 3",
+     "method": "X-RAY DIFFRACTION",
+     "resolution_angstrom": 1.161,
+     "release_date": "2024-10-02",
+     "mutations": [],
+     "mutations_from_title": [
+      "G12D"
+     ],
+     "mutations_unparsed": [],
+     "nucleotides": [
+      "GCP"
+     ],
+     "ligands": [
+      {
+       "id": "YLE",
+       "name": "8-(furan-3-yl)-2,3,4,9-tetrahydropyrido[3,4-b]indol-1-one"
+      }
+     ],
+     "cofactors": [],
+     "partner_chains": [],
+     "links": {
+      "rcsb": "https://www.rcsb.org/structure/8R7W",
+      "download_cif": "https://files.rcsb.org/download/8R7W.cif",
+      "pubmed": "https://pubmed.ncbi.nlm.nih.gov/39009041/",
+      "doi": "https://doi.org/10.1021/acs.jmedchem.3c02381"
+     }
+    },
+    {
+     "pdb_id": "9U8Z",
+     "title": "Crystal structure of KRAS-G12D/Q61H mutant in complex with GDP",
+     "method": "X-RAY DIFFRACTION",
+     "resolution_angstrom": 1.2,
+     "release_date": "2026-03-25",
+     "mutations": [
+      "G12D",
+      "Q61H"
+     ],
+     "mutations_from_title": [],
+     "mutations_unparsed": [],
+     "nucleotides": [
+      "GDP"
+     ],
+     "ligands": [],
+     "cofactors": [],
+     "partner_chains": [],
+     "links": {
+      "rcsb": "https://www.rcsb.org/structure/9U8Z",
+      "download_cif": "https://files.rcsb.org/download/9U8Z.cif"
+     }
+    }
+   ],
+   "confirmed_in_examined": 96,
+   "discarded_count": 4,
+   "discarded_not_confirmed": [
+    {
+     "pdb_id": "9E3S",
+     "title": "Tricomplex of RMC-9945, KRAS G12N, and CypA"
+    },
+    {
+     "pdb_id": "9QPZ",
+     "title": "KRAS-WT(1-169) - GDP IN COMPLEX WITH compound (R)-1"
+    },
+    {
+     "pdb_id": "8JGD",
+     "title": "GDP-bound KRAS G12C in complex with YK-8S"
+    },
+    {
+     "pdb_id": "6JTO",
+     "title": "Crystal structure of HLA-C05 in complex with a tumor mut10m peptide"
+    }
+   ]
+  },
+  "alphafold": {
+   "ok": true,
+   "available": true,
+   "entry_id": "AF-P01116-F1",
+   "selection_reason": "Canonical model preferred: the best isoform model (AF-P01116-2-F1, pLDDT 92.56) is better by less than 5.0 than the canonical one (91.5).",
+   "isoform": null,
+   "is_canonical_sequence": true,
+   "other_models": [
+    {
+     "entry_id": "AF-P01116-2-F1",
+     "isoform": "P01116-2",
+     "mean_plddt": 92.56
+    }
+   ],
+   "mean_plddt": 91.5,
+   "confidence_band": "very high",
+   "fraction_of_residues": {
+    "very_high_over_90": 0.778,
+    "confident_70_90": 0.148,
+    "low_50_70": 0.053,
+    "very_low_under_50": 0.021
+   },
+   "residues": "1-189",
+   "model_version": 6,
+   "created": "2025-08-01T00:00:00Z",
+   "models_considered": 2,
+   "links": {
+    "alphafold": "https://alphafold.ebi.ac.uk/entry/P01116",
+    "pdb": "https://alphafold.ebi.ac.uk/files/AF-P01116-F1-model_v6.pdb",
+    "cif": "https://alphafold.ebi.ac.uk/files/AF-P01116-F1-model_v6.cif",
+    "pae_image": "https://alphafold.ebi.ac.uk/files/AF-P01116-F1-predicted_aligned_error_v6.png"
+   }
+  },
+  "notes": [
+   "PDB structures are a diverse selection, not the complete list.",
+   "AlphaFold is a single static prediction without ligands, nucleotides or ions.",
+   "All links are built from IDs/URLs returned by RCSB and AlphaFold DB."
+  ]
+ }
+}

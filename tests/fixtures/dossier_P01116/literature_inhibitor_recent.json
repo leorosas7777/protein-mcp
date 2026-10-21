@@ -1,0 +1,157 @@
+{
+ "tool": "search_literature",
+ "params": {
+  "topic": "inhibitor",
+  "max_results": 5,
+  "sort": "recent",
+  "include_preprints": false
+ },
+ "retrieved_at": "2026-10-21T04:21:55Z",
+ "result": {
+  "ok": true,
+  "protein": {
+   "uniprot_id": "P01116",
+   "gene": "KRAS",
+   "protein_name": "GTPase KRas",
+   "source_url": "https://www.uniprot.org/uniprotkb/P01116/entry"
+  },
+  "query_used": "(TITLE_ABS:\"KRAS\" OR TITLE_ABS:\"GTPase KRas\") AND (TITLE_ABS:inhibitor) NOT SRC:PPR",
+  "total_hits": 3333,
+  "returned": 5,
+  "sort": "recent",
+  "include_preprints": false,
+  "papers": [
+   {
+    "title": "Binding mechanism of the molecular glue inhibitor in overcoming the \"undruggable\" Kirsten rat sarcoma viral oncogene homolog through conformational remodeling.",
+    "authors": "Liang H, Xu X, Zhang E, Liu J, Wang Y, Liu X, Luo S, Duan L.",
+    "journal": "Spectrochimica acta. Part A, Molecular and biomolecular spectroscopy",
+    "year": "2027",
+    "pub_types": [
+     "Journal Article"
+    ],
+    "source_db": "MED",
+    "is_preprint": false,
+    "pmid": "42837986",
+    "pmcid": null,
+    "doi": "10.1016/j.saa.2026.128897",
+    "open_access": false,
+    "full_text_in_europepmc": false,
+    "has_pdf": false,
+    "cited_by_count": 0,
+    "abstract": "Kirsten rat sarcoma viral oncogene homolog (KRAS) protein, a member of prevalent oncogenic driver, is difficult to be targeted and inhibited by traditional inhibitors due to its complex binding surface and mutation-prone property. Molecular glue inhibitor RMC-7977 is designed to break through the undruggable property of KRAS, it bridges KRAS and cyclophilin A (CYPA) to inhibit KRAS. However, RMC-7977's molecular mechanism underlying inhibitory effect and conformational remodeling as a molecular glue are still unclear. To address these research gaps, molecular dynamics simulations were employed to investigate the interaction and conformational mechanisms among KRAS, RMC-7977, and CYPA. The calculated binding free energies are consistent with the experimentally determined ranking. Conformational analysis suggests RMC-7977 fill the void as a molecular glue to change the CYPA's conformation and hydrophobic interaction to bridge between KRAS and CYPA. Comparative studies of mutants reveal that RMC-7977's binding site is far from GLY12, rendering it unaffected by these mutations and conferring with pan-inhibitor potential. This study provides important insights for RMC-7977 to optimize KRAS-CYPA interaction and molecular glue function at the molecular level.",
+    "links": {
+     "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42837986/",
+     "doi": "https://doi.org/10.1016/j.saa.2026.128897",
+     "europepmc": "https://europepmc.org/article/MED/42837986"
+    }
+   },
+   {
+    "title": "Influence of oncogenic drivers and signaling pathways on immune checkpoint inhibitor efficacy in NSCLC.",
+    "authors": "Liu C, Zhu S, Wu J, Qiao Y, Yang N, Chen J.",
+    "journal": "Genes & diseases",
+    "year": "2027",
+    "pub_types": [
+     "review-article",
+     "Review",
+     "Journal Article"
+    ],
+    "source_db": "MED",
+    "is_preprint": false,
+    "pmid": "42761382",
+    "pmcid": "PMC13586515",
+    "doi": "10.1016/j.gendis.2026.102230",
+    "open_access": true,
+    "full_text_in_europepmc": true,
+    "has_pdf": true,
+    "cited_by_count": 0,
+    "abstract": "Non-small cell lung cancer (NSCLC) is characterized by intricate genetic modifications and mechanisms that allow it to evade immune detection, which complicates the pursuit of lasting therapeutic responses. The effectiveness of treatments is greatly affected by the interaction between tumor genetic profiles and the surrounding immune microenvironment, highlighting the need for carefully designed therapeutic combinations. This review provides a comprehensive analysis of oncogenic drivers and signaling pathways (such as the KRAS, BRAF, and CD73/adenosine pathway) that interact with immune checkpoint inhibitors (ICIs), offering practical insights for personalized treatment approaches. The key findings focus on the use of biomarkers to guide the selection of immunotherapy or ICI-based combination therapies (e.g., ICIs plus tyrosine kinase inhibitors or signaling pathway inhibitors). We emphasize the importance of integrating tumor genomics with immune profiling to improve patient survival outcomes. This review aims to optimize treatment strategies by synthesizing insights from recent clinical trials and preclinical research, ultimately improving therapeutic efficacy in NSCLC.",
+    "links": {
+     "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42761382/",
+     "doi": "https://doi.org/10.1016/j.gendis.2026.102230",
+     "pmc": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13586515/",
+     "europepmc": "https://europepmc.org/article/MED/42761382"
+    }
+   },
+   {
+    "title": "An orthotopic organoid-based model to study early CD8⁺ T cell dysfunction and immunotherapy response in colorectal cancer.",
+    "authors": "Lucantonio L, Schiano L, Sozio F, Kosta A, Peruzzi G, Molfetta R, Pietropaolo G, Laffranchi M, Campese AF, Bernardini G, Sozzani S, Gismondi A, San...",
+    "journal": "Oncoimmunology",
+    "year": "2026",
+    "pub_types": [
+     "research-article",
+     "Journal Article"
+    ],
+    "source_db": "MED",
+    "is_preprint": false,
+    "pmid": "42141809",
+    "pmcid": "PMC13182965",
+    "doi": "10.1080/2162402x.2026.2674362",
+    "open_access": true,
+    "full_text_in_europepmc": true,
+    "has_pdf": true,
+    "cited_by_count": 2,
+    "abstract": "Colorectal cancer (CRC) treatment represents a major clinical challenge, with immunotherapy providing durable responses only in a minority of patients. A deeper understanding of CD8⁺ T cell exhaustion and its contribution to immune checkpoint inhibitor (ICI) responsiveness is essential for the development of more effective therapeutic strategies. Preclinical models that faithfully reproduce the immune landscape of human CRC are therefore critical to address these challenges. Here, we established a syngeneic organoid-based orthotopic CRC mouse model by transplanting quadruple mutant Apc⁻/⁻KrasG12D/+Trp53R172H/⁻Smad4⁻/⁻ (AKPS) intestinal organoids into the rectal submucosa of immunocompetent mice. Single-cell transcriptomic profiling revealed that CD8⁺ T cells represent the predominant leukocyte population within the tumor infiltrate and comprise populations transitioning toward dysfunction. Functionally, CD8⁺ T cell depletion led to increased tumor burden in orthotopic AKPS implants, underscoring their antitumor activity. Importantly, anti-PD-1 treatment increased the abundance of dysfunctional CD8⁺ T cell populations within AKPS tumors and reduced tumor growth, demonstrating the responsiveness of this model to ICIs. In contrast, subcutaneous implants of AKPS were infiltrated by mixed CD4⁺ and CD8⁺ T cell subsets, with CD8⁺ T cells exhibiting a markedly less dysfunctional profile, highlighting the limitations of heterotopic tumor models for studying antitumor immune responses. Together, our findings establish the AKPS orthotopic CRC model as a platform to dissect the molecular mechanisms of early CD8⁺ T cell dysfunction and to preclinically evaluate novel immunotherapeutic interventions in CRC.",
+    "links": {
+     "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42141809/",
+     "doi": "https://doi.org/10.1080/2162402x.2026.2674362",
+     "pmc": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13182965/",
+     "europepmc": "https://europepmc.org/article/MED/42141809"
+    }
+   },
+   {
+    "title": "XPO1 inhibition enhances the efficacy and durability of RAS-targeted therapy in preclinical models of KRASG12D mutant pancreatic ductal adenocarcinoma.",
+    "authors": "Khan HY, Al Hallak MN, Aboukameel A, Bannoura SF, Uddin MH, Aboukameel AA, Koksalar Alkan F, Caglayan AB, Alkan HK, Bao B, Jimenez H, Johansen AM, ...",
+    "journal": "Cancer letters",
+    "year": "2026",
+    "pub_types": [
+     "Journal Article"
+    ],
+    "source_db": "MED",
+    "is_preprint": false,
+    "pmid": "42667948",
+    "pmcid": null,
+    "doi": "10.1016/j.canlet.2026.218804",
+    "open_access": false,
+    "full_text_in_europepmc": false,
+    "has_pdf": false,
+    "cited_by_count": 0,
+    "abstract": "KRASG12D-selective and pan-RAS inhibitors have shown promise in pancreatic ductal adenocarcinoma (PDAC), yet adaptive resistance is anticipated to limit durability of response. Exportin 1 (XPO1), a nuclear export protein frequently overexpressed in PDAC, represents a potential vulnerability in KRAS-mutant cancers. We evaluated whether pharmacologic inhibition of XPO1 enhances therapeutic efficacy and durability of KRAS pathway inhibition. KRASG12D inhibitor- and pan-RAS inhibitor-resistant PDAC cellular models were generated and assessed for sensitivity to the second-generation XPO1 inhibitor Eltanexor. Antiproliferative synergistic effects of Eltanexor combined with MRTX1133, Zoldonrasib (RMC9805), or Daraxonrasib (RMC6236) were evaluated in PDAC 2D cultures, 3D spheroids, patient-derived organoids, and tumor-fibroblast co-culture models. Eltanexor sensitized KRAS inhibitor-resistant PDAC cells and synergistically enhanced growth suppression across multiple KRASG12D-mutant models. Combination treatment reduced clonogenic survival, disrupted 3D spheroid integrity, and significantly inhibited viability of patient-derived organoids. The in vivo efficacy of the combination was tested in PDAC cell-derived xenograft/allograft and patient-derived xenograft models. Combining sub-therapeutic doses of Eltanexor with allele-specific inhibitors or pan-RASi resulted in significant tumor regression, prevention of metastatic spread and prolonged survival in vivo. Notably, Eltanexor maintenance therapy suppressed tumor regrowth following RAS inhibitor withdrawal and preserved responsiveness upon re-challenge. Mechanistically, molecular and phosphokinome profiling showed that the combination broadened suppression of MAPK- and mTOR-associated signaling and reduced activity of multiple oncogenic kinases. In conclusion, XPO1 inhibitor Eltanexor enhances the efficacy and durability of KRAS and pan-RAS inhibition in PDAC models. These findings provide a preclinical rationale for clinically evaluating Eltanexor in combination with RAS-targeted therapies to delay or overcome adaptive resistance in KRAS-mutant PDAC.",
+    "links": {
+     "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42667948/",
+     "doi": "https://doi.org/10.1016/j.canlet.2026.218804",
+     "europepmc": "https://europepmc.org/article/MED/42667948"
+    }
+   },
+   {
+    "title": "PDE4DIP/Myomegalin as a Golgi-Centrosome Scaffold in Compartmentalized Signaling, Microtubule Organization, and Disease-Associated Pathway Remodeling.",
+    "authors": "Wang C, Bian C, Wang Z, Luo T.",
+    "journal": "Cell biochemistry and function",
+    "year": "2026",
+    "pub_types": [
+     "Review",
+     "Journal Article"
+    ],
+    "source_db": "MED",
+    "is_preprint": false,
+    "pmid": "42895117",
+    "pmcid": null,
+    "doi": "10.1002/cbf.70325",
+    "open_access": false,
+    "full_text_in_europepmc": false,
+    "has_pdf": false,
+    "cited_by_count": 0,
+    "abstract": "PDE4DIP/Myomegalin was originally identified as a Golgi- and centrosome-associated protein that interacts with phosphodiesterase 4D, but subsequent work has placed it within a broader network of organelle-associated signaling and cytoskeletal regulation. This review examines PDE4DIP/Myomegalin as a coiled-coil-rich scaffold linking compartmentalized cyclic adenosine monophosphate (cAMP)/protein kinase A (PKA) signaling, Golgi-centrosome organization, microtubule architecture, and disease-associated pathway remodeling. At the centrosome, long PDE4D-binding myomegalin forms retain PDE4D3 and restrict local PKA activity, thereby influencing Hedgehog signaling. At the Golgi, AKAP9/AKAP450 provides a major scaffold, while selected myomegalin forms support Golgi-derived microtubule organization and endoplasmic reticulum-Golgi trafficking. In KRAS-mutant colorectal cancer models, PDE4DIP promotes tumor growth and MEK inhibitor resistance through Golgi-associated NF1/RAS pathway remodeling. In non-small cell lung cancer, PDE4DIP cooperates with AKAP9 to maintain Golgi localization and stability of PKA regulatory subunit II alpha; PDE4DIP loss activates PKA/cAMP response element-binding protein signaling and suppresses tumor growth. Cardiovascular studies link myomegalin isoform 4 to sarcomeric PKA signaling, co-occurring PDE4DIP and DES variants to conduction phenotypes, and PDE4DIP dysregulation to left ventricular noncompaction-associated cellular changes, although the evidence remains context dependent. Neurological and retinal disease associations remain largely exploratory. Recent work links a PDE4DIP-AKAP9 interaction to cytoskeletal integrity and RAS-ERK/AKT signaling in podocyte injury. Overall, PDE4DIP/Myomegalin is best understood as an organelle-associated organizer whose effects depend on the experimentally reported form, binding partners, and subcellular address rather than on a single linear pathway.",
+    "links": {
+     "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42895117/",
+     "doi": "https://doi.org/10.1002/cbf.70325",
+     "europepmc": "https://europepmc.org/article/MED/42895117"
+    }
+   }
+  ],
+  "notes": [
+   "Search matches the gene symbol or protein name in title/abstract; ambiguous symbols can bring unrelated papers, so check titles.",
+   "Only abstracts are returned, not full text.",
+   "All links are built from IDs returned by Europe PMC."
+  ]
+ }
+}

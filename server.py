@@ -9,6 +9,7 @@ Tools:
   - get_ligands: UniProt accession -> ChEMBL ligands ranked by potency.
   - get_protein_profile: UniProt accession -> UniProt annotation + Open Targets
     associations and tractability (full result saved to the dossier on disk).
+  - build_report: dossier on disk -> PDF + Markdown data report.
 
 Logic lives in one module per source: uniprot, europepmc, rcsb, alphafold,
 chembl, opentargets; target_profile combines uniprot + opentargets.
@@ -28,6 +29,7 @@ from mcp.server.fastmcp import FastMCP
 logging.basicConfig(level=logging.INFO)
 
 import europepmc  # noqa: E402
+import report  # noqa: E402
 import target_profile  # noqa: E402
 import uniprot  # noqa: E402
 import chembl
@@ -223,6 +225,29 @@ async def get_protein_profile(uniprot_id: str, max_diseases: int = 10) -> dict:
     accession, _ = parse_accession(uniprot_id)
     return attach_dossier(full, accession, "profile", "get_protein_profile", {"max_diseases": max_diseases},
                           compact=lambda r: target_profile.compact(r, max_diseases))
+
+
+@mcp.tool()
+async def build_report(uniprot_id: str) -> dict:
+    """Build the PDF + Markdown data report for a protein from its dossier on disk.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P01116".
+
+    The report uses ONLY the files that the other tools saved to the dossier
+    (get_protein_profile, get_structures, get_ligands, search_literature; every
+    call with different parameters adds its own file). Run the ones the user
+    wants first. Sections without a file are listed in `missing` and left empty
+    in the report, never filled from the conversation.
+
+    Rules for using the result:
+    - Give the user `pdf_path` (and `markdown_path`). If `missing` is not empty,
+      say which sections are absent and offer to run those tools and rebuild.
+    - The report holds data and links only, no interpretation. If you add an
+      interpretation in the chat, base it only on tool results and cite them.
+    - If it fails because the PDF is open in a viewer, ask the user to close it.
+    """
+    return await asyncio.to_thread(report.build_report, uniprot_id)
 
 
 

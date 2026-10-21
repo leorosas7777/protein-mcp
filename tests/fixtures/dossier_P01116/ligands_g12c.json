@@ -1,0 +1,1476 @@
+{
+ "tool": "get_ligands",
+ "params": {
+  "mutation": "G12C",
+  "max_ligands": 15
+ },
+ "retrieved_at": "2026-10-21T04:22:20Z",
+ "result": {
+  "ok": true,
+  "uniprot_id": "P01116",
+  "target": {
+   "chembl_id": "CHEMBL2189121",
+   "name": "GTPase KRas",
+   "type": "SINGLE PROTEIN",
+   "organism": "Homo sapiens",
+   "link": "https://www.ebi.ac.uk/chembl/target_report_card/CHEMBL2189121/"
+  },
+  "other_targets_ignored": [
+   {
+    "chembl_id": "CHEMBL4523623",
+    "type": "PROTEIN-PROTEIN INTERACTION",
+    "name": "PDE6D/KRAS"
+   },
+   {
+    "chembl_id": "CHEMBL4524006",
+    "type": "PROTEIN FAMILY",
+    "name": "RAS"
+   },
+   {
+    "chembl_id": "CHEMBL5169273",
+    "type": "PROTEIN-PROTEIN INTERACTION",
+    "name": "von Hippel-Lindau disease tumor suppressor/GTPase KRas"
+   },
+   {
+    "chembl_id": "CHEMBL5291977",
+    "type": "PROTEIN-PROTEIN INTERACTION",
+    "name": "GTPase KRas/RAF1"
+   },
+   {
+    "chembl_id": "CHEMBL5465393",
+    "type": "PROTEIN COMPLEX",
+    "name": "SOS1-KRAS"
+   },
+   {
+    "chembl_id": "CHEMBL5483196",
+    "type": "PROTEIN-PROTEIN INTERACTION",
+    "name": "Protein cereblon/GTPase KRas"
+   },
+   {
+    "chembl_id": "CHEMBL6193817",
+    "type": "PROTEIN-PROTEIN INTERACTION",
+    "name": "Protein cereblon/GTPase HRas/GTPase NRas/GTPase KRas"
+   },
+   {
+    "chembl_id": "CHEMBL6193831",
+    "type": "PROTEIN-PROTEIN INTERACTION",
+    "name": "von Hippel-Lindau disease tumor suppressor/Son of sevenless homolog 1/GTPase KRas"
+   }
+  ],
+  "mutation_filter": "G12C",
+  "activities": {
+   "total_in_chembl": 5070,
+   "fetched": 5070,
+   "truncated": false,
+   "used": 465,
+   "excluded": {
+    "other_or_unstated_mutation": 4562,
+    "potential_duplicate": 20,
+    "mutation_label_conflicts_description": 23
+   }
+  },
+  "confidence": {
+   "min_applied": 8,
+   "distribution_before_filter": {
+    "9": 488
+   }
+  },
+  "label_conflicts_flagged": [
+   {
+    "activity_id": 29120285,
+    "molecule_chembl_id": "CHEMBL6146469",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120286,
+    "molecule_chembl_id": "CHEMBL6149336",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120287,
+    "molecule_chembl_id": "CHEMBL6147642",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120288,
+    "molecule_chembl_id": "CHEMBL6142149",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120289,
+    "molecule_chembl_id": "CHEMBL6142115",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120290,
+    "molecule_chembl_id": "CHEMBL6102214",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120291,
+    "molecule_chembl_id": "CHEMBL6102413",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120292,
+    "molecule_chembl_id": "CHEMBL6146258",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120293,
+    "molecule_chembl_id": "CHEMBL6162011",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   },
+   {
+    "activity_id": 29120294,
+    "molecule_chembl_id": "CHEMBL6120926",
+    "labelled_mutation": "G12C",
+    "assay_chembl_id": "CHEMBL6091452",
+    "assay_description": "Inhibition of bodipy-loaded KRAS G12D mutant (unknown origin) assessed as GDP-GTP exchange preincubated for 4 hrs followed by GppNHp and SOS1 addition and me..."
+   }
+  ],
+  "selection": "348 ligands have qualifying data for 'G12C'; returned the top 15 by best pChEMBL (listed clinical-stage first) plus 2 with a recorded mechanism.",
+  "ligands_with_qualifying_data": 348,
+  "ligands_returned": 17,
+  "ligands": [
+   {
+    "chembl_id": "CHEMBL4594350",
+    "name": "ADAGRASIB",
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4594350/",
+    "molecule_type": "Small molecule",
+    "max_phase": 4.0,
+    "first_approval": 2022,
+    "chemical_probe_flag": 1,
+    "mechanism": {
+     "mechanism_of_action": "GTPase KRas inhibitor",
+     "action_type": "INHIBITOR",
+     "max_phase": 4.0
+    },
+    "identity": {
+     "smiles": "C=C(F)C(=O)N1CCN(c2nc(OC[C@@H]3CCCN3C)nc3c2CCN(c2cccc4cccc(Cl)c24)C3)C[C@@H]1CC#N",
+     "inchi_key": "PEMUGDMSUDYLHU-ZEQRLZLVSA-N",
+     "molecular_weight": 604.13
+    },
+    "properties": {
+     "alogp": 4.73,
+     "psa": 88.83,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 1,
+     "aromatic_rings": 3,
+     "qed_weighted": 0.36
+    },
+    "best_pchembl": 8.3,
+    "n_measurements": 5,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 3,
+      "best_nM": 5.0,
+      "median_nM": 10.0,
+      "worst_nM": 14.0,
+      "best_pchembl": 8.3,
+      "n_assays": 3,
+      "cell_types": [
+       "MIA PaCa-2",
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in ERK phosphorylation incubated for 3 hrs by in-cell western method",
+       "Inhibition of KRAS G12C mutant in human MIAPaCa2 cells assessed as reduction in ERK phosphorylation incubated for 24 hrs by in-cell western method"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4610106",
+        "pubmed_id": 32250617,
+        "doi": "10.1021/acs.jmedchem.9b02052",
+        "journal": "J Med Chem",
+        "year": 2020,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4610106/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/32250617/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.9b02052"
+        }
+       },
+       {
+        "document_chembl_id": "CHEMBL4699491",
+        "pubmed_id": 32910655,
+        "doi": "10.1021/acs.jmedchem.0c01170",
+        "journal": "J Med Chem",
+        "year": 2020,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4699491/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/32910655/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.0c01170"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 133.0,
+      "median_nM": 133.0,
+      "worst_nM": 133.0,
+      "best_pchembl": 6.88,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Binding affinity to human KRAS G12C mutant (1 to 169 residues) extracted from Escherichia coli BL21 cells incubated for 20 to 24 hrs by LC-MS/MS analysis"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6115039",
+        "pubmed_id": 40099438,
+        "doi": "10.1021/acs.jmedchem.5c00017",
+        "journal": "J Med Chem",
+        "year": 2025,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6115039/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/40099438/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.5c00017"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "Ki",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 3700.0,
+      "median_nM": 3700.0,
+      "worst_nM": 3700.0,
+      "best_pchembl": 5.43,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of recombinant KRAS G12C mutant (unknown origin) assessed as rate of inactivation by LC-MS analysis"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4610106",
+        "pubmed_id": 32250617,
+        "doi": "10.1021/acs.jmedchem.9b02052",
+        "journal": "J Med Chem",
+        "year": 2020,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4610106/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/32250617/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.9b02052"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4535757",
+    "name": "SOTORASIB",
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4535757/",
+    "molecule_type": "Small molecule",
+    "max_phase": 4.0,
+    "first_approval": 2021,
+    "chemical_probe_flag": 1,
+    "mechanism": {
+     "mechanism_of_action": "GTPase KRas inhibitor",
+     "action_type": "INHIBITOR",
+     "max_phase": 4.0
+    },
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2nc(=O)n(-c3c(C)ccnc3C(C)C)c3nc(-c4c(O)cccc4F)c(F)cc23)[C@@H](C)C1",
+     "inchi_key": "NXQKSXLFSAEQCZ-SFHVURJKSA-N",
+     "molecular_weight": 560.61
+    },
+    "properties": {
+     "alogp": 4.48,
+     "psa": 104.45,
+     "hba": 8,
+     "hbd": 1,
+     "ro5_violations": 1,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.36
+    },
+    "best_pchembl": 8.02,
+    "n_measurements": 4,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 2,
+      "best_nM": 9.66,
+      "median_nM": 3754.83,
+      "worst_nM": 7500.0,
+      "best_pchembl": 8.02,
+      "n_assays": 2,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant (unknown origin) assessed as inhibition of SOS1-catalyzed nucleotide exchange measured by HTRF assay",
+       "Inhibition of N-terminal GST-tagged recombinant human KRAS G12C mutant"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL5154696",
+        "pubmed_id": 35007863,
+        "doi": "10.1016/j.ejmech.2021.114088",
+        "journal": "Eur J Med Chem",
+        "year": 2022,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL5154696/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/35007863/",
+         "doi": "https://doi.org/10.1016/j.ejmech.2021.114088"
+        }
+       },
+       {
+        "document_chembl_id": "CHEMBL6071132",
+        "pubmed_id": 39079309,
+        "doi": "10.1016/j.ejmech.2024.116722",
+        "journal": "Eur J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6071132/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/39079309/",
+         "doi": "https://doi.org/10.1016/j.ejmech.2024.116722"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 1,
+      "best_nM": 30.0,
+      "median_nM": 30.0,
+      "worst_nM": 30.0,
+      "best_pchembl": 7.52,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in p-ERK levels"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4699491",
+        "pubmed_id": 32910655,
+        "doi": "10.1021/acs.jmedchem.0c01170",
+        "journal": "J Med Chem",
+        "year": 2020,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4699491/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/32910655/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.0c01170"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "Ki",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 12200.0,
+      "median_nM": 12200.0,
+      "worst_nM": 12200.0,
+      "best_pchembl": 4.91,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Binding affinity to KRAS G12C mutant (unknown origin) assessed as inhibition constant incubated for 24 hrs by LC-MS analysis"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL5214993",
+        "pubmed_id": 36300829,
+        "doi": "10.1021/acs.jmedchem.2c01120",
+        "journal": "J Med Chem",
+        "year": 2022,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL5214993/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/36300829/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.2c01120"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL5314518",
+    "name": "GLECIRASIB",
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL5314518/",
+    "molecule_type": "Small molecule",
+    "max_phase": 2.0,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2c(C#N)c(=O)n(-c3c(C)ccnc3C(C)C)c3nc(-c4c(N)c(F)c(F)c(F)c4F)c(Cl)cc23)CC1",
+     "inchi_key": "QRRJEUIQLZNPIO-UHFFFAOYSA-N",
+     "molecular_weight": 640.04
+    },
+    "properties": {
+     "alogp": 5.38,
+     "psa": 121.14,
+     "hba": 8,
+     "hbd": 1,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.1
+    },
+    "best_pchembl": 8.85,
+    "n_measurements": 2,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 2,
+      "best_nM": 1.4,
+      "median_nM": 2.0,
+      "worst_nM": 2.6,
+      "best_pchembl": 8.85,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of His-tagged GDP-loaded KRAS G12C mutant (unknown origin) assessed as SOS1-mediated guanine nucleotide exchange preincubated with compound for 1 ..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6121058",
+        "pubmed_id": 39875337,
+        "doi": "10.1021/acs.jmedchem.4c02939",
+        "journal": "J Med Chem",
+        "year": 2025,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6121058/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/39875337/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c02939"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL5028342",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL5028342/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1C[C@H](C)N(c2nc(=O)n3c4nc(c(Cl)cc24)-c2c(ccc(F)c2F)OCCOc2ccnc(C(C)C)c2-3)C[C@H]1C",
+     "inchi_key": "WXFHOTORNKCYPL-MSOLQXFVSA-N",
+     "molecular_weight": 637.09
+    },
+    "properties": {
+     "alogp": 5.28,
+     "psa": 102.68,
+     "hba": 9,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.28
+    },
+    "best_pchembl": 9.29,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 0.51,
+      "median_nM": 0.51,
+      "worst_nM": 0.51,
+      "best_pchembl": 9.29,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4852458",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4852458/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1C[C@H](C)N(c2nc(=O)n3c4nc(c(Cl)cc24)-c2c(ccc(F)c2F)OCCCc2ncnc(C(C)C)c2-3)C[C@H]1C",
+     "inchi_key": "SMSQEOJVGUNXNG-MSOLQXFVSA-N",
+     "molecular_weight": 636.1
+    },
+    "properties": {
+     "alogp": 5.23,
+     "psa": 106.34,
+     "hba": 9,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.28
+    },
+    "best_pchembl": 9.29,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 0.51,
+      "median_nM": 0.51,
+      "worst_nM": 0.51,
+      "best_pchembl": 9.29,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4856277",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4856277/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2nc(=O)n3c4nc(c(Cl)cc24)-c2c(F)cccc2OCC(F)(F)CCc2ccnc(C(C)C)c2-3)[C@@H](C)C1",
+     "inchi_key": "PDVPIZIGHONHFG-IBGZPJMESA-N",
+     "molecular_weight": 653.11
+    },
+    "properties": {
+     "alogp": 5.94,
+     "psa": 93.45,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.25
+    },
+    "best_pchembl": 9.25,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 0.56,
+      "median_nM": 0.56,
+      "worst_nM": 0.56,
+      "best_pchembl": 9.25,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4856826",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4856826/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2cc(C(=O)N[C@H](C)CN(C)C)nc3c2CCN(c2c(Cl)c(C)cc4[nH]ncc24)C3)C[C@@H]1CC#N",
+     "inchi_key": "SRUSZDKVYRGESJ-RTWAWAEBSA-N",
+     "molecular_weight": 604.16
+    },
+    "properties": {
+     "alogp": 3.28,
+     "psa": 124.49,
+     "hba": 8,
+     "hbd": 2,
+     "ro5_violations": 1,
+     "aromatic_rings": 3,
+     "qed_weighted": 0.38
+    },
+    "best_pchembl": 9.05,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 0.9,
+      "median_nM": 0.9,
+      "worst_nM": 0.9,
+      "best_pchembl": 9.05,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C mutant (unknown origin) assessed as inhibition of SOS-catalyzed nucleotide exchange preincubated for 60 mins followed by..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4808238",
+        "pubmed_id": 34413934,
+        "doi": "10.1021/acsmedchemlett.1c00321",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4808238/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413934/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00321"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4879271",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4879271/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1C[C@H](C)N(c2nc(=O)n3c4nc(c(Cl)cc24)-c2c(F)cccc2OCC(F)(F)COc2ccnc(C(C)C)c2-3)C[C@H]1C",
+     "inchi_key": "DEJRFXHBVNFUQA-MOPGFXCFSA-N",
+     "molecular_weight": 669.1
+    },
+    "properties": {
+     "alogp": 5.78,
+     "psa": 102.68,
+     "hba": 9,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.25
+    },
+    "best_pchembl": 9.04,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 0.91,
+      "median_nM": 0.91,
+      "worst_nM": 0.91,
+      "best_pchembl": 9.04,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4648852",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4648852/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2nc(OC[C@@H]3CCCN3C)nc3c2CCN(c2cccc4cccc(Cl)c24)C3)C[C@@H]1CC#N",
+     "inchi_key": "IYDWXYZUEBUWCQ-ZEQRLZLVSA-N",
+     "molecular_weight": 586.14
+    },
+    "properties": {
+     "alogp": 4.44,
+     "psa": 88.83,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 1,
+     "aromatic_rings": 3,
+     "qed_weighted": 0.38
+    },
+    "best_pchembl": 9.0,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 1,
+      "best_nM": 1.0,
+      "median_nM": 1.0,
+      "worst_nM": 1.0,
+      "best_pchembl": 9.0,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in ERK phosphorylation incubated for 3 hrs by in-cell western method"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4610106",
+        "pubmed_id": 32250617,
+        "doi": "10.1021/acs.jmedchem.9b02052",
+        "journal": "J Med Chem",
+        "year": 2020,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4610106/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/32250617/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.9b02052"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4632935",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4632935/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2nc(OC[C@@H]3CCCN3C)nc3c2CCN(c2cccc4cccc(C)c24)C3)C[C@@H]1CC#N",
+     "inchi_key": "YRYQLVCTQFBRLD-UIOOFZCWSA-N",
+     "molecular_weight": 565.72
+    },
+    "properties": {
+     "alogp": 4.09,
+     "psa": 88.83,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 1,
+     "aromatic_rings": 3,
+     "qed_weighted": 0.4
+    },
+    "best_pchembl": 9.0,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 1,
+      "best_nM": 1.0,
+      "median_nM": 1.0,
+      "worst_nM": 1.0,
+      "best_pchembl": 9.0,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in ERK phosphorylation incubated for 3 hrs by in-cell western method"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4610106",
+        "pubmed_id": 32250617,
+        "doi": "10.1021/acs.jmedchem.9b02052",
+        "journal": "J Med Chem",
+        "year": 2020,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4610106/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/32250617/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.9b02052"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4874744",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4874744/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2cc(C(=O)N[C@@H]3CCC[C@H]3N(C)C)nc3c2CCN(c2cccc4cccc(C)c24)C3)C[C@@H]1CC#N",
+     "inchi_key": "HDIHSTWWXIWYLV-PTYIDMFESA-N",
+     "molecular_weight": 605.79
+    },
+    "properties": {
+     "alogp": 4.44,
+     "psa": 95.81,
+     "hba": 7,
+     "hbd": 1,
+     "ro5_violations": 1,
+     "aromatic_rings": 3,
+     "qed_weighted": 0.4
+    },
+    "best_pchembl": 9.0,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.0,
+      "median_nM": 1.0,
+      "worst_nM": 1.0,
+      "best_pchembl": 9.0,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C mutant (unknown origin) assessed as inhibition of SOS-catalyzed nucleotide exchange preincubated for 60 mins followed by..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4808238",
+        "pubmed_id": 34413934,
+        "doi": "10.1021/acsmedchemlett.1c00321",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4808238/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413934/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00321"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4875422",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4875422/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1C[C@H](C)N(c2nc(=O)n3c4nc(c(Cl)cc24)-c2c(F)ccc(F)c2OCCOc2ccnc(C(C)C)c2-3)C[C@H]1C",
+     "inchi_key": "BBIVCWWQPMOKAC-MSOLQXFVSA-N",
+     "molecular_weight": 637.09
+    },
+    "properties": {
+     "alogp": 5.28,
+     "psa": 102.68,
+     "hba": 9,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.28
+    },
+    "best_pchembl": 8.96,
+    "n_measurements": 3,
+    "potency": [
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.1,
+      "median_nM": 1.1,
+      "worst_nM": 1.1,
+      "best_pchembl": 8.96,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.2,
+      "median_nM": 1.2,
+      "worst_nM": 1.2,
+      "best_pchembl": 8.92,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of recombinant biotinylated KRAS G12C mutant (unknown origin) assessed as human SOS catalyzed nucleotide exchange measured after 60 mins by TR-FRE..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6078617",
+        "pubmed_id": 38924388,
+        "doi": "10.1021/acs.jmedchem.4c00572",
+        "journal": "J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6078617/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/38924388/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c00572"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 1,
+      "best_nM": 9.0,
+      "median_nM": 9.0,
+      "worst_nM": 9.0,
+      "best_pchembl": 8.05,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in Erk1/2 phosphorylation level measured for 8 hrs by Western blot analysis"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6078617",
+        "pubmed_id": 38924388,
+        "doi": "10.1021/acs.jmedchem.4c00572",
+        "journal": "J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6078617/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/38924388/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c00572"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL6145158",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL6145158/",
+    "molecule_type": null,
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1C[C@H](C)N(c2nc(=O)n3c4nc(c(F)cc24)-c2c(F)cc(F)cc2OCC(F)(F)CCc2ccnc(C(C)C)c2-3)C[C@H]1C",
+     "inchi_key": "CSHJZSBQLXSLJO-MOPGFXCFSA-N",
+     "molecular_weight": 668.67
+    },
+    "properties": {
+     "alogp": 5.96,
+     "psa": 93.45,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.2
+    },
+    "best_pchembl": 8.96,
+    "n_measurements": 2,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.1,
+      "median_nM": 1.1,
+      "worst_nM": 1.1,
+      "best_pchembl": 8.96,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of recombinant biotinylated KRAS G12C mutant (unknown origin) assessed as human SOS catalyzed nucleotide exchange measured after 60 mins by TR-FRE..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6078617",
+        "pubmed_id": 38924388,
+        "doi": "10.1021/acs.jmedchem.4c00572",
+        "journal": "J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6078617/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/38924388/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c00572"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 1,
+      "best_nM": 8.9,
+      "median_nM": 8.9,
+      "worst_nM": 8.9,
+      "best_pchembl": 8.05,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in Erk1/2 phosphorylation level measured for 8 hrs by Western blot analysis"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6078617",
+        "pubmed_id": 38924388,
+        "doi": "10.1021/acs.jmedchem.4c00572",
+        "journal": "J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6078617/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/38924388/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c00572"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4869082",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4869082/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2nc(=O)n3c4nc(c(F)cc24)-c2c(F)cccc2OCCCCc2ccnc(C(C)C)c2-3)[C@@H](C)C1",
+     "inchi_key": "CXWUSAWZABSDFH-FQEVSTJZSA-N",
+     "molecular_weight": 600.67
+    },
+    "properties": {
+     "alogp": 5.18,
+     "psa": 93.45,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.3
+    },
+    "best_pchembl": 8.92,
+    "n_measurements": 3,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.2,
+      "median_nM": 1.2,
+      "worst_nM": 1.2,
+      "best_pchembl": 8.92,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of recombinant biotinylated KRAS G12C mutant (unknown origin) assessed as human SOS catalyzed nucleotide exchange measured after 60 mins by TR-FRE..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6078617",
+        "pubmed_id": 38924388,
+        "doi": "10.1021/acs.jmedchem.4c00572",
+        "journal": "J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6078617/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/38924388/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c00572"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 2.4,
+      "median_nM": 2.4,
+      "worst_nM": 2.4,
+      "best_pchembl": 8.62,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 1,
+      "best_nM": 4.8,
+      "median_nM": 4.8,
+      "worst_nM": 4.8,
+      "best_pchembl": 8.32,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in Erk1/2 phosphorylation level measured for 8 hrs by Western blot analysis"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6078617",
+        "pubmed_id": 38924388,
+        "doi": "10.1021/acs.jmedchem.4c00572",
+        "journal": "J Med Chem",
+        "year": 2024,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6078617/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/38924388/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c00572"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4863593",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4863593/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1C[C@H](C)N(c2nc(=O)n3c4nc(c(F)cc24)-c2c(ccc(F)c2F)OCCC(C)c2ccnc(C(C)C)c2-3)C[C@H]1C",
+     "inchi_key": "PKUYYPZYMNBWRW-HUSUDBNBSA-N",
+     "molecular_weight": 632.69
+    },
+    "properties": {
+     "alogp": 5.88,
+     "psa": 93.45,
+     "hba": 8,
+     "hbd": 0,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.26
+    },
+    "best_pchembl": 8.85,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C,C51S,C80L,C118S",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.4,
+      "median_nM": 1.4,
+      "worst_nM": 1.4,
+      "best_pchembl": 8.85,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of biotinylated KRAS G12C/C51S/C80L/C118S mutant (unknown origin) pretreated for 60 mins followed by recombinant SOS addition by SOS-catalyzed nuc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4823310",
+        "pubmed_id": 34413946,
+        "doi": "10.1021/acsmedchemlett.1c00389",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4823310/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34413946/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00389"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL6166904",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL6166904/",
+    "molecule_type": null,
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2c(C#N)c(=O)n(-c3c(C)ccnc3C(C)C)c3nc(-c4c(F)c(N)c(F)c(F)c4F)c(Cl)cc23)CC1",
+     "inchi_key": "FNAGMDDLEYOOQM-UHFFFAOYSA-N",
+     "molecular_weight": 640.04
+    },
+    "properties": {
+     "alogp": 5.38,
+     "psa": 121.14,
+     "hba": 8,
+     "hbd": 1,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.1
+    },
+    "best_pchembl": 8.82,
+    "n_measurements": 1,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 1,
+      "best_nM": 1.5,
+      "median_nM": 1.5,
+      "worst_nM": 1.5,
+      "best_pchembl": 8.82,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of His-tagged GDP-loaded KRAS G12C mutant (unknown origin) assessed as SOS1-mediated guanine nucleotide exchange preincubated with compound for 1 ..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL6121058",
+        "pubmed_id": 39875337,
+        "doi": "10.1021/acs.jmedchem.4c02939",
+        "journal": "J Med Chem",
+        "year": 2025,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL6121058/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/39875337/",
+         "doi": "https://doi.org/10.1021/acs.jmedchem.4c02939"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "chembl_id": "CHEMBL4859820",
+    "name": null,
+    "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL4859820/",
+    "molecule_type": "Unknown",
+    "max_phase": null,
+    "first_approval": null,
+    "chemical_probe_flag": 0,
+    "mechanism": null,
+    "identity": {
+     "smiles": "C=CC(=O)N1CCN(c2c(C#N)c(=O)n(-c3c(C)ccnc3C(C)C)c3nc(-c4c(N)c(Cl)cc(Cl)c4F)c(Cl)cc23)CC1",
+     "inchi_key": "IBNSEKBMYPAXNN-UHFFFAOYSA-N",
+     "molecular_weight": 654.96
+    },
+    "properties": {
+     "alogp": 6.27,
+     "psa": 121.14,
+     "hba": 8,
+     "hbd": 1,
+     "ro5_violations": 2,
+     "aromatic_rings": 4,
+     "qed_weighted": 0.15
+    },
+    "best_pchembl": 8.81,
+    "n_measurements": 4,
+    "potency": [
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "binding",
+      "n_measurements": 2,
+      "best_nM": 1.542,
+      "median_nM": 1.744,
+      "worst_nM": 1.947,
+      "best_pchembl": 8.81,
+      "n_assays": 1,
+      "cell_types": [],
+      "assay_examples": [
+       "Inhibition of GDP-loaded His-tagged KRAS G12C mutant (2 to 182 residues) (unknown origin) assessed as inhibition of SOS1-catalyzed nucleotide exchange preinc..."
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4842392",
+        "pubmed_id": 34795848,
+        "doi": "10.1021/acsmedchemlett.1c00496",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4842392/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34795848/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00496"
+        }
+       }
+      ]
+     },
+     {
+      "mutation": "G12C",
+      "standard_type": "IC50",
+      "assay_class": "cellular",
+      "n_measurements": 2,
+      "best_nM": 10.36,
+      "median_nM": 11.025,
+      "worst_nM": 11.69,
+      "best_pchembl": 7.99,
+      "n_assays": 1,
+      "cell_types": [
+       "NCI-H358"
+      ],
+      "assay_examples": [
+       "Inhibition of KRAS G12C mutant in human NCI-H358 cells assessed as reduction in ERK phosphorylation incubated for 2 hrs by HTRF assay"
+      ],
+      "documents": [
+       {
+        "document_chembl_id": "CHEMBL4842392",
+        "pubmed_id": 34795848,
+        "doi": "10.1021/acsmedchemlett.1c00496",
+        "journal": "ACS Med Chem Lett",
+        "year": 2021,
+        "links": {
+         "chembl_document": "https://www.ebi.ac.uk/chembl/document_report_card/CHEMBL4842392/",
+         "pubmed": "https://pubmed.ncbi.nlm.nih.gov/34795848/",
+         "doi": "https://doi.org/10.1021/acsmedchemlett.1c00496"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "mechanism_compounds_without_qualifying_activity": [],
+  "notes": [
+   "Ligands are listed clinical-stage first (max_phase), then by best pChEMBL: potency is not selectivity or developability, and many top values are single measurements (see n_measurements).",
+   "Potency is grouped by (mutation, standard_type, assay_class); cellular and biochemical values and different mutations are never pooled. 'not stated' does NOT prove wild type.",
+   "Activities whose curated mutation label disagrees with the mutation named in the assay text are excluded and listed in label_conflicts_flagged.",
+   "Only compounds with a recorded mechanism or inside the top-N are checked for max_phase: other clinical-stage compounds may exist among the ligands not returned.",
+   "Only exact '=' relations enter the statistics; censored values (>, <) are counted in activities.excluded.",
+   "name is ChEMBL's preferred name and is None for most research compounds; no names are inferred.",
+   "Linking PDB ligands to ChEMBL (by InChIKey) is not done here: no match means 'sin registro', never a guess."
+  ]
+ }
+}
