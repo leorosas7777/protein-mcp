@@ -57,6 +57,7 @@ Probadas contra APIs reales, KRAS/P01116.
    - PDF con reportlab + Arial de Windows; carácter sin glifo → forma NFKC (`⁺`→`+`) o `?` solo en el PDF; el Markdown conserva el original. PDF abierto en un visor (bloqueo de Windows) → error claro.
    - Idioma del reporte: inglés (datos de las fuentes en inglés; lector en empresa europea). Cambiable.
    - Prueba real 2026-10-20 (KRAS, 6 archivos): 7 páginas; 253 enlaces (167 únicos), todos presentes en el expediente o construidos desde un ID que está en él (comprobado por script). Revisión visual página a página: corregidos la etiqueta de mutagénesis multi-residuo (KIKK182-185→RIRR) y el glifo ausente de "CD8⁺". Prueba offline: `tests/test_report.py` (incluye la comprobación de enlaces) con fixtures reales en `tests/fixtures/dossier_P01116/`.
+   - Prueba real con PCSK9 (Q8NBP7), flujo completo como Claude Desktop: 6 páginas, 180 enlaces todos respaldados; reveló el defecto de anticuerpos (sección 6).
 
 ## 5. Decisiones tomadas (no reabrir sin motivo)
 - **Fuente de ligandos: solo ChEMBL** (licencia CC BY-SA 3.0, API gratuita; ChEMBL_37, ~24,5 M de actividades; verificado en `ebi.ac.uk/chembl/api/data/status.json`).
@@ -81,6 +82,8 @@ Probadas contra APIs reales, KRAS/P01116.
 - 7ROV y 6WGN están unidas a péptidos (aparecen en `partner_chains`, `ligands: []`); pendiente contar binders poliméricos como ligandos.
 - El DOI de 7T47 es un preprint (Research Square).
 - Caminos "no encontrado": probados contra UniProt real solo en `get_protein_profile`/`search_literature` (P0DZZ9 → 404; Q0ZZZ9 → inactiva con HTTP 200). En `get_structures` y `get_ligands` siguen sin probar. P99999 NO sirve: es citocromo c humano.
+- **DEFECTO IMPORTANTE (`get_ligands`, hallado 2026-10-20 con PCSK9/Q8NBP7):** los fármacos sin IC50/Ki/Kd con pChEMBL (anticuerpos, proteínas) no entran al ranking y solo aparecen como IDs en `mechanism_compounds_without_qualifying_activity` (nota al pie del reporte). En PCSK9 quedan así EVOLOCUMAB y ALIROCUMAB (Antibody, fase 4, aprobados 2015) y 6 más en fase 2-3 (verificado en `molecule.json` de ChEMBL). Un analista leería "no hay fármacos aprobados". Arreglo propuesto: tabla "Drugs and clinical candidates with a recorded mechanism" con nombre, tipo, fase y mecanismo (los datos de `molecule` ya se piden para los ligandos devueltos).
+- `get_protein_profile`/reporte: el segundo bloque de asociaciones es siempre oncología (`MONDO_0045024`); en dianas no oncológicas (PCSK9, cardiovascular) aporta poco. Posible arreglo: área terapéutica configurable o la del primer resultado.
 - `build_report`: mezcla archivos del expediente con fechas distintas si se consultaron en momentos distintos (cada sección muestra su fecha de consulta, pero no hay aviso de antigüedad). No incluye abstracts ni la interpretación. Depende de Arial (Windows); en otro SO hay que registrar otra TTF con Unicode. Un expediente viejo de otra versión del código podría no tener algún campo (se muestra "no record").
 - `resolve_protein("insulin receptor")` devuelve ruido; mejora diferida (búsqueda por nombre entre comillas).
 - La relevancia de `search_literature` con `topic="inhibitor"` incluye artículos poco ligados a KRAS (p. ej. PP2A/EGFR); es el comportamiento de `TITLE_ABS` y se aceptó.
@@ -100,7 +103,11 @@ Probadas contra APIs reales, KRAS/P01116.
 1. ~~Corregir 9TBR~~ (hecho 2026-10-20).
 2. ~~Expediente en disco~~ (hecho 2026-10-20 para las 5 herramientas).
 3. ~~`get_protein_profile`~~ (hecho 2026-10-20).
-4. ~~`build_report`~~ (hecho 2026-10-20). Siguiente: probar el flujo completo desde Claude Desktop; README del portafolio; ver sección 9.
+4. ~~`build_report`~~ (hecho 2026-10-20).
+5. **Corregir el defecto de anticuerpos en `get_ligands`** (sección 6) + reporte + prueba con PCSK9.
+6. Probar el flujo completo desde Claude Desktop con una proteína nueva (guía: `docs/USO.md`).
+7. **Antes de la Fase 2: reestructurar en paquete** (propuesta de Claude Code 2026-10-20, pendiente de decisión del usuario): `protein_mcp/` con `sources/` (una fuente por módulo), `dossier.py`, `report.py`, `server.py`; tests sin `sys.path`; `[project.scripts]` para poder ejecutar con `uvx`. Sin cambiar lógica, en un commit aparte. Reabre la decisión de la sección 3 ("paquetes por fase"): se propone organizar por responsabilidad, porque la Fase 2 (descargas, PyMOL) reutiliza las mismas fuentes.
+8. README del portafolio (inglés) con instalación, ejemplo y un PDF de muestra.
    - Diseño original: Lee `dossiers/<acc>/*.json` (campos `tool`, `params`, `retrieved_at`, `result`), no la conversación. Si falta un archivo, la sección dice qué herramienta ejecutar (o la ejecuta) en vez de rellenar. Sección de métodos con las limitaciones de la sección 6 y la fecha/versión de cada fuente.
 
 ### 8.1 Campos validados para `get_protein_profile` (2026-10-20, KRAS/P01116, llamadas reales desde Claude Code)
@@ -125,6 +132,9 @@ Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P
 - Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess). Aquí se migra a paquetes por fase.
 - Opcional: validar `max_phase__gte` para encontrar compuestos clínicos sin mecanismo; cruce PDB↔ChEMBL por InChIKey; clave NCBI/PubMed; migración a mcp v2; ClinicalTrials.gov limitado; rama de DrugBank; `lookup_compound`; selectividad y datos negativos de ChEMBL.
 - Fila no cubierta por ninguna fuente: disponibilidad comercial / calidad de sonda química.
+
+- **Distribución (recomendación 2026-10-20, pendiente de decisión):** 1) repo público + README + PDF de ejemplo; 2) instalable con `uvx --from git+https://github.com/...` (requiere `[project.scripts]` y estructura de paquete); 3) opcional: Desktop Extension de Claude (`.mcpb`, instalación con un clic; verificar el formato vigente antes de empezar). Descartados por ahora: servidor web público (coste, autenticación, límites de las APIs públicas, y PyMOL de la Fase 2 es local), `.exe` (pesado, falsos positivos de antivirus, sigue necesitando la configuración de Claude Desktop) y Docker (exige Docker al usuario, complica rutas de archivos y PyMOL con interfaz gráfica).
+- Documentación de usuario: `docs/USO.md` (instalación, prompts que funcionan y que no) y `docs/GUIA_INTERPRETACION.md` (lectura del reporte para no farmacólogos), en español, 2026-10-20.
 
 ## 10. Protocolo de trabajo
 - Una tarea por sesión (en Claude Code) o un chat por paso (en claude.ai); el rol se indica al inicio.
