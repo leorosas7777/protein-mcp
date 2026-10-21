@@ -179,7 +179,17 @@ async def notfound():
           (mouse.get("open_targets") or {}).get("found") is False, mouse.get("open_targets"))
 
 
-GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound}
+async def tnf():
+    pr = await server.get_protein_profile("P01375")
+    ot = pr.get("open_targets") or {}
+    check("REGRESSION", "TNF: 7 Ensembl genes in UniProt, Open Targets found on a later one (not 'sin registro')",
+          ot.get("found") is True and ot.get("symbol") == "TNF" and ot.get("uniprot_crosscheck") is True,
+          {k: ot.get(k) for k in ("found", "ensembl_gene_id", "ensembl_genes_without_target")})
+    check("EXTERNAL", "TNF: at least one gene was skipped before the one with a target",
+          len(ot.get("ensembl_genes_without_target") or []) >= 1, ot.get("ensembl_genes_without_target"))
+
+
+GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf}
 SLOW = {"egfr"}
 
 

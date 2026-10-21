@@ -160,6 +160,31 @@ def main():
                     .splitlines() if "fetched (truncated" in l)
         assert text in line, (state, line)
         assert state == "complete" or "plus every activity" not in line, (state, line)
+    # several Ensembl genes (real TNF case): genes skipped are listed whether a later
+    # gene was found, none was, or a query failed after them
+    prof_file = folder / "profile.json"
+    prof = json.loads(prof_file.read_text(encoding="utf-8"))
+    ot = prof["result"]["open_targets"]
+    variants = {
+        "found": {**ot, "ensembl_genes_without_target": ["ENSG00000204490"],
+                  "other_ensembl_genes_not_queried": ["ENSG00000232810"]},
+        "none": {"ok": True, "found": False, "ensembl_gene_id": None, "data_version": "26.09",
+                 "ensembl_genes_without_target": ["ENSG00000204490"],
+                 "note": "sin registro en Open Targets para ninguno de los 1 genes Ensembl de UniProt."},
+        "error": {"ok": False, "error": "Open Targets request failed: timeout",
+                  "ensembl_genes_without_target": ["ENSG00000204490"]},
+    }
+    for case, value in variants.items():
+        prof["result"]["open_targets"] = value
+        prof_file.write_text(json.dumps(prof), encoding="utf-8")
+        sec2 = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8") \
+            .split("## 2.")[1].split("## 3.")[0]
+        assert "ENSG00000204490" in sec2, (case, sec2[:800])
+        assert case != "found" or ("not queried: ENSG00000232810" in sec2 and "[Noonan syndrome]" in sec2)
+        assert case != "error" or "could not be queried" in sec2
+    prof["result"]["open_targets"] = ot
+    prof_file.write_text(json.dumps(prof), encoding="utf-8")
+
     # False/0 parameters are shown, so a non-default call never reads as the default one
     assert report._params_text({"topic": "", "include_preprints": False, "max_models": 0}) == \
         "include_preprints=False, max_models=0"

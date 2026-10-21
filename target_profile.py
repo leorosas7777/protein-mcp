@@ -23,9 +23,22 @@ async def _open_targets(client, prof: dict) -> dict:
     genes = prof["ensembl_gene_ids"]
     if not genes:
         return {"ok": True, "found": False, "note": "UniProt lists no Ensembl gene: sin registro en Open Targets."}
-    ot = await safe(opentargets.fetch_target(client, genes[0], prof["uniprot_id"]), "Open Targets")
-    if len(genes) > 1:
-        ot["other_ensembl_genes_not_queried"] = genes[1:]
+    # UniProt can list several genes (TNF: 7, six on alternate MHC haplotypes that Open
+    # Targets does not index). Query them in order and stop at the first one with a target;
+    # an error stops the loop, because a failed query does not prove "no target".
+    without_target = []
+    for i, gene in enumerate(genes):
+        ot = await safe(opentargets.fetch_target(client, gene, prof["uniprot_id"]), "Open Targets")
+        if not ot.get("ok") or ot.get("found"):
+            break
+        without_target.append(ot["ensembl_gene_id"])
+    else:
+        return {**ot, "ensembl_gene_id": None, "ensembl_genes_without_target": without_target,
+                "note": f"sin registro en Open Targets para ninguno de los {len(genes)} genes Ensembl de UniProt."}
+    if without_target:
+        ot["ensembl_genes_without_target"] = without_target
+    if genes[i + 1:]:
+        ot["other_ensembl_genes_not_queried"] = genes[i + 1:]
     return ot
 
 
@@ -72,8 +85,9 @@ def _compact_uniprot(p: dict) -> dict:
 
 def _compact_ot(ot: dict, n: int) -> dict:
     if not ot.get("ok") or not ot.get("found"):
-        keys = ("ok", "found", "note", "error", "ensembl_gene_id", "data_version")
-        return {k: ot[k] for k in keys if ot.get(k) is not None}
+        keys = ("ok", "found", "note", "error", "ensembl_gene_id", "data_version",
+                "ensembl_genes_without_target", "other_ensembl_genes_not_queried")
+        return {k: ot[k] for k in keys if ot.get(k) is not None and ot.get(k) != []}
 
     def slim(r):
         return {"name": r["name"], "disease_id": r["disease_id"], "score": r["score"],
@@ -103,8 +117,7 @@ def _compact_ot(ot: dict, n: int) -> dict:
             "top_oncology": [slim(r) for r in oncology[:n]],
         },
         "links": ot["links"],
-        **({"other_ensembl_genes_not_queried": ot["other_ensembl_genes_not_queried"]}
-           if ot.get("other_ensembl_genes_not_queried") else {}),
+        **{k: ot[k] for k in ("ensembl_genes_without_target", "other_ensembl_genes_not_queried") if ot.get(k)},
     }
 
 

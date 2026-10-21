@@ -230,6 +230,9 @@ async def get_protein_profile(uniprot_id: str, max_diseases: int = 10) -> dict:
     - Function evidence "by similarity" means inferred from another protein.
     - Tractability gives Open Targets' yes/no flags per modality; it is not a
       druggability verdict. Cite data_version.
+    - When UniProt lists several Ensembl genes (e.g. alternate haplotypes), they
+      are queried in order until one has an Open Targets target; the others are
+      in ensembl_genes_without_target / other_ensembl_genes_not_queried.
     - If open_targets.found is false, say "sin registro en Open Targets". If
       uniprot_crosscheck is false, warn that Open Targets maps the gene to
       another protein.

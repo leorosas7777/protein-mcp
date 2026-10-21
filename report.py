@@ -305,11 +305,13 @@ def _open_targets(doc, d):
     acc = d["result"]["uniprot_id"]
     n = int((d.get("params") or {}).get("max_diseases") or 10)
     doc.h(2, "2. Target-disease evidence and tractability (Open Targets)")
-    if not ot.get("ok"):
-        doc.p(f"Open Targets could not be queried: {ot.get('error') or NO_RECORD}")
-        return
-    if not ot.get("found"):
-        doc.p(ot.get("note") or NO_RECORD)
+    if not ot.get("ok") or not ot.get("found"):
+        doc.p(ot.get("note") or NO_RECORD if ot.get("ok")
+              else f"Open Targets could not be queried: {ot.get('error') or NO_RECORD}")
+        # genes queried before the stop (no target, or a failed query) are still reported
+        if ot.get("ensembl_genes_without_target"):
+            doc.p("Ensembl genes queried without an Open Targets target: "
+                  + ", ".join(ot["ensembl_genes_without_target"]), small=True)
         return
     doc.p("Source: ", Link(f"Open Targets Platform, {ot.get('symbol')} ({ot.get('ensembl_gene_id')})",
                            (ot.get("links") or {}).get("target")),
@@ -317,6 +319,9 @@ def _open_targets(doc, d):
     if not ot.get("uniprot_crosscheck"):
         doc.p(f"Warning: Open Targets maps this gene to {', '.join(ot.get('swissprot_ids') or []) or NO_RECORD}, "
               f"not to {acc}.")
+    if ot.get("ensembl_genes_without_target"):
+        doc.p("Other Ensembl genes listed by UniProt, queried first, with no Open Targets target: "
+              + ", ".join(ot["ensembl_genes_without_target"]), small=True)
     if ot.get("other_ensembl_genes_not_queried"):
         doc.p("Other Ensembl genes listed by UniProt, not queried: " + ", ".join(ot["other_ensembl_genes_not_queried"]))
 

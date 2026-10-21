@@ -48,7 +48,9 @@ def make_handler(uniprot_entry, ot_body, calls):
         if req.url.host == "api.platform.opentargets.org":
             gid = json.loads(req.content)["variables"]["id"]
             assert "." not in gid, gid                     # never send a versioned ID
-            return httpx.Response(200, json=ot_body)
+            calls.append(gid)
+            body = ot_body.get(gid, OT_NULL) if "by_gene" in ot_body else ot_body
+            return httpx.Response(200, json=body)
         return httpx.Response(404)
     return handler
 
@@ -97,7 +99,8 @@ async def main():
     sm = ot["tractability"]["small molecule"]
     assert "Approved Drug" in sm["yes"] and "Druggable Family" in sm["no"]
     assert a["top_oncology"][0]["link"].endswith("/evidence/ENSG00000133703/MONDO_0005233")
-    assert calls == ["rest.uniprot.org", "api.platform.opentargets.org"]
+    assert calls == ["rest.uniprot.org", "api.platform.opentargets.org", "ENSG00000133703"]
+    assert "ensembl_genes_without_target" not in ot and "other_ensembl_genes_not_queried" not in ot
 
     # the dossier holds the full result; the reply stays compact
     saved = json.loads(Path(r["dossier_path"]).read_text(encoding="utf-8"))
@@ -115,6 +118,29 @@ async def main():
     # Open Targets: null target (versioned ID / missing) -> found False, not an error
     r3, _ = await run(ot_body=OT_NULL)
     assert r3["ok"] and r3["open_targets"]["found"] is False and "sin registro" in r3["open_targets"]["note"]
+
+    # several Ensembl genes (TNF has 7; Open Targets only indexes the primary-assembly one):
+    # query in order until one has a target. Real xref shape, extra gene added.
+    multi = copy.deepcopy(KRAS)
+    multi["uniProtKBCrossReferences"] += [
+        {"database": "Ensembl", "id": "ENST00000412275.2", "isoformId": "P01116-1",
+         "properties": [{"key": "ProteinId", "value": "ENSP00000398698.2"}, {"key": "GeneId", "value": g}]}
+        for g in ("ENSG00000204490.13", "ENSG00000232810.4")]
+    # genes sorted: ...133703, ...204490, ...232810; first null, second found, third not queried
+    r9, calls9 = await run(uniprot_entry=multi, ot_body={"by_gene": 1, "ENSG00000204490": OT_KRAS})
+    ot9 = r9["open_targets"]
+    assert ot9["found"] and ot9["ensembl_gene_id"] == "ENSG00000204490", ot9
+    assert ot9["ensembl_genes_without_target"] == ["ENSG00000133703"]
+    assert ot9["other_ensembl_genes_not_queried"] == ["ENSG00000232810"]
+    assert [c for c in calls9 if c.startswith("ENSG")] == ["ENSG00000133703", "ENSG00000204490"]
+    # none of them has a target -> found False, every gene listed as queried
+    r10, _ = await run(uniprot_entry=multi, ot_body={"by_gene": 1})
+    ot10 = r10["open_targets"]
+    assert ot10["found"] is False and ot10.get("ensembl_gene_id") is None and "3 genes" in ot10["note"], ot10
+    assert len(ot10["ensembl_genes_without_target"]) == 3
+    # an error stops the loop: a failed query does not prove "no target"
+    r11, calls11 = await run(uniprot_entry=multi, ot_body=OT_ERROR)
+    assert r11["open_targets"]["ok"] is False and len([c for c in calls11 if c.startswith("ENSG")]) == 1
 
     # Open Targets GraphQL error -> isolated, UniProt part still returned
     r4, _ = await run(ot_body=OT_ERROR)
