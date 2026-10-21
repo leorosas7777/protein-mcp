@@ -2,15 +2,15 @@
 
 (Named target_profile.py, not profile.py, to avoid shadowing Python's stdlib `profile` module.)
 
-The two sources stay separate in the output. The FULL result is written to the
-dossier on disk (dossiers/<accession>/profile.json); the chat only receives a
-compact summary with the path, so the reply stays small.
+The two sources stay separate in the output. get_protein_profile returns the FULL
+result (server.py saves it to dossiers/<accession>/profile.json) and compact()
+builds the small summary that goes to the chat.
 """
 import httpx
 
 import opentargets
 import uniprot
-from common import parse_accession, safe, save_dossier, short, utc_now
+from common import parse_accession, safe, short
 
 TOP_DISEASES = 10      # associations listed per block (overall / oncology) in the summary
 FUNCTION_CHARS = 600   # function text kept in the summary; the full text is in the dossier
@@ -108,11 +108,29 @@ def _compact_ot(ot: dict, n: int) -> dict:
     }
 
 
-async def get_protein_profile(uniprot_id: str, max_diseases: int = TOP_DISEASES, _client=None) -> dict:
+def compact(full: dict, max_diseases: int = TOP_DISEASES) -> dict:
+    """Chat-sized summary of the full profile (the full one goes to the dossier)."""
+    if not full.get("ok"):
+        return full
+    n = max(1, min(int(max_diseases), 50))
+    return {
+        "ok": True,
+        "uniprot_id": full["uniprot_id"],
+        "summary_note": (
+            "Compact summary. The full result (all variants with descriptions and PubMed IDs, "
+            "disease descriptions, every examined association with its datatype scores, all "
+            "tractability flags) is in dossier_path."
+        ),
+        "uniprot": _compact_uniprot(full["uniprot"]),
+        "open_targets": _compact_ot(full["open_targets"], n),
+    }
+
+
+async def get_protein_profile(uniprot_id: str, _client=None) -> dict:
+    """FULL profile; server.py saves it to the dossier and sends compact() to the chat."""
     accession, err = parse_accession(uniprot_id)
     if err:
         return err
-    max_diseases = max(1, min(int(max_diseases), 50))
 
     own = _client is None
     client = _client or httpx.AsyncClient(timeout=60.0, follow_redirects=True)
@@ -126,19 +144,4 @@ async def get_protein_profile(uniprot_id: str, max_diseases: int = TOP_DISEASES,
         if own:
             await client.aclose()
 
-    full = {"uniprot_id": accession, "retrieved_at": utc_now(), "uniprot": prof, "open_targets": ot}
-    path = save_dossier(accession, "profile", full)
-    return {
-        "ok": True,
-        "uniprot_id": accession,
-        "retrieved_at": full["retrieved_at"],
-        "dossier_path": path,
-        "dossier_note": (
-            "Compact summary. The full result (all variants with descriptions and PubMed IDs, "
-            "disease descriptions, every examined association with its datatype scores, all "
-            "tractability flags) is in dossier_path."
-            if path else "The dossier could not be written (see server log); only this summary exists."
-        ),
-        "uniprot": _compact_uniprot(prof),
-        "open_targets": _compact_ot(ot, max_diseases),
-    }
+    return {"ok": True, "uniprot_id": accession, "uniprot": prof, "open_targets": ot}

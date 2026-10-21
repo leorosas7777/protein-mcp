@@ -78,6 +78,29 @@ def save_dossier(accession: str, name: str, data: dict):
     return str(path)
 
 
+def dossier_name(base: str, *parts) -> str:
+    """File name for one call, e.g. ("ligands", "G12C") -> "ligands_g12c". Empty parts are
+    skipped, so the default call is just `base`; other parameters get their own file."""
+    slugs = [re.sub(r"[^a-z0-9]+", "-", str(p).lower()).strip("-")[:40] for p in parts if p]
+    return "_".join([base] + [s for s in slugs if s])
+
+
+def attach_dossier(result: dict, accession, name: str, tool: str, params: dict, compact=None) -> dict:
+    """Save the FULL `result` to the dossier and return what goes to the chat:
+    `compact(result)` (or the result unchanged) plus `dossier_path`.
+    Failed results are not saved and are returned as they are."""
+    if not accession or not result.get("ok"):
+        return result
+    path = save_dossier(accession, name, {
+        "tool": tool, "params": params, "retrieved_at": utc_now(), "result": result,
+    })
+    reply = compact(result) if compact else dict(result)
+    reply["dossier_path"] = path
+    if path is None:
+        reply["dossier_note"] = "The dossier could not be written (see server log); only this reply exists."
+    return reply
+
+
 async def safe(coro, label: str) -> dict:
     """The API shapes are partly unverified: never let one source crash the tool."""
     try:

@@ -346,6 +346,53 @@ def _potency_rows(mol_id, groups, docs_info):
 
 
 # ------------------------------------------------------------ public API
+_POTENCY_KEEP = ("mutation", "standard_type", "assay_class", "n_measurements",
+                 "best_nM", "median_nM", "worst_nM", "best_pchembl", "cell_types")
+
+
+def compact(result):
+    """Chat-sized view of get_ligands. Drops SMILES, properties, assay texts and the
+    document list of each potency row (one source link is kept); the full result
+    goes to the dossier."""
+    if not result.get("ok"):
+        return result
+
+    def source(p):
+        for d in p.get("documents") or []:
+            links = d.get("links") or {}
+            if links.get("pubmed") or links.get("doi"):
+                return links.get("pubmed") or links.get("doi")
+        return None
+
+    ligands = []
+    for lig in result.get("ligands") or []:
+        ligands.append({
+            "chembl_id": lig.get("chembl_id"),
+            "name": lig.get("name"),
+            "link": lig.get("link"),
+            "max_phase": lig.get("max_phase"),
+            "first_approval": lig.get("first_approval"),
+            "mechanism_of_action": (lig.get("mechanism") or {}).get("mechanism_of_action"),
+            "inchi_key": (lig.get("identity") or {}).get("inchi_key"),
+            "best_pchembl": lig.get("best_pchembl"),
+            "n_measurements": lig.get("n_measurements"),
+            "potency": [
+                {**{k: p.get(k) for k in _POTENCY_KEEP},
+                 "source": source(p), "n_documents": len(p.get("documents") or [])}
+                for p in lig.get("potency") or []
+            ],
+        })
+    flagged = result.get("label_conflicts_flagged") or []
+    out = {k: v for k, v in result.items() if k not in ("ligands", "label_conflicts_flagged")}
+    out["label_conflicts_flagged"] = {   # total excluded: activities.excluded
+        "listed_in_dossier": len(flagged),
+        "examples": [{k: f.get(k) for k in ("molecule_chembl_id", "labelled_mutation", "assay_chembl_id")}
+                     for f in flagged[:3]],
+    }
+    out["ligands"] = ligands
+    return out
+
+
 async def get_ligands(uniprot_id, mutation="", max_ligands=MAX_LIGANDS,
                       min_confidence=MIN_CONFIDENCE, _client=None):
     uid = (uniprot_id or "").strip().upper()

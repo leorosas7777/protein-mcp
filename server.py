@@ -32,7 +32,7 @@ import target_profile  # noqa: E402
 import uniprot  # noqa: E402
 import chembl
 from alphafold import fetch_alphafold  # noqa: E402
-from common import parse_accession, safe  # noqa: E402
+from common import attach_dossier, dossier_name, parse_accession, safe  # noqa: E402
 from rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
 
 mcp = FastMCP("protein-research")
@@ -82,8 +82,14 @@ async def search_literature(
     - Only abstracts are returned, not full text. open_access/has_pdf only say
       whether a legal free full text exists.
     - If total_hits is much larger than returned, say the review is partial.
+    The same result is also saved to `dossier_path` for build_report.
     """
-    return await europepmc.search(uniprot_id, topic, max_results, sort, include_preprints)
+    result = await europepmc.search(uniprot_id, topic, max_results, sort, include_preprints)
+    accession, _ = parse_accession(uniprot_id)
+    name = dossier_name("literature", topic, sort if sort != "relevance" else "",
+                        "preprints" if include_preprints else "")
+    params = {"topic": topic, "max_results": max_results, "sort": sort, "include_preprints": include_preprints}
+    return attach_dossier(result, accession, name, "search_literature", params)
 
 
 @mcp.tool()
@@ -123,6 +129,7 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
       `is_canonical_sequence`, `other_models`): always say which one was chosen.
     - AlphaFold gives one static prediction with no ligands, nucleotides or ions;
       do not use it to describe inhibitor-bound conformations.
+    The same result is also saved to `dossier_path` for build_report.
     """
     accession, err = parse_accession(uniprot_id)
     if err:
@@ -142,7 +149,7 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
             safe(fetch_alphafold(client, accession), "AlphaFold DB"),
         )
 
-    return {
+    result = {
         "ok": bool(pdb.get("ok") or af.get("ok")),
         "uniprot_id": accession,
         "experimental": pdb,
@@ -153,6 +160,9 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
             "All links are built from IDs/URLs returned by RCSB and AlphaFold DB.",
         ],
     }
+    return attach_dossier(result, accession, dossier_name("structures", mutation), "get_structures",
+                          {"max_models": limit, "mutation": mutation})
+
 
 @mcp.tool()
 async def get_ligands(uniprot_id: str, mutation: str = "", max_ligands: int = 15):
@@ -164,12 +174,19 @@ async def get_ligands(uniprot_id: str, mutation: str = "", max_ligands: int = 15
             Potency is reported per mutation; 'not stated' does NOT prove wild type.
         max_ligands: How many top ligands to return (1-50).
 
+    This reply is a COMPACT view: per potency row it keeps one `source` link and
+    `n_documents`. SMILES, properties, assay descriptions, every source document
+    and the label-conflict details are saved to `dossier_path`.
+
     Report only what is in the result. Say "N of ligands_with_qualifying_data".
     Ranking is by best pChEMBL: potency is not selectivity or developability.
     name is None for most research compounds: never invent names.
-    Link every document with its `links`. If target is None, say "sin registro en ChEMBL".
+    Cite potency with its `source` link. If target is None, say "sin registro en ChEMBL".
     """
-    return await chembl.get_ligands(uniprot_id, mutation, max_ligands)
+    result = await chembl.get_ligands(uniprot_id, mutation, max_ligands)
+    accession, _ = parse_accession(uniprot_id)
+    return attach_dossier(result, accession, dossier_name("ligands", mutation), "get_ligands",
+                          {"mutation": mutation, "max_ligands": max_ligands}, compact=chembl.compact)
 
 
 @mcp.tool()
@@ -202,7 +219,10 @@ async def get_protein_profile(uniprot_id: str, max_diseases: int = 10) -> dict:
       uniprot_crosscheck is false, warn that Open Targets maps the gene to
       another protein.
     """
-    return await target_profile.get_protein_profile(uniprot_id, max_diseases)
+    full = await target_profile.get_protein_profile(uniprot_id)
+    accession, _ = parse_accession(uniprot_id)
+    return attach_dossier(full, accession, "profile", "get_protein_profile", {"max_diseases": max_diseases},
+                          compact=lambda r: target_profile.compact(r, max_diseases))
 
 
 

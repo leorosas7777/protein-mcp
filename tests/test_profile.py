@@ -52,11 +52,14 @@ def make_handler(uniprot_entry, ot_body, calls):
     return handler
 
 
-async def run(uniprot_entry=KRAS, ot_body=OT_KRAS, acc="P01116", **kw):
+async def run(uniprot_entry=KRAS, ot_body=OT_KRAS, acc="P01116", max_diseases=10):
+    """Same path as server.get_protein_profile: full result -> dossier, compact -> chat."""
     calls = []
     transport = httpx.MockTransport(make_handler(uniprot_entry, ot_body, calls))
     async with httpx.AsyncClient(transport=transport) as c:
-        r = await target_profile.get_protein_profile(acc, _client=c, **kw)
+        full = await target_profile.get_protein_profile(acc, _client=c)
+    r = common.attach_dossier(full, acc, "profile", "get_protein_profile", {"max_diseases": max_diseases},
+                              compact=lambda x: target_profile.compact(x, max_diseases))
     return r, calls
 
 
@@ -96,8 +99,10 @@ async def main():
     assert calls == ["rest.uniprot.org", "api.platform.opentargets.org"]
 
     # the dossier holds the full result; the reply stays compact
-    full = json.loads(Path(r["dossier_path"]).read_text(encoding="utf-8"))
+    saved = json.loads(Path(r["dossier_path"]).read_text(encoding="utf-8"))
     assert Path(r["dossier_path"]).parent.name == "P01116"
+    assert saved["tool"] == "get_protein_profile" and saved["params"] == {"max_diseases": 10} and saved["retrieved_at"]
+    full = saved["result"]
     assert len(full["open_targets"]["associations"]["rows"]) == 10
     assert full["uniprot"]["natural_variants"][0]["pubmed"] == ["17468812"]
     reply_kb = len(json.dumps(r)) / 1024
@@ -124,6 +129,7 @@ async def main():
     # UniProt: inactive entry answers 200 -> error; 404 -> error; bad accession -> error
     r6, _ = await run(uniprot_entry=INACTIVE, acc="Q0ZZZ9")
     assert r6["ok"] is False and "inactive" in r6["error"], r6
+    assert "dossier_path" not in r6 and not (Path(tmp) / "Q0ZZZ9").exists()   # failures are not saved
     r7, _ = await run(uniprot_entry=None, acc="P0DZZ9")
     assert r7["ok"] is False and "not found" in r7["error"]
     r8 = await target_profile.get_protein_profile("not an id")

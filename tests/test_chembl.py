@@ -125,6 +125,18 @@ async def main():
     assert r4["ligands_returned"] == 0
     bad = await chembl.get_ligands("not an id")
     assert bad["ok"] is False
+    assert chembl.compact(bad) is bad
+
+    # compact view for the chat: no SMILES/assay texts, one source link per potency row
+    c = chembl.compact(r)
+    text = json.dumps(c)
+    assert "canonical_smiles" not in text and "smiles" not in text and "assay_examples" not in text
+    ck = next(l for l in c["ligands"] if l["chembl_id"] == "CHEMBL3218635")
+    cg = next(p for p in ck["potency"] if (p["mutation"], p["assay_class"]) == ("G12V", "binding"))
+    assert cg["source"].endswith("/24000000/") and cg["n_documents"] == 1 and cg["best_nM"] == 1200.0
+    assert c["label_conflicts_flagged"]["listed_in_dossier"] == 1
+    assert c["activities"] == r["activities"] and c["selection"] == r["selection"]
+    assert len(json.dumps(c)) < len(json.dumps(r))
     print(json.dumps({"selection": r["selection"], "excluded": a["excluded"],
                       "confidence": r["confidence"]}, indent=1))
     print("ALL OK")
