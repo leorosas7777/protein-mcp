@@ -176,12 +176,25 @@ async def get_ligands(uniprot_id: str, mutation: str = "", max_ligands: int = 15
             Potency is reported per mutation; 'not stated' does NOT prove wild type.
         max_ligands: How many top ligands to return (1-50).
 
-    This reply is a COMPACT view: per potency row it keeps one `source` link and
+    This reply is a COMPACT view: per ligand it keeps the 3 best potency groups
+    (`potency_groups_total` says how many exist) and per row one `source` link and
     `n_documents`. SMILES, properties, assay descriptions, every source document
     and the label-conflict details are saved to `dossier_path`.
 
-    Report only what is in the result. Say "N of ligands_with_qualifying_data".
+    Report only what is in the result. Say "N of ligands_with_qualifying_data";
+    if ligands_with_qualifying_data_is_lower_bound, say "at least N".
     Ranking is by best pChEMBL: potency is not selectivity or developability.
+    ALWAYS mention the three mechanism lists, these are drugs too:
+    - mechanism_compounds_without_qualifying_activity: no IC50/Ki/Kd (often
+      antibodies); never say "no approved drugs" without checking their max_phase.
+    - mechanism_compounds_other_variants_only: data exist only for other
+      variants; say "no qualifying measurement on this variant", not "untested".
+    - mechanism_compounds_unchecked: their activity download failed; unknown.
+    If mechanisms.retrieved is false the lists are None: say drugs were NOT
+    checked, never "none found". If activities.truncated, say that only the
+    most potent activities (ranked_download_cutoff_pchembl) were examined, and
+    unless activities.mechanism_compounds_download is "complete", that drug
+    statistics may be partial.
     name is None for most research compounds: never invent names.
     Cite potency with its `source` link. If target is None, say "sin registro en ChEMBL".
     """

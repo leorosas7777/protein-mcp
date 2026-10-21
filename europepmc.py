@@ -105,7 +105,7 @@ async def search(
         entry = got["entry"]
 
         gene = entry["gene"]
-        protein_name = None if entry["protein_name"] == "unknown" else entry["protein_name"]
+        protein_name = entry["protein_name"]
         query = _build_query(gene, protein_name, topic, include_preprints)
         if not query:
             return {

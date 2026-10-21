@@ -33,7 +33,7 @@ Cada vez que cambie el código hay que repetir el paso 3.
 
 - Si hay varias proteínas posibles, Claude debe preguntarte cuál es. Confirma siempre el **accession** (p. ej. `Q8NBP7`): todo lo demás se guarda bajo ese código.
 - El reporte solo incluye lo que ya se recogió en el paso 2. Si falta algo, el PDF lo dice ("Missing sections") en vez de inventarlo.
-- Cada consulta con parámetros distintos se guarda como archivo aparte (`ligands.json`, `ligands_g12c.json`...). El reporte las incluye todas.
+- Cada consulta con distinta mutación, tema, orden o preprints se guarda como archivo aparte (`ligands.json`, `ligands_g12c.json`...). El reporte las incluye todas. Los parámetros de tamaño (`max_ligands`, `max_results`, `max_models`, `max_diseases`) **no** cambian el nombre: pedir 50 ligandos sobrescribe `ligands.json` de la llamada por defecto.
 
 ## 3. Prompts que funcionan bien
 
@@ -69,7 +69,7 @@ Cada vez que cambie el código hay que repetir el paso 3.
 |---|---|---|
 | "Busca dianas para el Alzheimer" (de enfermedad a dianas) | No hay herramienta para eso | Parte de una proteína concreta |
 | "¿Qué hace el sotorasib?" (de compuesto a datos) | No hay búsqueda por compuesto (`lookup_compound` está pendiente) | Pregunta por la proteína diana |
-| Fármacos que son **anticuerpos** o proteínas (p. ej. evolocumab en PCSK9) | Aparecen solo como IDs en una nota al pie de la sección de ligandos, sin nombre ni fase (defecto conocido, se corregirá) | Revisa la tractabilidad "antibody" en Open Targets |
+| Fármacos que son **anticuerpos** o proteínas (p. ej. evolocumab en PCSK9) | No tienen potencia IC50/Ki/Kd: no entran al ranking; salen en una tabla aparte con nombre, tipo y fase | Lee esa tabla antes de concluir que no hay fármacos |
 | Selectividad, toxicidad, ADME, datos negativos | No se recuperan | Fuera del alcance actual |
 | Ensayos clínicos (ClinicalTrials.gov) | No conectado | Pendiente |
 | Descargar PDB/FASTA, abrir PyMOL | Fase 2, no implementada | Usa los enlaces del reporte |

@@ -95,6 +95,75 @@ def main():
     finally:
         report.render_pdf = real
     assert r["ok"] is False and "close it" in r["error"]
+
+    # mechanism compounds without IC50/Ki/Kd (real PCSK9 shape): a table with name and
+    # phase; dossiers written before 2026-10-21 hold bare ids and still render
+    lig_file = folder / "ligands_g12c.json"
+    saved = json.loads(lig_file.read_text(encoding="utf-8"))
+    saved["result"]["mechanism_compounds_without_qualifying_activity"] = [{
+        "chembl_id": "CHEMBL2364655", "name": "EVOLOCUMAB",
+        "link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL2364655/",
+        "molecule_type": "Antibody", "max_phase": 4.0, "first_approval": 2015,
+        "mechanism_of_action": "Subtilisin/kexin type 9 inhibitor", "action_type": "INHIBITOR"}]
+    lig_file.write_text(json.dumps(saved), encoding="utf-8")
+    md2 = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8")
+    assert "EVOLOCUMAB" in md2 and "| Antibody | 4 (approved 2015) |" in md2, md2[-1500:]
+    links_are_sourced(md2, folder)
+    saved["result"]["mechanism_compounds_without_qualifying_activity"] = ["CHEMBL2364655"]
+    lig_file.write_text(json.dumps(saved), encoding="utf-8")
+    md3 = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8")
+    assert "no qualifying activity: CHEMBL2364655" in md3
+
+    # other-variants-only and unchecked compounds get their own tables; a failed
+    # molecule lookup is "not retrieved"; ChEMBL max_phase -1 is spelled out
+    base = {"link": "https://www.ebi.ac.uk/chembl/compound_report_card/CHEMBL553/", "chembl_id": "CHEMBL553",
+            "molecule_type": "Small molecule", "first_approval": None, "action_type": "INHIBITOR",
+            "mechanism_of_action": "Epidermal growth factor receptor erbB1 inhibitor"}
+    saved["result"]["mechanism_compounds_without_qualifying_activity"] = []
+    saved["result"]["mechanism_compounds_other_variants_only"] = [
+        {**base, "name": "ERLOTINIB", "molecule_record_retrieved": True, "max_phase": 4.0}]
+    saved["result"]["mechanism_compounds_unchecked"] = [
+        {**base, "name": None, "molecule_record_retrieved": False, "max_phase": -1.0}]
+    saved["result"]["confidence"]["min_applied"] = None
+    lig_file.write_text(json.dumps(saved), encoding="utf-8")
+    md4 = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8")
+    assert "only for variants other than 'G12C' (1;" in md4 and "ERLOTINIB" in md4, md4[-2000:]
+    assert "could not be checked because their activity download failed (1;" in md4
+    assert "molecule record not retrieved" in md4 and "clinical, phase unknown (ChEMBL -1)" in md4
+    assert "Minimum assay confidence: not applied." in md4 and "confidence: None" not in md4
+    links_are_sourced(md4, folder)
+    assert "mechanism lookup failed" not in md4   # old dossiers have no "mechanisms" block
+
+    # failed mechanism lookup: the lists are None and section 4 warns (not only Methods)
+    for field in ("mechanism_compounds_without_qualifying_activity", "mechanism_compounds_other_variants_only",
+                  "mechanism_compounds_unchecked"):
+        saved["result"][field] = None
+    saved["result"]["mechanisms"] = {"retrieved": False, "records_read": None, "records_total": None}
+    lig_file.write_text(json.dumps(saved), encoding="utf-8")
+    md5 = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8")
+    sec4 = md5.split("4. Ligands")[1].split("5. Literature")[0]
+    assert "Warning: the ChEMBL mechanism lookup failed" in sec4, sec4[:1500]
+
+    # truncated download: the Activities line follows mechanism_compounds_download,
+    # never "plus every activity" when the extra download failed (unchecked may be empty)
+    saved["result"]["mechanisms"] = {"retrieved": True, "records_read": 1, "records_total": 1}
+    saved["result"]["mechanism_compounds_unchecked"] = []
+    act_block = saved["result"]["activities"]
+    act_block.update({"truncated": True, "ranked_download_cutoff_pchembl": 7.94})
+    expected = {"failed": "the extra download for mechanism compounds failed (0 unchecked;",
+                "complete": "plus every activity of mechanism compounds",
+                "mechanism_lookup_failed": "mechanism lookup failed: no extra download for drugs"}
+    for state, text in expected.items():
+        act_block["mechanism_compounds_download"] = state
+        lig_file.write_text(json.dumps(saved), encoding="utf-8")
+        line = next(l for l in Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8")
+                    .splitlines() if "fetched (truncated" in l)
+        assert text in line, (state, line)
+        assert state == "complete" or "plus every activity" not in line, (state, line)
+    # False/0 parameters are shown, so a non-default call never reads as the default one
+    assert report._params_text({"topic": "", "include_preprints": False, "max_models": 0}) == \
+        "include_preprints=False, max_models=0"
+    assert report._params_text({"topic": ""}) == "defaults"
     print(json.dumps({"pages": report.build_report(ACC)["pages"], "md_kb": round(len(md) / 1024, 1)}))
     print("ALL OK")
 

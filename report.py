@@ -157,8 +157,28 @@ def _change_label(v):
 
 
 def _params_text(params):
-    shown = [f"{k}={v!r}" for k, v in (params or {}).items() if v not in ("", None, False, 0)]
+    # False and 0 are shown: hiding them made two different calls look the same.
+    shown = [f"{k}={v!r}" for k, v in (params or {}).items() if v not in ("", None)]
     return ", ".join(shown) or "defaults"
+
+
+def _phase_text(x):
+    """ChEMBL max_phase as text (meanings from ChEMBL's schema documentation)."""
+    phase = x.get("max_phase")
+    if not isinstance(phase, (int, float)):
+        return "none recorded"
+    if phase < 0:
+        return "clinical, phase unknown (ChEMBL -1)"
+    text = "early phase 1 (0.5)" if phase == 0.5 else f"{phase:g}"
+    return text + (f" (approved {x['first_approval']})" if x.get("first_approval") else "")
+
+
+def _compound_cell(x):
+    if x.get("molecule_record_retrieved") is False:
+        label = "molecule record not retrieved"
+    else:
+        label = x.get("name") or "no name in ChEMBL"
+    return Lines([Link(x.get("chembl_id"), x.get("link")), label])
 
 
 def _paper_link(p):
@@ -431,17 +451,37 @@ def _ligands(doc, items):
                 f"{x.get('chembl_id')} {x.get('name')} ({x.get('type')})" for x in r["other_targets_ignored"]), small=True)
         a = r.get("activities") or {}
         excluded = "; ".join(f"{k.replace('_', ' ')}: {v}" for k, v in (a.get("excluded") or {}).items())
+        cut = a.get("ranked_download_cutoff_pchembl")
+        unchecked = r.get("mechanism_compounds_unchecked") or []
+        # Dossiers written before 2026-10-21 have no "mechanisms" block: not flagged.
+        mech_failed = (r.get("mechanisms") or {}).get("retrieved") is False
+        mech_text = {
+            "mechanism_lookup_failed": ", mechanism lookup failed: no extra download for drugs",
+            "failed": f", the extra download for mechanism compounds failed ({len(unchecked)} unchecked; "
+                      "drug statistics only count values above the cutoff)",
+            "no_mechanism_compounds": "",
+            "partial": ", plus part of the activities of mechanism compounds (some batches cut; see Methods)",
+            "complete": ", plus every activity of mechanism compounds",
+        }.get(a.get("mechanism_compounds_download"))
+        if mech_text is None:   # dossiers written before mechanism_compounds_download existed
+            mech_text = (f", the extra download for mechanism compounds failed ({len(unchecked)} unchecked)"
+                         if unchecked else ", plus the activities of mechanism compounds (see Methods)")
+        trunc = (f" (truncated: most potent first, lowest pChEMBL fetched {_num(cut)}{mech_text})"
+                 if cut is not None else " (truncated)") if a.get("truncated") else ""
+        conf = (r.get("confidence") or {}).get("min_applied")
         doc.p(f"Activities: {a.get('total_in_chembl')} in ChEMBL, {a.get('fetched')} fetched"
-              f"{' (truncated)' if a.get('truncated') else ''}, {a.get('used')} used. Excluded: {excluded or 'none'}. "
-              f"Minimum assay confidence: {(r.get('confidence') or {}).get('min_applied')}.", small=True)
+              f"{trunc}, {a.get('used')} used. Excluded: {excluded or 'none'}. "
+              f"Minimum assay confidence: {conf if conf is not None else 'not applied'}.", small=True)
         doc.p(r.get("selection") or "")
+        if mech_failed:
+            doc.p("Warning: the ChEMBL mechanism lookup failed for this file. Drugs without IC50/Ki/Kd "
+                  "(e.g. antibodies) and mechanisms of action were not checked: their absence below is not "
+                  "evidence that there are none.")
         rows = []
         for lig in r.get("ligands") or []:
-            phase = lig.get("max_phase")
             rows.append([
-                Lines([Link(lig.get("chembl_id"), lig.get("link")), lig.get("name") or "no name in ChEMBL"]),
-                (f"{phase:g}" + (f" (approved {lig['first_approval']})" if lig.get("first_approval") else ""))
-                if isinstance(phase, (int, float)) else "none recorded",
+                _compound_cell(lig),
+                _phase_text(lig),
                 (lig.get("mechanism") or {}).get("mechanism_of_action"),
                 _num(lig.get("best_pchembl")),
                 _potency_lines(lig),
@@ -449,9 +489,29 @@ def _ligands(doc, items):
             ])
         doc.table(["Compound", "Max phase", "Mechanism", "pChEMBL (best)", "Potency (best per group)", "Sources"],
                   rows, (0.15, 0.10, 0.13, 0.09, 0.35, 0.18))
-        if r.get("mechanism_compounds_without_qualifying_activity"):
-            doc.p("Compounds with a recorded mechanism but no qualifying activity: "
-                  + ", ".join(r["mechanism_compounds_without_qualifying_activity"]), small=True)
+        items = r.get("mechanism_compounds_without_qualifying_activity") or []
+        # Dossiers written before 2026-10-21 hold bare ChEMBL ids here.
+        if items and all(isinstance(x, str) for x in items):
+            doc.p("Compounds with a recorded mechanism but no qualifying activity: " + ", ".join(items), small=True)
+        else:
+            _mechanism_table(doc, items, "Drugs and clinical candidates with a recorded mechanism but no qualifying "
+                             "IC50/Ki/Kd ({n}; typically antibodies or other proteins, so they are not ranked by potency):")
+        _mechanism_table(doc, r.get("mechanism_compounds_other_variants_only") or [],
+                         f"Compounds with a recorded mechanism and qualifying IC50/Ki/Kd only for variants other "
+                         f"than '{mut}' ({{n}}; no qualifying measurement on this variant in ChEMBL, which is not the same "
+                         f"as untested):")
+        _mechanism_table(doc, unchecked,
+                         "Compounds with a recorded mechanism that could not be checked because their activity "
+                         "download failed ({n}; they may have potency data):")
+
+
+def _mechanism_table(doc, items, intro):
+    if not items:
+        return
+    doc.p(intro.format(n=len(items)))
+    rows = [[_compound_cell(x), x.get("molecule_type"), _phase_text(x), x.get("mechanism_of_action")]
+            for x in items]
+    doc.table(["Compound", "Type", "Max phase", "Mechanism"], rows, (0.25, 0.15, 0.20, 0.40))
 
 
 def _literature(doc, items):

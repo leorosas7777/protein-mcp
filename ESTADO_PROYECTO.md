@@ -1,5 +1,5 @@
 # ESTADO DEL PROYECTO: protein-research MCP
-Última actualización: 2026-10-20. Leer completo al iniciar cualquier sesión o chat nuevo.
+Última actualización: 2026-10-21. Leer completo al iniciar cualquier sesión o chat nuevo.
 
 ## 1. Objetivo
 Servidor MCP local para Claude Desktop. El investigador dice "revisa la proteína X" y el servidor: resuelve la proteína, recupera literatura, estructuras y ligandos, y produce un reporte con hipervínculos (chat o PDF). PyMOL se abre **solo a petición del usuario**.
@@ -7,26 +7,27 @@ Meta final: proyecto de portafolio para ser admitido en una empresa europea.
 **Lector objetivo del reporte: analista de descubrimiento de fármacos** (decidido por el usuario el 2026-10-17).
 
 ## 2. Entorno
-- Windows, PowerShell, PyMOL gratuito. Idioma: español. Plan de Claude: gratis hasta 2026-10-20; decisión de pasar a Pro (incluye Claude Code) tomada ese día.
+- Windows, PowerShell, PyMOL gratuito. Idioma: español. Plan Claude Pro (incluye Claude Code) desde 2026-10-20.
 - Carpeta del proyecto: `C:\bioinformatics\protein-mcp\` (todos los .py en la raíz). Python con `uv`, `mcp[cli]<2` (1.30.0, FastMCP). Migrar a mcp v2 es una tarea aparte y diferida.
 - Claude Desktop: `claude_desktop_config.json` → `uv --directory C:\bioinformatics\protein-mcp run server.py`.
 - Para recargar código: Quit completo desde la bandeja + chat nuevo. El campo `query_used` de `resolve_protein` y `selection_reason` de AlphaFold indican qué versión corre.
 - Node.js solo para el MCP Inspector (`uv run mcp dev server.py`).
 - Nunca `print()` a stdout (rompe stdio); usar `logging`.
-- Git/GitHub: repo privado, un commit por paso, sin secretos. El usuario hace los commits. (Verificar estado de commits: división, correcciones, `chembl.py`.)
-- Chat de claude.ai: su shell NO alcanza ChEMBL, UniProt ni Open Targets (proxy rechaza); WebFetch devuelve un resumen hecho por otro modelo, no sirve como evidencia de formas JSON. Desde Claude Code en la máquina local se espera tener red completa (verificar con un `curl` en la primera sesión).
+- Git/GitHub: repo privado, un commit por paso, sin secretos. El usuario hace los commits, salvo que pida explícitamente uno a Claude Code. Nunca `git push` desde Claude Code.
+- Chat de claude.ai: su shell NO alcanza ChEMBL, UniProt ni Open Targets (proxy rechaza); WebFetch devuelve un resumen hecho por otro modelo, no sirve como evidencia de formas JSON. Desde Claude Code en la máquina local hay red completa (verificado 2026-10-20/21: UniProt, Europe PMC, RCSB, AlphaFold, ChEMBL y Open Targets responden).
 
 ## 3. Arquitectura (decidida 2026-10-17)
-- `server.py` es el único punto de entrada: solo registra herramientas (`@mcp.tool()`) y delega. Los docstrings se quedan ahí (es lo que Claude lee para usar cada herramienta).
+- `server.py` es el único punto de entrada: registra las 6 herramientas (`@mcp.tool()`) y delega. Los docstrings se quedan ahí (es lo que Claude lee para usar cada herramienta). Excepción actual: `get_structures` valida la mutación y arma el resultado (RCSB + AlphaFold) dentro de `server.py`; moverlo a su módulo encaja en la tarea 7.
 - Un módulo por fuente: `uniprot.py`, `europepmc.py`, `rcsb.py` (no `pdb.py`: taparía el módulo `pdb` de Python), `alphafold.py`, `chembl.py`, `opentargets.py`. `target_profile.py` (no `profile.py`: taparía el módulo `profile` de Python) combina uniprot + opentargets. `report.py` (build_report) solo lee el expediente: importa `common` y reportlab, nunca las APIs. `common.py` guarda helpers compartidos (`log`, `parse_accession`, `clean_text`, `short`, `safe`, `utc_now`, `save_dossier`, `dossier_name`, `attach_dossier`, `DOSSIER_DIR`) y no importa nada del proyecto (evita ciclos). `chembl.py` tampoco importa módulos del proyecto (solo httpx).
 - Grafo: server → uniprot, europepmc, rcsb, alphafold, chembl, target_profile, report, common; europepmc → uniprot, common; target_profile → uniprot, opentargets, common; report → common (+ reportlab); rcsb/alphafold/opentargets/uniprot → common.
 - **Expediente en disco (2026-10-20):** `server.py` llama a `common.attach_dossier(resultado, acc, nombre, herramienta, params, compact=None)` tras cada herramienta con accession: guarda el resultado COMPLETO en `dossiers/<acc>/<nombre>.json` (en `.gitignore`) con el formato `{tool, params, retrieved_at, result}` y devuelve al chat `compact(resultado)` (o el resultado tal cual) + `dossier_path`. Los resultados con `ok: false` no se guardan. Los módulos de cada fuente no escriben en disco.
-  - Nombres (`dossier_name`): un archivo por combinación de parámetros; la llamada por defecto es solo la base. `literature[_tema][_orden][_preprints]`, `structures[_mutación]`, `ligands[_mutación]`, `profile`. Una llamada repetida con los mismos parámetros sobrescribe su archivo.
-  - Qué va al chat: `get_ligands` → `chembl.compact` (sin SMILES, propiedades, textos de ensayo ni lista de documentos; un enlace `source` por fila de potencia). `get_protein_profile` → `target_profile.compact`. `search_literature` y `get_structures` → sin cambios (los abstracts son la evidencia que Claude cita; estructuras pesa ~6 KB). `resolve_protein` → sin expediente (no hay accession).
-- **Un solo servidor para todas las fases** (config sin cambios). Al empezar la Fase 2: migrar a paquetes por fase con `register(mcp)` y mover `common.py` a un lugar compartido. Mover la Fase 3 a su propio servidor solo si necesita dependencias distintas, cómputo largo o subprocesos que bloqueen. No crear carpetas de fase antes de tiempo.
+  - Nombres (`dossier_name`): un archivo por mutación, tema, orden y preprints; la llamada por defecto es solo la base. Los parámetros de tamaño (`max_ligands`, `max_results`, `max_models`, `max_diseases`) NO entran en el nombre: una llamada con otro tamaño sobrescribe el archivo por defecto. `literature[_tema][_orden][_preprints]`, `structures[_mutación]`, `ligands[_mutación]`, `profile`. Una llamada repetida con los mismos parámetros sobrescribe su archivo.
+  - Qué va al chat: `get_ligands` → `chembl.compact` (sin SMILES, propiedades, textos de ensayo ni lista de documentos; máximo 3 grupos de potencia por ligando; un enlace `source` por fila). `get_protein_profile` → `target_profile.compact`. `search_literature` y `get_structures` → sin cambios (los abstracts son la evidencia que Claude cita; estructuras pesa ~6 KB). `resolve_protein` → sin expediente (no hay accession).
+- **Un solo servidor para todas las fases** (config sin cambios). Mover la Fase 3 a su propio servidor solo si necesita dependencias distintas, cómputo largo o subprocesos que bloqueen.
+- **Organización del código antes de la Fase 2: pendiente de decisión del usuario** (sección 8, tarea 7). Plan original (2026-10-17): paquetes por fase con `register(mcp)`. Propuesta de Claude Code (2026-10-20): paquete por responsabilidad (`sources/`, `dossier.py`, `report.py`), porque la Fase 2 reutiliza `rcsb.py` y `alphafold.py`. Hasta decidir, todo sigue en la raíz.
 
 ## 4. Herramientas implementadas
-Probadas contra APIs reales, KRAS/P01116.
+Probadas contra APIs reales (KRAS/P01116; ligandos también PCSK9 y EGFR). `tests/smoke_live.py` repite las comprobaciones reales clave (34 comprobaciones, 33 + 1 informativa; 2026-10-21: todas pasan, EGFR repetido tras un `ConnectError` real de ChEMBL).
 1. `resolve_protein(name, organism_id=9606, max_results=5)`: UniProt. Sin espacios: `gene_exact` + reviewed primero; si no, texto libre. Devuelve `candidates`, `query_used`, `needs_user_confirmation`.
 2. `search_literature(uniprot_id, topic="", max_results=10, sort="relevance", include_preprints=False)`: Europe PMC (`resultType=core`, `TITLE_ABS`, `NOT SRC:PPR`). Limpia HTML, campos anidados de revista y tipo de publicación; enlaces pubmed/doi/pmc/europepmc.
 3. `get_structures(uniprot_id, max_models=0, mutation="")`: RCSB (Search v2 + GraphQL) y AlphaFold DB en paralelo con `asyncio.gather`.
@@ -44,8 +45,16 @@ Probadas contra APIs reales, KRAS/P01116.
    - Mutación: `assay_variant_mutation` del registro; se agrupa por (molécula, mutación, tipo, `assay_class`) y nunca se mezclan mutaciones ni ensayos celulares con bioquímicos. "not stated" NO prueba tipo silvestre.
    - **Conflicto etiqueta/texto:** si la mutación nombrada en la descripción del ensayo no coincide con la etiqueta curada, la actividad se excluye y se lista en `label_conflicts_flagged` (hasta 10). Caso real: 23 actividades etiquetadas G12C cuyo texto dice "KRAS G12D" (ensayo de intercambio con bodipy).
    - Orden de salida: primero por `max_phase`, luego por mejor pChEMBL. Se añaden siempre los compuestos con mecanismo registrado (`mechanism` endpoint).
+   - **Mecanismos por molécula padre (2026-10-21):** se indexan por `parent_molecule_chembl_id`. En EGFR 15 de 90 filas están en la sal (erlotinib HCl CHEMBL1079742, padre CHEMBL553) y las actividades usan el padre; antes esos fármacos caían como "sin actividad".
+   - **Fármacos sin IC50/Ki/Kd (2026-10-21):** `mechanism_compounds_without_qualifying_activity` es ahora una lista de objetos (`chembl_id`, `name`, `link`, `molecule_type`, `max_phase`, `first_approval`, `mechanism_of_action`, `action_type`), ordenada por fase; `selection` los menciona y el reporte los muestra en tabla. Expedientes anteriores (lista de IDs) se siguen mostrando como nota.
+   - **Descarga ordenada (2026-10-21):** actividades con `order_by=-pchembl_value&order_by=activity_id` (solo `-pchembl_value` repite y salta filas entre páginas: 2986 únicos de 3000 en EGFR). Si hay truncado, se descargan además todas las actividades de los compuestos con mecanismo (`parent_molecule_chembl_id__in`, verificado). Campos nuevos en `activities`: `fetched_for_mechanism_compounds`, `ranked_download_cutoff_pchembl`; nota "Truncated: ...".
+   - **Listas de mecanismo (2026-10-21):** además de `..._without_qualifying_activity`, `mechanism_compounds_other_variants_only` (con filtro de mutación: datos válidos solo en otras variantes, p. ej. lapatinib con EGFR C797S) y `mechanism_compounds_unchecked` (truncado + falla la descarga extra). Cada entrada lleva `molecule_record_retrieved`. Fases 0.5 (fase 1 temprana) y -1 (clínica, fase desconocida) se ordenan y se explican.
+   - **Fallo de la consulta de mecanismos (2026-10-21):** campo `mechanisms {retrieved, records_read, records_total}`; si falla, las tres listas son `None` (no comprobado, nunca `[]`), `selection` lleva "WARNING" y el reporte avisa en la sección 4. Se avisa también si se leen menos registros de mecanismo que el total (`MAX_MECHANISMS = 2000`) o si un lote de la descarga extra se corta en `MAX_ACTIVITIES`.
+   - **Recuento con truncado (2026-10-21):** `activities.mechanism_compounds_download` (`complete`/`partial`/`failed`/`no_mechanism_compounds`/`mechanism_lookup_failed`, None sin truncado) decide el texto de la nota y de la línea *Activities* del reporte (antes se deducía de `unchecked`, que queda vacío si todos los fármacos están sobre el corte: el reporte afirmaba una descarga fallida; hallado por el revisor); `ligands_with_qualifying_data_is_lower_bound`; `selection` dice "At least N"; la nota del corte dice "lowest pChEMBL fetched" y avisa de empates en el corte. Real EGFR: "At least 3384 ligands…", 90 de 90 mecanismos.
+   - Confianza: `confidence.assay_records_read/total`; actividades de ensayos no leídos van a `excluded.assay_record_missing` (`MAX_ASSAYS = 20000`; EGFR tiene 5.966).
+   - Vista compacta: máximo `COMPACT_POTENCY_ROWS = 3` grupos de potencia por ligando, con `potency_groups_total`.
    - Identidad, propiedades (None si ChEMBL no las tiene), estado de desarrollo y documento fuente con enlaces PubMed/DOI. El nombre es el `pref_name` de ChEMBL y es None en la mayoría de los compuestos de investigación.
-   - Constantes: `MAX_ACTIVITIES = 6000`, `MAX_LIGANDS = 15`, `PAGE = 1000`.
+   - Constantes: `MAX_ACTIVITIES = 6000`, `MAX_ASSAYS = 20000`, `MAX_MECHANISMS = 2000`, `MAX_LIGANDS = 15`, `PAGE = 1000`.
    - Alcance v1: bloques 1, 2, 3, 6 y 8 de la lista original (identidad, potencia, ensayo, desarrollo, fuente). Fuera: selectividad (4), datos negativos (7), cruce PDB↔ChEMBL.
 5. `get_protein_profile(uniprot_id, max_diseases=10)`: UniProt + Open Targets, módulos `uniprot.py` (`fetch_entry_json`, `parse_profile`), `opentargets.py` y `target_profile.py`. Guarda el resultado completo en `dossiers/<acc>/profile.json` y devuelve `target_profile.compact` con `dossier_path`.
    - UniProt: función (texto + PubMed + tipo de evidencia), localización subcelular (con isoforma), enfermedades (nombre None si UniProt solo tiene nota; enlaces UniProt diseases y OMIM), variantes naturales y mutagénesis (`change` solo para sustituciones de un residuo), Ensembl sin versión y deduplicado, target ChEMBL.
@@ -57,7 +66,7 @@ Probadas contra APIs reales, KRAS/P01116.
    - PDF con reportlab + Arial de Windows; carácter sin glifo → forma NFKC (`⁺`→`+`) o `?` solo en el PDF; el Markdown conserva el original. PDF abierto en un visor (bloqueo de Windows) → error claro.
    - Idioma del reporte: inglés (datos de las fuentes en inglés; lector en empresa europea). Cambiable.
    - Prueba real 2026-10-20 (KRAS, 6 archivos): 7 páginas; 253 enlaces (167 únicos), todos presentes en el expediente o construidos desde un ID que está en él (comprobado por script). Revisión visual página a página: corregidos la etiqueta de mutagénesis multi-residuo (KIKK182-185→RIRR) y el glifo ausente de "CD8⁺". Prueba offline: `tests/test_report.py` (incluye la comprobación de enlaces) con fixtures reales en `tests/fixtures/dossier_P01116/`.
-   - Prueba real con PCSK9 (Q8NBP7), flujo completo como Claude Desktop: 6 páginas, 180 enlaces todos respaldados; reveló el defecto de anticuerpos (sección 6).
+   - Prueba real con PCSK9 (Q8NBP7), flujo completo como Claude Desktop: 6 páginas, 180 enlaces todos respaldados; reveló el defecto de anticuerpos (corregido 2026-10-21).
 
 ## 5. Decisiones tomadas (no reabrir sin motivo)
 - **Fuente de ligandos: solo ChEMBL** (licencia CC BY-SA 3.0, API gratuita; ChEMBL_37, ~24,5 M de actividades; verificado en `ebi.ac.uk/chembl/api/data/status.json`).
@@ -74,15 +83,16 @@ Probadas contra APIs reales, KRAS/P01116.
 
 ## 6. Limitaciones conocidas y bugs abiertos
 - **RCSB, falso negativo del lado del servidor:** la búsqueda `full_text` de RCSB no separa el gen de la variante, así que entradas con el campo de mutación vacío y la variante solo pegada en el título no llegan al conjunto (verificado 2026-10-20: 9GLU "KRasG12D-GDP…" y 5UFQ no aparecen al buscar "G12D"). Nuestra confirmación sí las reconocería. Posible arreglo: añadir al OR una búsqueda por `pdbx_mutation` o por título con prefijos de gen; no validado.
-- Tamaño al chat (prueba real 2026-10-20, P01116): `get_ligands` G12C 36,9 → 15,2 KB (expediente 47 KB); `search_literature` 10 artículos 23,6 KB y 25 artículos ~53 KB (sin compactar a propósito: son los abstracts); `get_structures` 5,8 KB; `get_protein_profile` 10,8 KB (expediente 318 KB).
+- Tamaño al chat (pruebas reales 2026-10-20/21): `get_ligands` KRAS G12C 37,1 → 15,4 KB, PCSK9 13,7 KB, EGFR 63 KB (ver abajo); `search_literature` 10 artículos 23,6 KB y 25 artículos ~53 KB (sin compactar a propósito: son los abstracts); `get_structures` 5,8 KB; `get_protein_profile` 10,8 KB (expediente 318 KB).
 - `get_protein_profile`: el área "cancer or benign tumor" de Open Targets incluye algunos síndromes (p. ej. nevo sebáceo lineal, ALPS4 en KRAS); solo se examinan las 500 primeras asociaciones; si UniProt da varios genes Ensembl solo se consulta el primero (los demás en `other_ensembl_genes_not_queried`); OMIM responde 403 a clientes automatizados (el enlace `omim.org/entry/{MIM}` funciona en navegador, no comprobado aquí).
+- `get_ligands` con truncado (EGFR, 20.949 actividades): solo se ven las 6.000 más potentes (pChEMBL ≥ 7,94) más las de compuestos con mecanismo; para los demás compuestos, `n_measurements`, mediana y peor valor solo cuentan lo que supera el corte, y con filtro de mutación se pierden las de esa variante por debajo del corte (`assay_variant_mutation` NO admite filtro en el servidor: `icontains` da error). EGFR tarda 36–64 s según la carga de ChEMBL (2026-10-21; riesgo de timeout en Claude Desktop, no comprobado) y la vista compacta pesa 65 KB (51 ligandos: 15 + 36 con mecanismo). Inclisiran (siRNA) no aparece en PCSK9: su mecanismo no está en el target CHEMBL2929.
 - `get_ligands`: el ranking por mejor pChEMBL favorece mediciones únicas; solo se comprueba `max_phase` en los compuestos devueltos y en los de mecanismo registrado, así que otros compuestos clínicos sin mecanismo pueden no aparecer (el filtro `max_phase__gte` sobre molecule NO está validado). Los ligandos del PDB no se cruzan con ChEMBL. Un ensayo de ChEMBL puede estar mal etiquetado en el sentido contrario (texto sin mutación nombrada y etiqueta equivocada): no se detecta.
 - Filtro de mutación de RCSB: solo se examinan los 100 mejores por resolución de los que RCSB encuentra por texto; la confirmación puede descartar entradas que nombran la variante solo en otros campos (se listan en `discarded_not_confirmed`).
 - Con filtro de mutación, varias estructuras salen sin ligando de molécula pequeña; los análogos de nucleótido (GDP/GCP/GNP) ocupan slots (pendiente: agruparlos GDP vs análogo de GTP).
 - 7ROV y 6WGN están unidas a péptidos (aparecen en `partner_chains`, `ligands: []`); pendiente contar binders poliméricos como ligandos.
 - El DOI de 7T47 es un preprint (Research Square).
-- Caminos "no encontrado": probados contra UniProt real solo en `get_protein_profile`/`search_literature` (P0DZZ9 → 404; Q0ZZZ9 → inactiva con HTTP 200). En `get_structures` y `get_ligands` siguen sin probar. P99999 NO sirve: es citocromo c humano.
-- **DEFECTO IMPORTANTE (`get_ligands`, hallado 2026-10-20 con PCSK9/Q8NBP7):** los fármacos sin IC50/Ki/Kd con pChEMBL (anticuerpos, proteínas) no entran al ranking y solo aparecen como IDs en `mechanism_compounds_without_qualifying_activity` (nota al pie del reporte). En PCSK9 quedan así EVOLOCUMAB y ALIROCUMAB (Antibody, fase 4, aprobados 2015) y 6 más en fase 2-3 (verificado en `molecule.json` de ChEMBL). Un analista leería "no hay fármacos aprobados". Arreglo propuesto: tabla "Drugs and clinical candidates with a recorded mechanism" con nombre, tipo, fase y mecanismo (los datos de `molecule` ya se piden para los ligandos devueltos).
+- AlphaFold: el enlace `link` se construye con el accession consultado, no con el `entryId` elegido; si se elige una isoforma, el enlace abre el modelo canónico mientras las cifras son de la isoforma (detectado por el revisor 2026-10-21, sin corregir).
+- Caminos "no encontrado": `get_protein_profile`/`search_literature` dan error claro (P0DZZ9 → 404; Q0ZZZ9 → inactiva con HTTP 200). **`get_ligands` y `get_structures` NO distinguen un accession inexistente** (probado 2026-10-21 con P0DZZ9): devuelven `ok: true` con "sin registro"/0 estructuras y guardan expediente, porque no consultan UniProt. P99999 NO sirve como inexistente: es citocromo c humano.
 - `get_protein_profile`/reporte: el segundo bloque de asociaciones es siempre oncología (`MONDO_0045024`); en dianas no oncológicas (PCSK9, cardiovascular) aporta poco. Posible arreglo: área terapéutica configurable o la del primer resultado.
 - `build_report`: mezcla archivos del expediente con fechas distintas si se consultaron en momentos distintos (cada sección muestra su fecha de consulta, pero no hay aviso de antigüedad). No incluye abstracts ni la interpretación. Depende de Arial (Windows); en otro SO hay que registrar otra TTF con Unicode. Un expediente viejo de otra versión del código podría no tener algún campo (se muestra "no record").
 - `resolve_protein("insulin receptor")` devuelve ruido; mejora diferida (búsqueda por nombre entre comillas).
@@ -98,17 +108,24 @@ Probadas contra APIs reales, KRAS/P01116.
 - 2026-10-20 (Claude Code): borrados `src/`, `Litreview/`, `a.json`, `m.json`, `t.json` (autorizado por el usuario). **`get_protein_profile` implementado** con expediente en disco (ver sección 4, herramienta 5).
 - 2026-10-20 (Claude Code): **expediente en disco para todas las herramientas** (`attach_dossier`). Pruebas offline: `tests/test_dossier.py`, más `chembl.compact` en `tests/test_chembl.py`. Prueba real con las 5 herramientas: 6 archivos en `dossiers/P01116/`; id inválido → error sin archivo.
 - 2026-10-20 (Claude Code): librería PDF elegida (reportlab) tras probar weasyprint, fpdf2 y reportlab. **`build_report` implementado** (sección 4, herramienta 6) y probado con KRAS real.
+- 2026-10-21 (Claude Code): **corregidos en `get_ligands`** los fármacos sin IC50/Ki/Kd (anticuerpos), los mecanismos registrados en sales, y el truncado sin orden. Pruebas reales: PCSK9 (9 compuestos con mecanismo sin actividad, alirocumab y evolocumab fase 4 aprobados 2015; reporte con tabla, vía `server.py` en carpeta temporal), EGFR (20.949 → 6.000 + 722 de compuestos con mecanismo; mobocertinib, osimertinib, erlotinib… arriba; cetuximab, panitumumab, necitumumab, amivantamab en la tabla de anticuerpos), KRAS G12C sin cambios (348 ligandos, adagrasib/sotorasib/glecirasib primero). Pruebas offline actualizadas: `test_chembl.py` (sal, anticuerpo con forma real, truncado) y `test_report.py` (formato nuevo y viejo). No se hizo revisión visual del PDF.
+- 2026-10-21 (Claude Code): `tests/smoke_live.py` (pruebas reales: invariantes externas, de regresión y anti-alucinación; 31/31 pasan; control negativo: al reintroducir el defecto de anticuerpos fallan 3). Agente `revisor` en `.claude/agents/revisor.md` (solo lectura, contexto limpio). `__pycache__/` sacado de git (`git rm -r --cached`). Este documento corregido: entorno, excepción de `get_structures` en `server.py`, decisión de organización marcada como pendiente, caminos "no encontrado".
+
+- 2026-10-21 (Claude Code): revisión limpia antes de la Fase 2 (agente `revisor`). Corregidos en `get_ligands`: fallo silencioso de la consulta de mecanismos (listas `None` + aviso en `selection`, notas y sección 4 del reporte), recuento "at least N" con truncado, topes de descarga avisados, redacción "no qualifying measurement on this variant"; docstring de `get_ligands` menciona las tres listas. Docs: nombres de expediente, `GUIA_INTERPRETACION.md` (fases 0.5/-1, tablas nuevas, aviso). Pruebas offline 5/5; `smoke_live.py` 34/34 (EGFR repetido tras un `ConnectError` real, que dejó cetuximab en `unchecked` como debía).
 
 ## 8. Siguientes tareas (en este orden)
 1. ~~Corregir 9TBR~~ (hecho 2026-10-20).
 2. ~~Expediente en disco~~ (hecho 2026-10-20 para las 5 herramientas).
 3. ~~`get_protein_profile`~~ (hecho 2026-10-20).
 4. ~~`build_report`~~ (hecho 2026-10-20).
-5. **Corregir el defecto de anticuerpos en `get_ligands`** (sección 6) + reporte + prueba con PCSK9.
-6. Probar el flujo completo desde Claude Desktop con una proteína nueva (guía: `docs/USO.md`).
+5. ~~Corregir el defecto de anticuerpos en `get_ligands`~~ (hecho 2026-10-21, junto con el truncado ordenado).
+6. Probar el flujo completo desde Claude Desktop con una proteína nueva (guía: `docs/USO.md`). Casos propuestos 2026-10-21 (expectativas NO verificadas contra las APIs; el orden lo decide el usuario):
+   - **A. BRAF V600E** (oncología, quinasa, molécula pequeña, mutación): filtro de mutación en estructuras y ligandos, fármacos aprobados entre los primeros, posible truncado ("At least N"), tiempo de `get_ligands` frente al timeout de Desktop.
+   - **B. TNF** (inmunología, diana de anticuerpos/proteínas de fusión): tabla de fármacos sin IC50/Ki/Kd, bloque de oncología de Open Targets poco útil en diana no oncológica, nombre ambiguo ("TNF alpha") en `resolve_protein`.
+   - **C. Proteasa principal del SARS-CoV-2** (no humana, poliproteína): `organism_id` distinto de 9606, Open Targets "sin registro", accession de poliproteína en ChEMBL/RCSB; prueba anti-alucinación (Claude no debe nombrar fármacos que no estén en el resultado).
 7. **Antes de la Fase 2: reestructurar en paquete** (propuesta de Claude Code 2026-10-20, pendiente de decisión del usuario): `protein_mcp/` con `sources/` (una fuente por módulo), `dossier.py`, `report.py`, `server.py`; tests sin `sys.path`; `[project.scripts]` para poder ejecutar con `uvx`. Sin cambiar lógica, en un commit aparte. Reabre la decisión de la sección 3 ("paquetes por fase"): se propone organizar por responsabilidad, porque la Fase 2 (descargas, PyMOL) reutiliza las mismas fuentes.
-8. README del portafolio (inglés) con instalación, ejemplo y un PDF de muestra.
-   - Diseño original: Lee `dossiers/<acc>/*.json` (campos `tool`, `params`, `retrieved_at`, `result`), no la conversación. Si falta un archivo, la sección dice qué herramienta ejecutar (o la ejecuta) en vez de rellenar. Sección de métodos con las limitaciones de la sección 6 y la fecha/versión de cada fuente.
+8. README del portafolio (inglés) con instalación, ejemplo y un PDF de muestra (hoy `README.md` está vacío).
+9. `get_ligands`/`get_structures`: distinguir accession inexistente de "sin datos" (sección 6).
 
 ### 8.1 Campos validados para `get_protein_profile` (2026-10-20, KRAS/P01116, llamadas reales desde Claude Code)
 Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P01116_profile.json`, `opentargets_ENSG00000133703.json`, `opentargets_versioned_id_null.json`, `uniprot_inactive_Q0ZZZ9.json`.
@@ -129,7 +146,7 @@ Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P
   - Open Targets solo cubre diana humana: con `organism_id != 9606` debe quedar "sin registro".
 
 ## 9. Hoja de ruta posterior
-- Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess). Aquí se migra a paquetes por fase.
+- Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess), con la organización que se decida en la tarea 7.
 - Opcional: validar `max_phase__gte` para encontrar compuestos clínicos sin mecanismo; cruce PDB↔ChEMBL por InChIKey; clave NCBI/PubMed; migración a mcp v2; ClinicalTrials.gov limitado; rama de DrugBank; `lookup_compound`; selectividad y datos negativos de ChEMBL.
 - Fila no cubierta por ninguna fuente: disponibilidad comercial / calidad de sonda química.
 
@@ -140,5 +157,6 @@ Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P
 - Una tarea por sesión (en Claude Code) o un chat por paso (en claude.ai); el rol se indica al inicio.
 - Probar siempre contra APIs reales; los tests simulados deben reflejar defectos reales.
 - Respuestas breves; cambios como diffs salvo en refactors grandes; no subir `server.py` completo salvo que haga falta.
-- Commit por paso, hecho por el usuario; no versionar archivos de respaldo (`server_old.py`), `dossiers/` ni salidas de prueba (`probe.txt`).
-- Pruebas: carpeta `tests/`, ejecutadas con `uv run python tests/<archivo>.py`.
+- Commit por paso, hecho por el usuario (o por Claude Code si lo pide explícitamente); no versionar archivos de respaldo (`server_old.py`), `dossiers/` ni salidas de prueba (`probe.txt`).
+- Pruebas: carpeta `tests/`, ejecutadas con `uv run python tests/<archivo>.py`. Pruebas reales: `tests/smoke_live.py`.
+- Tras cambiar una herramienta: pruebas offline + grupo de `smoke_live.py` + agente `revisor` antes del commit.

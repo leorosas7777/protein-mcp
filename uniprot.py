@@ -20,10 +20,10 @@ ECO_LABELS = {
 def parse_entry(entry: dict) -> dict:
     """Flatten one UniProt JSON entry into the fields we care about."""
     desc = entry.get("proteinDescription", {})
-    name = (
+    submitted = desc.get("submissionNames") or [{}]
+    name = (   # None when UniProt gives no name: never filled in
         desc.get("recommendedName", {}).get("fullName", {}).get("value")
-        or desc.get("submissionNames", [{}])[0].get("fullName", {}).get("value")
-        or "unknown"
+        or submitted[0].get("fullName", {}).get("value")
     )
     genes = entry.get("genes", [])
     gene = genes[0].get("geneName", {}).get("value") if genes else None

@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # project root
 import common  # noqa: E402
 import target_profile  # noqa: E402
+import uniprot  # noqa: E402
 
 FIX = ROOT / "tests" / "fixtures"
 
@@ -134,6 +135,10 @@ async def main():
     assert r7["ok"] is False and "not found" in r7["error"]
     r8 = await target_profile.get_protein_profile("not an id")
     assert r8["ok"] is False
+    # no name in UniProt -> None, never "unknown"; empty submissionNames must not crash
+    for desc in ({}, {"submissionNames": []}):
+        assert uniprot.parse_entry({"primaryAccession": "X", "proteinDescription": desc})["protein_name"] is None
+    assert uniprot.parse_entry(KRAS)["protein_name"] == "GTPase KRas"
 
     print(json.dumps({"reply_kb": round(reply_kb, 1), "associations": {k: a[k] for k in ("total", "examined", "oncology_in_examined")}}, indent=1))
     print("ALL OK")

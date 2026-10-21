@@ -97,7 +97,8 @@ Son indicadores, **no un veredicto** de que se pueda hacer un fármaco.
 
 ChEMBL recopila mediciones de potencia publicadas: cuánto compuesto hace falta para actuar sobre la proteína.
 
-- **Max phase**: lo más lejos que ha llegado el compuesto. **4** = aprobado (con año); **3/2/1** = fase de ensayo clínico; *none recorded* = investigación.
+- **Max phase**: lo más lejos que ha llegado el compuesto. **4** = aprobado (con año); **3/2/1** = fase de ensayo clínico; **early phase 1 (0.5)** = fase 1 temprana; **clinical, phase unknown (ChEMBL -1)** = ChEMBL sabe que llegó a clínica pero no en qué fase; *none recorded* = investigación.
+- **molecule record not retrieved**: la consulta del registro de la molécula falló, así que nombre, tipo y fase son desconocidos. No significa que el compuesto no tenga nombre.
 - **Potency**: `G12C · IC50 · cellular: 5 nM (median 10, n=3)` significa:
   - **IC50**: concentración que inhibe el 50 % de la actividad. **Ki/Kd**: afinidad de unión. En todos, **menor = más potente**.
   - **nM** (nanomolar): 1 nM es muy potente, 1.000 nM (1 µM) es débil.
@@ -107,7 +108,15 @@ ChEMBL recopila mediciones de potencia publicadas: cuánto compuesto hace falta 
 - **no name in ChEMBL**: la mayoría de compuestos de investigación no tiene nombre. El reporte no lo inventa.
 - **Orden**: primero los que llegaron a clínica, luego por potencia. **Potencia no es selectividad** (que no afecte a otras proteínas) **ni que sea un buen fármaco** (absorción, toxicidad).
 
-⚠️ **Punto ciego conocido**: los fármacos que son **anticuerpos** casi nunca tienen IC50 en ChEMBL. En PCSK9, evolocumab y alirocumab (aprobados en 2015) solo aparecen como IDs en la nota *"Compounds with a recorded mechanism but no qualifying activity"*. Lee esa nota y la tractabilidad de Open Targets antes de concluir que "no hay fármacos".
+⚠️ **Anticuerpos y proteínas**: casi nunca tienen IC50 en ChEMBL, así que no entran a la tabla de potencia. Aparecen en la tabla *"Drugs and clinical candidates with a recorded mechanism but no qualifying IC50/Ki/Kd"* con nombre, tipo y fase (en PCSK9: evolocumab y alirocumab, aprobados en 2015). Léela antes de concluir que "no hay fármacos".
+
+Dos tablas más pueden aparecer:
+- *"...qualifying IC50/Ki/Kd only for variants other than 'X'"*: el fármaco tiene datos, pero ninguno válido para la variante pedida (p. ej. lapatinib con EGFR C797S). No significa "no probado": puede haber una medición excluida por los filtros (valor censurado, baja confianza, conflicto de etiqueta).
+- *"...could not be checked because their activity download failed"*: la descarga falló; no se sabe si tienen potencia.
+
+Si aparece **"Warning: the ChEMBL mechanism lookup failed"**, la consulta de mecanismos falló: los fármacos sin IC50 (anticuerpos) no se comprobaron. Que no salgan no significa que no existan; repite la consulta.
+
+En dianas muy estudiadas (EGFR) la línea *Activities* dice *truncated*: se examinaron solo las actividades más potentes (hasta el pChEMBL más bajo indicado; los empates en ese valor pueden quedar fuera en parte) más las de los fármacos con mecanismo (si esa descarga extra falló o quedó cortada, la línea lo dice y las estadísticas de los fármacos también son parciales). Por eso la selección dice *"At least N ligands"*: es un mínimo, no el total de ChEMBL. Para los demás compuestos, *n* y la mediana solo cuentan esas mediciones.
 
 ## 5. Literature (Europe PMC)
 
