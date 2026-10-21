@@ -1,0 +1,793 @@
+{
+ "data": {
+  "meta": {
+   "dataVersion": {
+    "year": "26",
+    "month": "09",
+    "iteration": null
+   },
+   "apiVersion": {
+    "x": "26",
+    "y": "9",
+    "z": "0"
+   }
+  },
+  "target": {
+   "id": "ENSG00000133703",
+   "approvedSymbol": "KRAS",
+   "approvedName": "KRas proto-oncogene, GTPase",
+   "biotype": "protein_coding",
+   "proteinIds": [
+    {
+     "id": "P01116",
+     "source": "uniprot_swissprot"
+    },
+    {
+     "id": "A0A8I5KQ21",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "A0A8I5KQU3",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "A0A8I5KR86",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "A0A8I5KUB5",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "A0A8I5KXN3",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "A0A8I5KYH6",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "A0ABF7PHA5",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "G3V4K2",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "G3V5T7",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "L7RSL8",
+     "source": "uniprot_trembl"
+    },
+    {
+     "id": "ENSP00000256078",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000308495",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000451856",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000452512",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000508568",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000508921",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000509223",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000509238",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000509798",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000510254",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000510431",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000510479",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000510511",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000564214",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000610481",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000652769",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000652770",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000652771",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000652772",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000693813",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000754677",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000754678",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000754679",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000772706",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000772707",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000776644",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000776645",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000802803",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "ENSP00000805991",
+     "source": "ensembl_PRO"
+    },
+    {
+     "id": "A8K8Z5",
+     "source": "uniprot_obsolete"
+    },
+    {
+     "id": "B0LPF9",
+     "source": "uniprot_obsolete"
+    },
+    {
+     "id": "P01118",
+     "source": "uniprot_obsolete"
+    },
+    {
+     "id": "Q96D10",
+     "source": "uniprot_obsolete"
+    }
+   ],
+   "tractability": [
+    {
+     "label": "Approved Drug",
+     "modality": "SM",
+     "value": true
+    },
+    {
+     "label": "Advanced Clinical",
+     "modality": "SM",
+     "value": false
+    },
+    {
+     "label": "Phase 1 Clinical",
+     "modality": "SM",
+     "value": false
+    },
+    {
+     "label": "Structure with Ligand",
+     "modality": "SM",
+     "value": true
+    },
+    {
+     "label": "High-Quality Ligand",
+     "modality": "SM",
+     "value": true
+    },
+    {
+     "label": "High-Quality Pocket",
+     "modality": "SM",
+     "value": false
+    },
+    {
+     "label": "Med-Quality Pocket",
+     "modality": "SM",
+     "value": false
+    },
+    {
+     "label": "Druggable Family",
+     "modality": "SM",
+     "value": false
+    },
+    {
+     "label": "Approved Drug",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "Advanced Clinical",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "Phase 1 Clinical",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "UniProt loc high conf",
+     "modality": "AB",
+     "value": true
+    },
+    {
+     "label": "GO CC high conf",
+     "modality": "AB",
+     "value": true
+    },
+    {
+     "label": "UniProt loc med conf",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "UniProt SigP or TMHMM",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "GO CC med conf",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "Human Protein Atlas loc",
+     "modality": "AB",
+     "value": false
+    },
+    {
+     "label": "Approved Drug",
+     "modality": "PR",
+     "value": false
+    },
+    {
+     "label": "Advanced Clinical",
+     "modality": "PR",
+     "value": false
+    },
+    {
+     "label": "Phase 1 Clinical",
+     "modality": "PR",
+     "value": false
+    },
+    {
+     "label": "Literature",
+     "modality": "PR",
+     "value": true
+    },
+    {
+     "label": "UniProt Ubiquitination",
+     "modality": "PR",
+     "value": true
+    },
+    {
+     "label": "Database Ubiquitination",
+     "modality": "PR",
+     "value": true
+    },
+    {
+     "label": "Half-life Data",
+     "modality": "PR",
+     "value": true
+    },
+    {
+     "label": "Small Molecule Binder",
+     "modality": "PR",
+     "value": true
+    },
+    {
+     "label": "Approved Drug",
+     "modality": "OC",
+     "value": false
+    },
+    {
+     "label": "Advanced Clinical",
+     "modality": "OC",
+     "value": false
+    },
+    {
+     "label": "Phase 1 Clinical",
+     "modality": "OC",
+     "value": false
+    }
+   ],
+   "associatedDiseases": {
+    "count": 2262,
+    "rows": [
+     {
+      "score": 0.8335591484827443,
+      "disease": {
+       "id": "MONDO_0018997",
+       "name": "Noonan syndrome",
+       "therapeuticAreas": [
+        {
+         "id": "MONDO_0004995",
+         "name": "cardiovascular disorder"
+        },
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        },
+        {
+         "id": "MONDO_0005570",
+         "name": "hematologic disorder"
+        },
+        {
+         "id": "MONDO_0002051",
+         "name": "integumentary system disorder"
+        },
+        {
+         "id": "MONDO_0005046",
+         "name": "immune system disorder"
+        },
+        {
+         "id": "OTAR_0000006",
+         "name": "musculoskeletal or connective tissue disease"
+        },
+        {
+         "id": "EFO_0000651",
+         "name": "phenotype"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "genetic_literature",
+        "score": 0.8629165362838598
+       },
+       {
+        "id": "affected_pathway",
+        "score": 0.9190679877429972
+       },
+       {
+        "id": "literature",
+        "score": 0.19633236322670516
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.865553665248194
+       },
+       {
+        "id": "animal_model",
+        "score": 0.42259118864826517
+       }
+      ]
+     },
+     {
+      "score": 0.8290038425650849,
+      "disease": {
+       "id": "MONDO_0012371",
+       "name": "Noonan syndrome 3",
+       "therapeuticAreas": [
+        {
+         "id": "MONDO_0004995",
+         "name": "cardiovascular disorder"
+        },
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        },
+        {
+         "id": "MONDO_0005570",
+         "name": "hematologic disorder"
+        },
+        {
+         "id": "MONDO_0002051",
+         "name": "integumentary system disorder"
+        },
+        {
+         "id": "MONDO_0005046",
+         "name": "immune system disorder"
+        },
+        {
+         "id": "OTAR_0000006",
+         "name": "musculoskeletal or connective tissue disease"
+        },
+        {
+         "id": "EFO_0000651",
+         "name": "phenotype"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "literature",
+        "score": 0.015198269940290528
+       },
+       {
+        "id": "animal_model",
+        "score": 0.2732648935264237
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.9398755848384642
+       },
+       {
+        "id": "genetic_literature",
+        "score": 0.8671804074341221
+       }
+      ]
+     },
+     {
+      "score": 0.821627026139221,
+      "disease": {
+       "id": "MONDO_0014112",
+       "name": "cardiofaciocutaneous syndrome 2",
+       "therapeuticAreas": [
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        },
+        {
+         "id": "MONDO_0002051",
+         "name": "integumentary system disorder"
+        },
+        {
+         "id": "MONDO_0004995",
+         "name": "cardiovascular disorder"
+        },
+        {
+         "id": "OTAR_0000006",
+         "name": "musculoskeletal or connective tissue disease"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "genetic_association",
+        "score": 0.9041820322826541
+       },
+       {
+        "id": "genetic_literature",
+        "score": 0.8689251067895126
+       }
+      ]
+     },
+     {
+      "score": 0.8161301963446139,
+      "disease": {
+       "id": "MONDO_0015280",
+       "name": "cardiofaciocutaneous syndrome",
+       "therapeuticAreas": [
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        },
+        {
+         "id": "MONDO_0002051",
+         "name": "integumentary system disorder"
+        },
+        {
+         "id": "MONDO_0004995",
+         "name": "cardiovascular disorder"
+        },
+        {
+         "id": "OTAR_0000006",
+         "name": "musculoskeletal or connective tissue disease"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "genetic_literature",
+        "score": 0.8761385704020979
+       },
+       {
+        "id": "affected_pathway",
+        "score": 0.607930797611621
+       },
+       {
+        "id": "literature",
+        "score": 0.2162849791594918
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.8288810939683653
+       },
+       {
+        "id": "animal_model",
+        "score": 0.2517441432909723
+       }
+      ]
+     },
+     {
+      "score": 0.803525472671903,
+      "disease": {
+       "id": "MONDO_0005233",
+       "name": "non-small cell lung carcinoma",
+       "therapeuticAreas": [
+        {
+         "id": "OTAR_0000010",
+         "name": "respiratory or thoracic disease"
+        },
+        {
+         "id": "MONDO_0045024",
+         "name": "cancer or benign tumor"
+        },
+        {
+         "id": "EFO_0000651",
+         "name": "phenotype"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "literature",
+        "score": 0.9966745153123064
+       },
+       {
+        "id": "affected_pathway",
+        "score": 0.6934634586610258
+       },
+       {
+        "id": "somatic_mutation",
+        "score": 0.8400963905230843
+       },
+       {
+        "id": "clinical",
+        "score": 0.9460943622076069
+       }
+      ]
+     },
+     {
+      "score": 0.7683114771742507,
+      "disease": {
+       "id": "MONDO_0001056",
+       "name": "gastric cancer",
+       "therapeuticAreas": [
+        {
+         "id": "EFO_0010282",
+         "name": "gastrointestinal disease"
+        },
+        {
+         "id": "MONDO_0045024",
+         "name": "cancer or benign tumor"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "literature",
+        "score": 0.9395379354697054
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.8962321024194934
+       },
+       {
+        "id": "somatic_mutation",
+        "score": 0.6839221473130737
+       },
+       {
+        "id": "genetic_literature",
+        "score": 0.607930797611621
+       }
+      ]
+     },
+     {
+      "score": 0.7492674354205383,
+      "disease": {
+       "id": "MONDO_0018874",
+       "name": "acute myeloid leukemia",
+       "therapeuticAreas": [
+        {
+         "id": "MONDO_0005570",
+         "name": "hematologic disorder"
+        },
+        {
+         "id": "MONDO_0005046",
+         "name": "immune system disorder"
+        },
+        {
+         "id": "MONDO_0045024",
+         "name": "cancer or benign tumor"
+        },
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        },
+        {
+         "id": "OTAR_0000006",
+         "name": "musculoskeletal or connective tissue disease"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "genetic_literature",
+        "score": 0.607930797611621
+       },
+       {
+        "id": "affected_pathway",
+        "score": 0.5687800579559478
+       },
+       {
+        "id": "literature",
+        "score": 0.8814449086369363
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.8026003573206445
+       },
+       {
+        "id": "somatic_mutation",
+        "score": 0.7889010007828839
+       },
+       {
+        "id": "animal_model",
+        "score": 0.6117468344555025
+       }
+      ]
+     },
+     {
+      "score": 0.7420993354060742,
+      "disease": {
+       "id": "MONDO_0008097",
+       "name": "linear nevus sebaceous syndrome",
+       "therapeuticAreas": [
+        {
+         "id": "MONDO_0005071",
+         "name": "nervous system disorder"
+        },
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        },
+        {
+         "id": "EFO_0000651",
+         "name": "phenotype"
+        },
+        {
+         "id": "MONDO_0002051",
+         "name": "integumentary system disorder"
+        },
+        {
+         "id": "MONDO_0045024",
+         "name": "cancer or benign tumor"
+        },
+        {
+         "id": "MONDO_0024458",
+         "name": "disorder of visual system"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "literature",
+        "score": 0.16408117733541944
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.8114077197780352
+       },
+       {
+        "id": "somatic_mutation",
+        "score": 0.7258693723482754
+       },
+       {
+        "id": "genetic_literature",
+        "score": 0.7295169571339454
+       }
+      ]
+     },
+     {
+      "score": 0.7397670716208318,
+      "disease": {
+       "id": "MONDO_0010854",
+       "name": "Toriello-Lacassie-Droste syndrome",
+       "therapeuticAreas": [
+        {
+         "id": "MONDO_0002051",
+         "name": "integumentary system disorder"
+        },
+        {
+         "id": "OTAR_0000018",
+         "name": "genetic, familial or congenital disease"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "literature",
+        "score": 0.1449196665459445
+       },
+       {
+        "id": "genetic_association",
+        "score": 0.8729279391985548
+       },
+       {
+        "id": "somatic_mutation",
+        "score": 0.7789113344398895
+       },
+       {
+        "id": "genetic_literature",
+        "score": 0.607930797611621
+       }
+      ]
+     },
+     {
+      "score": 0.7029978547925759,
+      "disease": {
+       "id": "MONDO_0005061",
+       "name": "lung adenocarcinoma",
+       "therapeuticAreas": [
+        {
+         "id": "MONDO_0045024",
+         "name": "cancer or benign tumor"
+        },
+        {
+         "id": "OTAR_0000010",
+         "name": "respiratory or thoracic disease"
+        },
+        {
+         "id": "EFO_0000651",
+         "name": "phenotype"
+        }
+       ]
+      },
+      "datatypeScores": [
+       {
+        "id": "literature",
+        "score": 0.9904198205006515
+       },
+       {
+        "id": "affected_pathway",
+        "score": 0.9285669064556789
+       },
+       {
+        "id": "somatic_mutation",
+        "score": 0.8224435219117215
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

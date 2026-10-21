@@ -1,0 +1,2596 @@
+{
+ "entryType": "UniProtKB reviewed (Swiss-Prot)",
+ "primaryAccession": "P01116",
+ "uniProtkbId": "RASK_HUMAN",
+ "entryAudit": {
+  "firstPublicDate": "1986-07-21",
+  "lastAnnotationUpdateDate": "2026-09-02",
+  "lastSequenceUpdateDate": "1986-07-21",
+  "entryVersion": 270,
+  "sequenceVersion": 1
+ },
+ "annotationScore": 5.0,
+ "organism": {
+  "scientificName": "Homo sapiens",
+  "commonName": "Human",
+  "taxonId": 9606,
+  "lineage": [
+   "Eukaryota",
+   "Metazoa",
+   "Chordata",
+   "Craniata",
+   "Vertebrata",
+   "Euteleostomi",
+   "Mammalia",
+   "Eutheria",
+   "Euarchontoglires",
+   "Primates",
+   "Haplorrhini",
+   "Catarrhini",
+   "Hominidae",
+   "Homo"
+  ]
+ },
+ "proteinExistence": "1: Evidence at protein level",
+ "proteinDescription": {
+  "recommendedName": {
+   "fullName": {
+    "value": "GTPase KRas"
+   },
+   "ecNumbers": [
+    {
+     "evidences": [
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "20949621"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "39809765"
+      }
+     ],
+     "value": "3.6.5.2"
+    }
+   ]
+  },
+  "alternativeNames": [
+   {
+    "fullName": {
+     "value": "K-Ras 2"
+    }
+   },
+   {
+    "fullName": {
+     "value": "Ki-Ras"
+    }
+   },
+   {
+    "fullName": {
+     "value": "c-K-ras"
+    }
+   },
+   {
+    "fullName": {
+     "value": "c-Ki-ras"
+    }
+   }
+  ],
+  "contains": [
+   {
+    "recommendedName": {
+     "fullName": {
+      "value": "GTPase KRas, N-terminally processed"
+     }
+    }
+   }
+  ],
+  "flag": "Precursor"
+ },
+ "genes": [
+  {
+   "geneName": {
+    "value": "KRAS"
+   },
+   "synonyms": [
+    {
+     "value": "KRAS2"
+    },
+    {
+     "value": "RASK2"
+    }
+   ]
+  }
+ ],
+ "comments": [
+  {
+   "texts": [
+    {
+     "evidences": [
+      {
+       "evidenceCode": "ECO:0000250",
+       "source": "UniProtKB",
+       "id": "P08644"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "20949621"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "22711838"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "23698361"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "24623306"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "39809765"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "40934300"
+      }
+     ],
+     "value": "Signal transducer in the Ras-MAPK signaling pathway that regulates cell proliferation and survival (PubMed:22711838, PubMed:23698361). Ras proteins bind GDP/GTP and possess intrinsic GTPase activity (PubMed:20949621, PubMed:39809765). Activates MAPK1/MAPK3 resulting in phosphorylation and ultimately degradation of GJA1 (By similarity). Plays a role in promoting oncogenic events by inducing transcriptional silencing of tumor suppressor genes (TSGs) in colorectal cancer (CRC) cells in a ZNF304-dependent manner (PubMed:24623306). Recognized by LZTR1 that mediates its ubiquitination by a BCR (BTB-CUL3-RBX1) E3 ubiquitin-protein ligase complex (PubMed:40934300)"
+    }
+   ],
+   "commentType": "FUNCTION"
+  },
+  {
+   "texts": [
+    {
+     "evidences": [
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "22431598"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "22566140"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "22711838"
+      },
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "39809765"
+      }
+     ],
+     "value": "Alternates between an inactive form bound to GDP and an active form bound to GTP (PubMed:22566140, PubMed:22431598, PubMed:39809765). Activated by a guanine nucleotide-exchange factor (GEF) and inactivated by a GTPase-activating protein (GAP) (PubMed:22711838). Interaction with SOS1 promotes exchange of bound GDP to GTP (PubMed:22566140, PubMed:22431598, PubMed:39809765)"
+    }
+   ],
+   "commentType": "ACTIVITY REGULATION"
+  },
+  {
+   "commentType": "SUBCELLULAR LOCATION",
+   "subcellularLocations": [
+    {
+     "location": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "22431598"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "23524970"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "23698361"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "29239724"
+       }
+      ],
+      "value": "Cell membrane",
+      "id": "SL-0039"
+     },
+     "topology": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "29239724"
+       },
+       {
+        "evidenceCode": "ECO:0000305",
+        "source": "PubMed",
+        "id": "23698361"
+       }
+      ],
+      "value": "Lipid-anchor",
+      "id": "SL-9901"
+     },
+     "orientation": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000305",
+        "source": "PubMed",
+        "id": "23698361"
+       }
+      ],
+      "value": "Cytoplasmic side",
+      "id": "SL-9910"
+     }
+    },
+    {
+     "location": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "29239724"
+       }
+      ],
+      "value": "Endomembrane system",
+      "id": "SL-0147"
+     }
+    },
+    {
+     "location": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "23524970"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "23698361"
+       }
+      ],
+      "value": "Cytoplasm",
+      "id": "SL-0086"
+     }
+    }
+   ]
+  },
+  {
+   "commentType": "SUBCELLULAR LOCATION",
+   "molecule": "Isoform 2B",
+   "subcellularLocations": [
+    {
+     "location": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "28619714"
+       }
+      ],
+      "value": "Cell membrane",
+      "id": "SL-0039"
+     },
+     "topology": {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000305",
+        "source": "PubMed",
+        "id": "28619714"
+       }
+      ],
+      "value": "Lipid-anchor",
+      "id": "SL-9901"
+     }
+    }
+   ]
+  },
+  {
+   "texts": [
+    {
+     "evidences": [
+      {
+       "evidenceCode": "ECO:0000269",
+       "source": "PubMed",
+       "id": "23524970"
+      }
+     ],
+     "value": "Expressed throughout the epidermis, but weakly expressed in the stratum corneum and dermis (at protein level)"
+    }
+   ],
+   "commentType": "TISSUE SPECIFICITY"
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Leukemia, acute myelogenous",
+    "diseaseAccession": "DI-01171",
+    "acronym": "AML",
+    "description": "A subtype of acute leukemia, a cancer of the white blood cells. AML is a malignant disease of bone marrow characterized by maturational arrest of hematopoietic precursors at an early stage of development. Clonal expansion of myeloid blasts occurs in bone marrow, blood, and other tissue. Myelogenous leukemias develop from changes in cells that normally produce neutrophils, basophils, eosinophils and monocytes.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "601626"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "8955068"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Leukemia, juvenile myelomonocytic",
+    "diseaseAccession": "DI-01851",
+    "acronym": "JMML",
+    "description": "An aggressive pediatric myelodysplastic syndrome/myeloproliferative disorder characterized by malignant transformation in the hematopoietic stem cell compartment with proliferation of differentiated progeny. Patients have splenomegaly, enlarged lymph nodes, rashes, and hemorrhages.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "607785"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "17332249"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Noonan syndrome 3",
+    "diseaseAccession": "DI-02073",
+    "acronym": "NS3",
+    "description": "A form of Noonan syndrome, a disease characterized by short stature, facial dysmorphic features such as hypertelorism, a downward eyeslant and low-set posteriorly rotated ears, and a high incidence of congenital heart defects and hypertrophic cardiomyopathy. Other features can include a short neck with webbing or redundancy of skin, deafness, motor delay, variable intellectual deficits, multiple skeletal defects, cryptorchidism, and bleeding diathesis. Individuals with Noonan syndrome are at risk of juvenile myelomonocytic leukemia, a myeloproliferative disorder characterized by excessive production of myelomonocytic cells.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "609942"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "16474405"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "16773572"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "17056636"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "17468812"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "19396835"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "20949621"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Gastric cancer",
+    "diseaseAccession": "DI-02971",
+    "acronym": "GASC",
+    "description": "A malignant disease which starts in the stomach, can spread to the esophagus or the small intestine, and can extend through the stomach wall to nearby lymph nodes and organs. It also can metastasize to other parts of the body. The term gastric cancer or gastric carcinoma refers to adenocarcinoma of the stomach that accounts for most of all gastric malignant tumors. Two main histologic types are recognized, diffuse type and intestinal type carcinomas. Diffuse tumors are poorly differentiated infiltrating lesions, resulting in thickening of the stomach. In contrast, intestinal tumors are usually exophytic, often ulcerating, and associated with intestinal metaplasia of the stomach, most often observed in sporadic disease.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "613659"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "14534542"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "3034404"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "7773929"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "note": {
+    "texts": [
+     {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "16247081"
+       }
+      ],
+      "value": "Defects in KRAS are a cause of pylocytic astrocytoma (PA). Pylocytic astrocytomas are neoplasms of the brain and spinal cord derived from glial cells which vary from histologically benign forms to highly anaplastic and malignant tumors"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Cardiofaciocutaneous syndrome 2",
+    "diseaseAccession": "DI-03779",
+    "acronym": "CFC2",
+    "description": "A form of cardiofaciocutaneous syndrome, a multiple congenital anomaly disorder characterized by a distinctive facial appearance, heart defects and intellectual disability. Heart defects include pulmonic stenosis, atrial septal defects and hypertrophic cardiomyopathy. Some affected individuals present with ectodermal abnormalities such as sparse, friable hair, hyperkeratotic skin lesions and a generalized ichthyosis-like condition. Typical facial features are similar to Noonan syndrome. They include high forehead with bitemporal constriction, hypoplastic supraorbital ridges, downslanting palpebral fissures, a depressed nasal bridge, and posteriorly angulated ears with prominent helices. CFC2 patients often do not have the skin abnormalities, such as ichthyosis, hyperkeratosis, and hemangioma observed in CFC1.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "615278"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "16474404"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "16474405"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "17056636"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "20949621"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "21797849"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "note": {
+    "texts": [
+     {
+      "evidences": [
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "14534542"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "1553789"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "16533793"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "24623306"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "3034404"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "3627975"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "6092920"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "6695174"
+       },
+       {
+        "evidenceCode": "ECO:0000269",
+        "source": "PubMed",
+        "id": "7773929"
+       }
+      ],
+      "value": "KRAS mutations are involved in cancer development"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Oculoectodermal syndrome",
+    "diseaseAccession": "DI-05645",
+    "acronym": "OES",
+    "description": "A syndrome characterized by the association of epibulbar dermoids and aplasia cutis congenita. Affected individuals show multiple, asymmetric, atrophic, non-scarring and hairless regions that may be associated with hamartomas. Ectodermal changes include linear hyperpigmentation that may follow the lines of Blaschko and rarely epidermal nevus-like lesions. Epibulbar dermoids may be uni-or bilateral. Additional ocular anomalies such as skin tags of the upper eyelid, rarely optic nerve or retinal changes, and microphthalmia can be present. The phenotypic expression is highly variable, and various other abnormalities have occasionally been reported including growth failure, lymphedema, cardiovascular defects, as well as neurodevelopmental symptoms like developmental delay, epilepsy, learning difficulties, and behavioral abnormalities. Benign tumor-like lesions such as nonossifying fibromas of the long bones and giant cell granulomas of the jaws have repeatedly been observed and appear to be age-dependent, becoming a common manifestation in individuals aged 5 years or older.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "600268"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "25808193"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "26970110"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "30891959"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "Schimmelpenning-Feuerstein-Mims syndrome",
+    "diseaseAccession": "DI-03512",
+    "acronym": "SFM",
+    "description": "A disease characterized by sebaceous nevi, often on the face, associated with variable ipsilateral abnormalities of the central nervous system, ocular anomalies, and skeletal defects. Many oral manifestations have been reported, not only including hypoplastic and malformed teeth, and mucosal papillomatosis, but also ankyloglossia, hemihyperplastic tongue, intraoral nevus, giant cell granuloma, ameloblastoma, bone cysts, follicular cysts, oligodontia, and odontodysplasia. Sebaceous nevi follow the lines of Blaschko and these can continue as linear intraoral lesions, as in mucosal papillomatosis.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "163200"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "30891959"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  },
+  {
+   "commentType": "DISEASE",
+   "disease": {
+    "diseaseId": "RAS-associated autoimmune leukoproliferative disorder 2",
+    "diseaseAccession": "DI-07162",
+    "acronym": "RALD2",
+    "description": "A disease characterized by lymphadenopathy, splenomegaly, and autoimmunity causing hemolytic anemia, idiopathic thrombocytopenic purpura, and neutropenia.",
+    "diseaseCrossReference": {
+     "database": "MIM",
+     "id": "621582"
+    },
+    "evidences": [
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "21063026"
+     },
+     {
+      "evidenceCode": "ECO:0000269",
+      "source": "PubMed",
+      "id": "21079152"
+     }
+    ]
+   },
+   "note": {
+    "texts": [
+     {
+      "value": "The disease is caused by variants affecting the gene represented in this entry"
+     }
+    ]
+   }
+  }
+ ],
+ "features": [
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 5,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 5,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; dbSNP:rs193929331",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs193929331"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17468812"
+    }
+   ],
+   "featureId": "VAR_065144",
+   "alternativeSequence": {
+    "originalSequence": "K",
+    "alternativeSequences": [
+     "E"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 5,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 5,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in GASC; found also in a patient with Costello syndrome; exhibits only minor alterations in its in vitro biochemical behavior compared to wild-type protein; dbSNP:rs104894361",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894361"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "14534542"
+    }
+   ],
+   "featureId": "VAR_064849",
+   "alternativeSequence": {
+    "originalSequence": "K",
+    "alternativeSequences": [
+     "N"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 10,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 10,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in AML; expression in 3T3 cell causes cellular transformation; expression in COS cells activates the Ras-MAPK signaling pathway; lower GTPase activity; faster GDP dissociation rate",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "8955068"
+    }
+   ],
+   "featureId": "VAR_034601",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "GG"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 12,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 12,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in colorectal cancer samples; somatic mutation; dbSNP:rs121913529",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913529"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34820593"
+    }
+   ],
+   "featureId": "VAR_036305",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "A"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 12,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 12,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in lung carcinoma; somatic mutation; also found in metastatic colorectal cancer; dbSNP:rs121913530",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913530"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16533793"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34820593"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "6320174"
+    }
+   ],
+   "featureId": "VAR_006839",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "C"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 12,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 12,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in GASC, JMML, SFM and RALD2; somatic mutation; also found in pancreatic carcinoma and lung carcinoma; also found in metastatic colorectal cancer; dbSNP:rs121913529",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913529"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16533793"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17332249"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "21079152"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "30891959"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34820593"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "7773929"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "8439212"
+    }
+   ],
+   "featureId": "VAR_016026",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "D"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 12,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 12,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in lung cancer and bladder cancer; somatic mutation; dbSNP:rs121913530",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913530"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "6695174"
+    }
+   ],
+   "featureId": "VAR_016027",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "R"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 12,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 12,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in GASC and JMML; also found in lung carcinoma; somatic mutation; dbSNP:rs121913530",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913530"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16533793"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17332249"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "7773929"
+    }
+   ],
+   "featureId": "VAR_016028",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "S"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 12,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 12,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in GASC; also found in lung carcinoma, pancreatic carcinoma and colon cancer; also found in metastatic colorectal cancer; somatic mutation; it is constitutively activated and stimulates transcription activation of tumor suppressor genes in non-transformed fibroblasts; promotes GTP binding; dbSNP:rs121913529",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913529"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "14534542"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16533793"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "22711838"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "24623306"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "3034404"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34820593"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "39809765"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "6092920"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "8439212"
+    }
+   ],
+   "featureId": "VAR_006840",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "V"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 13,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 13,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in RALD2",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "21079152"
+    }
+   ],
+   "featureId": "VAR_091736",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "C"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 13,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 13,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in GASC, JMML, OES and RALD2; also found in a breast carcinoma cell line; somatic mutation; dbSNP:rs112445441",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs112445441"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "14534542"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17332249"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "21063026"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "25808193"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "3627975"
+    }
+   ],
+   "featureId": "VAR_016029",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "D"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 13,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 13,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in pylocytic astrocytoma; somatic mutation; increase activation of the Ras pathway; dbSNP:rs121913535",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913535"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16247081"
+    }
+   ],
+   "featureId": "VAR_065145",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "R"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 14,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 14,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; affects activity and impairs responsiveness to GTPase activating proteins; characterized by a strong increase of both intrinsic and guanine nucleotide exchanged factor-catalyzed nucleotide exchange leading to an increased level of the activated state; dbSNP:rs104894365",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894365"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16474405"
+    }
+   ],
+   "featureId": "VAR_026109",
+   "alternativeSequence": {
+    "originalSequence": "V",
+    "alternativeSequences": [
+     "I"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 19,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 19,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in OES; somatic mutation; dbSNP:rs121913538",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913538"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "25808193"
+    }
+   ],
+   "featureId": "VAR_083261",
+   "alternativeSequence": {
+    "originalSequence": "L",
+    "alternativeSequences": [
+     "F"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 22,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 22,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in CFC2; exhibits an increase in intrinsic and guanine nucleotide exchange factor catalyzed nucleotide exchange in combination with an impaired GTPase-activating protein-stimulated GTP hydrolysis but functional in interaction with effectors; dbSNP:rs121913236",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913236"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17056636"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "20949621"
+    }
+   ],
+   "featureId": "VAR_064850",
+   "alternativeSequence": {
+    "originalSequence": "Q",
+    "alternativeSequences": [
+     "E"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 22,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 22,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; impairs GTPase-activating protein stimulated GTP hydrolysis with unaffected intrinsic functions and a virtually functional effector interaction; dbSNP:rs727503110",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs727503110"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17056636"
+    }
+   ],
+   "featureId": "VAR_064851",
+   "alternativeSequence": {
+    "originalSequence": "Q",
+    "alternativeSequences": [
+     "R"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 34,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 34,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; characterized by a defective GTPase-activating protein sensitivity and a strongly reduced interaction with effectors; dbSNP:rs104894366",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894366"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17056636"
+    }
+   ],
+   "featureId": "VAR_064852",
+   "alternativeSequence": {
+    "originalSequence": "P",
+    "alternativeSequences": [
+     "L"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 34,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 34,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; dbSNP:rs104894366",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894366"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17056636"
+    }
+   ],
+   "featureId": "VAR_064853",
+   "alternativeSequence": {
+    "originalSequence": "P",
+    "alternativeSequences": [
+     "Q"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 34,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 34,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in CFC2; characterized by a defective GTPase-activating protein sensitivity and a strongly reduced interaction with effectors; dbSNP:rs104894366",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894366"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16474405"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "20949621"
+    }
+   ],
+   "featureId": "VAR_026110",
+   "alternativeSequence": {
+    "originalSequence": "P",
+    "alternativeSequences": [
+     "R"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 36,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 36,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; dbSNP:rs727503109",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs727503109"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "17056636"
+    }
+   ],
+   "featureId": "VAR_064854",
+   "alternativeSequence": {
+    "originalSequence": "I",
+    "alternativeSequences": [
+     "M"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 58,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 58,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; affects activity and impairs responsiveness to GTPase activating proteins; exhibits only minor alterations in its in vitro biochemical behavior compared to wild-type protein; dbSNP:rs104894364",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894364"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16474405"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "19396835"
+    }
+   ],
+   "featureId": "VAR_026111",
+   "alternativeSequence": {
+    "originalSequence": "T",
+    "alternativeSequences": [
+     "I"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 59,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 59,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in GASC; also found in bladder cancer; somatic mutation; dbSNP:rs121913528",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913528"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "14534542"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "1553789"
+    }
+   ],
+   "featureId": "VAR_016030",
+   "alternativeSequence": {
+    "originalSequence": "A",
+    "alternativeSequences": [
+     "T"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 60,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 60,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in CFC2; characterized by a defective GTPase-activating protein sensitivity and a strongly reduced interaction with effectors; dbSNP:rs104894359",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894359"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16474404"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "20949621"
+    }
+   ],
+   "featureId": "VAR_026112",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "R"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 60,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 60,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in NS3; dbSNP:rs104894359",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894359"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "19396835"
+    }
+   ],
+   "featureId": "VAR_065146",
+   "alternativeSequence": {
+    "originalSequence": "G",
+    "alternativeSequences": [
+     "S"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 61,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 61,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in lung carcinoma; dbSNP:rs17851045",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs17851045"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "15489334"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16533793"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "Reference",
+     "id": "Ref.7"
+    }
+   ],
+   "featureId": "VAR_006841",
+   "alternativeSequence": {
+    "originalSequence": "Q",
+    "alternativeSequences": [
+     "H"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 61,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 61,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in a colorectal cancer sample; somatic mutation; promotes interaction with SHOC2 and PP1C; dbSNP:rs121913240",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913240"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "35830882"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "35831509"
+    }
+   ],
+   "featureId": "VAR_036306",
+   "alternativeSequence": {
+    "originalSequence": "Q",
+    "alternativeSequences": [
+     "R"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 71,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 71,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in CFC2; dbSNP:rs387907205",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs387907205"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "21797849"
+    }
+   ],
+   "featureId": "VAR_069784",
+   "alternativeSequence": {
+    "originalSequence": "Y",
+    "alternativeSequences": [
+     "H"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 117,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 117,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in colorectal cancer samples; somatic mutation; dbSNP:rs770248150",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs770248150"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34820593"
+    }
+   ],
+   "featureId": "VAR_036307",
+   "alternativeSequence": {
+    "originalSequence": "K",
+    "alternativeSequences": [
+     "N"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 146,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 146,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in OES; somatic mutation; also found in colorectal cancer samples; dbSNP:rs121913527",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs121913527"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "16959974"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "26970110"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "30891959"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34820593"
+    }
+   ],
+   "featureId": "VAR_036308",
+   "alternativeSequence": {
+    "originalSequence": "A",
+    "alternativeSequences": [
+     "T"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 146,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 146,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in OES; somatic mutation; dbSNP:rs1057519725",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs1057519725"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "26970110"
+    },
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "30891959"
+    }
+   ],
+   "featureId": "VAR_083262",
+   "alternativeSequence": {
+    "originalSequence": "A",
+    "alternativeSequences": [
+     "V"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 147,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 147,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "in CFC2; dbSNP:rs387907206",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs387907206"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "21797849"
+    }
+   ],
+   "featureId": "VAR_069785",
+   "alternativeSequence": {
+    "originalSequence": "K",
+    "alternativeSequences": [
+     "E"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 35,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 35,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "Increases affinity for LZTR1; alone and when associated with A-62.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "40934300"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "T",
+    "alternativeSequences": [
+     "A"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 38,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 38,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "Decreased interaction with MAPKAP1/SIN1.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34380736"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "D",
+    "alternativeSequences": [
+     "A"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 40,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 40,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "Decreased interaction with MAPKAP1/SIN1.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "34380736"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "Y",
+    "alternativeSequences": [
+     "A"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 61,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 61,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "Promotes GTP binding.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "39809765"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "Q",
+    "alternativeSequences": [
+     "L"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 62,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 62,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "Increases affinity for LZTR1; alone and when associated with A-35.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "40934300"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "E",
+    "alternativeSequences": [
+     "A"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 180,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 180,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "Abolished palmitoylation on Cys; reduced palmitoylation on Lys residues.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "29239724"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "C",
+    "alternativeSequences": [
+     "S"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 182,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 185,
+     "modifier": "EXACT"
+    }
+   },
+   "description": "In K-Ras-3KR; abolished lysine-palmitoylation.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "29239724"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "KIKK",
+    "alternativeSequences": [
+     "RIRR"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 152,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 152,
+     "modifier": "EXACT"
+    },
+    "sequence": "P01116-2"
+   },
+   "description": "in NS3; dbSNP:rs104894367",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894367"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000305"
+    }
+   ],
+   "featureId": "VAR_082908",
+   "alternativeSequence": {
+    "originalSequence": "V",
+    "alternativeSequences": [
+     "G"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 153,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 153,
+     "modifier": "EXACT"
+    },
+    "sequence": "P01116-2"
+   },
+   "description": "in CFC2 and NS3; exhibits only minor alterations in its in vitro biochemical behavior compared to wild-type protein; dbSNP:rs104894360",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894360"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000305"
+    }
+   ],
+   "featureId": "VAR_082909",
+   "alternativeSequence": {
+    "originalSequence": "D",
+    "alternativeSequences": [
+     "V"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 156,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 156,
+     "modifier": "EXACT"
+    },
+    "sequence": "P01116-2"
+   },
+   "description": "in NS3; the patient also has features of cardiofaciocutaneous syndrome; dbSNP:rs397517042",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs397517042"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000305"
+    }
+   ],
+   "featureId": "VAR_082910",
+   "alternativeSequence": {
+    "originalSequence": "F",
+    "alternativeSequences": [
+     "I"
+    ]
+   }
+  },
+  {
+   "type": "Natural variant",
+   "location": {
+    "start": {
+     "value": 156,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 156,
+     "modifier": "EXACT"
+    },
+    "sequence": "P01116-2"
+   },
+   "description": "found in a patient with Costello syndrome; exhibits an increase in intrinsic and guanine nucleotide exchange factor catalyzed nucleotide exchange in combination with an impaired GTPase-activating protein-stimulated GTP hydrolysis but functional in interaction with effectors; dbSNP:rs104894362",
+   "featureCrossReferences": [
+    {
+     "database": "dbSNP",
+     "id": "rs104894362"
+    }
+   ],
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000305"
+    }
+   ],
+   "featureId": "VAR_082911",
+   "alternativeSequence": {
+    "originalSequence": "F",
+    "alternativeSequences": [
+     "L"
+    ]
+   }
+  },
+  {
+   "type": "Mutagenesis",
+   "location": {
+    "start": {
+     "value": 185,
+     "modifier": "EXACT"
+    },
+    "end": {
+     "value": 185,
+     "modifier": "EXACT"
+    },
+    "sequence": "P01116-2"
+   },
+   "description": "Abolished interaction with GPR131.",
+   "evidences": [
+    {
+     "evidenceCode": "ECO:0000269",
+     "source": "PubMed",
+     "id": "28619714"
+    }
+   ],
+   "alternativeSequence": {
+    "originalSequence": "C",
+    "alternativeSequences": [
+     "S"
+    ]
+   }
+  }
+ ],
+ "keywords": [
+  {
+   "id": "KW-0122",
+   "category": "Disease",
+   "name": "Cardiomyopathy"
+  },
+  {
+   "id": "KW-0209",
+   "category": "Disease",
+   "name": "Deafness"
+  },
+  {
+   "id": "KW-0225",
+   "category": "Disease",
+   "name": "Disease variant"
+  },
+  {
+   "id": "KW-0038",
+   "category": "Disease",
+   "name": "Ectodermal dysplasia"
+  },
+  {
+   "id": "KW-0991",
+   "category": "Disease",
+   "name": "Intellectual disability"
+  },
+  {
+   "id": "KW-0656",
+   "category": "Disease",
+   "name": "Proto-oncogene"
+  }
+ ],
+ "uniProtKBCrossReferences": [
+  {
+   "database": "ChEMBL",
+   "id": "CHEMBL2189121",
+   "properties": [
+    {
+     "key": "Description",
+     "value": "-"
+    }
+   ]
+  },
+  {
+   "database": "Ensembl",
+   "id": "ENST00000256078.10",
+   "properties": [
+    {
+     "key": "ProteinId",
+     "value": "ENSP00000256078.5"
+    },
+    {
+     "key": "GeneId",
+     "value": "ENSG00000133703.15"
+    }
+   ],
+   "isoformId": "P01116-1"
+  },
+  {
+   "database": "Ensembl",
+   "id": "ENST00000311936.8",
+   "properties": [
+    {
+     "key": "ProteinId",
+     "value": "ENSP00000308495.3"
+    },
+    {
+     "key": "GeneId",
+     "value": "ENSG00000133703.15"
+    }
+   ],
+   "isoformId": "P01116-2"
+  },
+  {
+   "database": "Ensembl",
+   "id": "ENST00000685328.1",
+   "properties": [
+    {
+     "key": "ProteinId",
+     "value": "ENSP00000508921.1"
+    },
+    {
+     "key": "GeneId",
+     "value": "ENSG00000133703.15"
+    }
+   ],
+   "isoformId": "P01116-2"
+  },
+  {
+   "database": "Ensembl",
+   "id": "ENST00000688940.1",
+   "properties": [
+    {
+     "key": "ProteinId",
+     "value": "ENSP00000509238.1"
+    },
+    {
+     "key": "GeneId",
+     "value": "ENSG00000133703.15"
+    }
+   ],
+   "isoformId": "P01116-2"
+  },
+  {
+   "database": "Ensembl",
+   "id": "ENST00000894155.1",
+   "properties": [
+    {
+     "key": "ProteinId",
+     "value": "ENSP00000564214.1"
+    },
+    {
+     "key": "GeneId",
+     "value": "ENSG00000133703.15"
+    }
+   ],
+   "isoformId": "P01116-2"
+  },
+  {
+   "database": "MIM",
+   "id": "163200",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "190070",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "gene"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "600268",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "601626",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "607785",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "609942",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "613659",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "615278",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "MIM",
+   "id": "621582",
+   "properties": [
+    {
+     "key": "Type",
+     "value": "phenotype"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "1340",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Cardiofaciocutaneous syndrome"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "146",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Differentiated thyroid carcinoma"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "2396",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Encephalocraniocutaneous lipomatosis"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "1333",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Familial pancreatic carcinoma"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "86834",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Juvenile myelomonocytic leukemia"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "2612",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Linear nevus sebaceus syndrome"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "144",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Lynch syndrome"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "648",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Noonan syndrome"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "3339",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Oculoectodermal syndrome"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "251615",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "Pilomyxoid astrocytoma"
+    }
+   ]
+  },
+  {
+   "database": "Orphanet",
+   "id": "268114",
+   "properties": [
+    {
+     "key": "Disease",
+     "value": "RAS-associated autoimmune leukoproliferative disease"
+    }
+   ]
+  }
+ ]
+}

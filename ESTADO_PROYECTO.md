@@ -72,13 +72,32 @@ Probadas contra APIs reales, KRAS/P01116.
 - 2026-10-17: `get_ligands` v1 implementado y probado contra ChEMBL real. La prueba con G12C reveló tres defectos que se corrigieron en v2: un ligando #1 con etiqueta G12C pero ensayo G12D, mezcla de ensayos celulares y bioquímicos, y fármacos enterrados bajo preclínicos de una sola medición. `get_structures` repasado: nuevo falso negativo (9TBR), sin corregir.
 - 2026-10-20: se decide pasar a Claude Code. Se prepara `CLAUDE.md`. Se planeó `probe_profile.ps1` para validar campos reales de UniProt y Open Targets, pero el archivo NO existe en el repo (verificado 2026-10-20).
 - 2026-10-20 (Claude Code): `.gitignore` creado; `test_chembl.py` movido a `tests/` (pasa: ALL OK); commit y push del paso de ChEMBL.
+- 2026-10-20 (Claude Code): validados los campos de UniProt y Open Targets para el perfil (sección 8.1). `pyproject.toml`: descripción real, se quitan `[project.scripts]` y `[build-system]` (apuntaban a la plantilla `src/protein_mcp/`, sin uso; el proyecto pasa a `virtual` en `uv.lock`). `uv sync` quitó del `.venv` paquetes que no estaban en el lock (`httpx2`, `mcp-types`, `opentelemetry-api`, `truststore`); el servidor carga sus 4 herramientas y las pruebas pasan.
 - 2026-10-20 (Claude Code): **corregido 9TBR** en `rcsb.py` (`_LEFT_EDGE` compartido por `_TITLE_MUTATION_RE` y `_mutation_matches`). El defecto era más amplio: en los 552 títulos de KRAS, 34 entradas ganan su mutación de título y ninguna pierde la que tenía. Prueba real: `G12D` 96 confirmados / 4 descartados de 100 examinados (127 encontrados), 9TBR (puesto 69) confirmado; 9E3S (G12N) sigue descartado; `G12C` 95/5; `Q61H` 12/0.
 
 ## 8. Siguientes tareas (en este orden)
 1. ~~Corregir 9TBR~~ (hecho 2026-10-20).
 2. **Expediente en disco** (`dossiers\P01116\`, en .gitignore): cada herramienta guarda su JSON completo y devuelve al chat solo un resumen compacto con la ruta. `build_report` leerá del disco, no de la conversación.
-3. **`get_protein_profile`** (`profile.py`): UniProt (función con evidencia, localización, comentarios de enfermedad, variantes) y Open Targets (asociaciones diana-enfermedad con score, tractabilidad por modalidad). Mantener separadas las dos fuentes. Primero validar campos reales con `probe_profile.ps1`; no codificar contra resúmenes.
+3. **`get_protein_profile`** (`profile.py`): UniProt (función con evidencia, localización, comentarios de enfermedad, variantes) y Open Targets (asociaciones diana-enfermedad con score, tractabilidad por modalidad). Mantener separadas las dos fuentes. Campos ya validados contra las APIs reales (ver 8.1); `probe_profile.ps1` ya no hace falta.
 4. **`build_report`** (Markdown → PDF, ~11 secciones, regla anti-alucinación). Sección de métodos con las limitaciones de la sección 6.
+
+### 8.1 Campos validados para `get_protein_profile` (2026-10-20, KRAS/P01116, llamadas reales desde Claude Code)
+Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P01116_profile.json`, `opentargets_ENSG00000133703.json`, `opentargets_versioned_id_null.json`.
+- **UniProt** `GET https://rest.uniprot.org/uniprotkb/{acc}.json` (el mismo que usa `uniprot.fetch_entry`).
+  - `comments[]` por `commentType`. `FUNCTION`: `texts[].value` + `texts[].evidences[]` (`evidenceCode` ECO, `source` PubMed/UniProtKB, `id`). ECO:0000269 = experimental; ECO:0000250 = "By similarity" (inferida de otra proteína, `source: UniProtKB`); ECO:0000305 = inferencia del curador.
+  - `SUBCELLULAR LOCATION` (2 en KRAS, una con `molecule: "Isoform 2B"`): `subcellularLocations[].location/topology/orientation` con `value`, `id` (SL-xxxx) y `evidences`.
+  - `DISEASE` (10 en KRAS): `disease.diseaseId` (nombre), `diseaseAccession` (DI-xxxxx), `acronym`, `description`, `diseaseCrossReference` (MIM), `evidences`; `note.texts[]`. **Defecto real: 2 de 10 NO tienen `disease`, solo `note`** (astrocitoma pilocítico y otro): no inventar nombre, usar la nota tal cual.
+  - `features[]` `type == "Natural variant"` (35): `location.start.value`, `alternativeSequence.originalSequence` / `alternativeSequences[]` (puede ser inserción: G10 -> "GG"), `description` en texto libre ("in NS3; dbSNP:rs…"; usa los `acronym` de DISEASE), `featureId` (VAR_…), `featureCrossReferences` (dbSNP), `evidences`. `Mutagenesis` (8): misma forma, sin featureId.
+  - Ensembl en `uniProtKBCrossReferences` (`database == "Ensembl"`, 5 entradas, una por transcrito): `properties[key=GeneId].value` = `ENSG00000133703.15` **con versión**; deduplicar. También `ChEMBL` (CHEMBL2189121, coincide con `chembl.py`), `MIM`, `Orphanet` (`properties[key=Disease]`).
+  - `annotationScore` (5.0), `proteinExistence`, `entryAudit.lastAnnotationUpdateDate` (útil para "fecha del dato").
+- **Open Targets** GraphQL `POST https://api.platform.opentargets.org/api/v4/graphql`, `target(ensemblId:)`. Esquema verificado por introspección.
+  - **El ID con versión devuelve `target: null` con HTTP 200 y sin `errors`** (igual que un ID inexistente): quitar `.NN` antes de consultar y distinguir "no encontrado" de "ID mal formado".
+  - `meta.dataVersion {year month iteration}` = 26/09/null; `apiVersion` 26.9.0 (citar versión en el reporte).
+  - `approvedSymbol`, `approvedName`, `biotype`, `proteinIds[] {id source}` (uniprot_swissprot P01116: sirve para comprobar el cruce).
+  - `tractability[] {modality label value}`: 28 filas, modalidades SM/AB/PR/OC, incluye las `false`. KRAS SM: Approved Drug true, Structure with Ligand true, High-Quality Ligand true, Druggable Family false, pockets false.
+  - `associatedDiseases(page:{index,size})` -> `count` (**2262 en KRAS**), `rows[] {score, disease{id name therapeuticAreas{id name}}, datatypeScores[]{id score}}`, ordenadas por score descendente. `datatypeScores` solo trae los tipos con dato (genetic_association, somatic_mutation, literature, clinical, animal_model, affected_pathway, genetic_literature…).
+  - Por score global, el top 4 de KRAS son síndromes germinales (Noonan, CFC); NSCLC aparece en el 5.º puesto. Para el analista de fármacos hará falta decidir cómo presentar oncología vs. germinal (por `therapeuticAreas` o `datatypeScores`).
+  - Open Targets solo cubre diana humana: con `organism_id != 9606` debe quedar "sin registro".
 
 ## 9. Hoja de ruta posterior
 - Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess). Aquí se migra a paquetes por fase.
