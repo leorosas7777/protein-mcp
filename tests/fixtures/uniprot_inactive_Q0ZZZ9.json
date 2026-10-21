@@ -1,0 +1,13 @@
+{
+ "entryType": "Inactive",
+ "primaryAccession": "Q0ZZZ9",
+ "uniProtkbId": "Q0ZZZ9_CHAAM",
+ "annotationScore": 0.0,
+ "inactiveReason": {
+  "inactiveReasonType": "DELETED",
+  "deletedReason": "Not part of a reference proteome"
+ },
+ "extraAttributes": {
+  "uniParcId": "UPI0000DA73D1"
+ }
+}

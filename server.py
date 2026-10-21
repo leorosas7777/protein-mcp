@@ -6,8 +6,12 @@ Tools:
     (PubMed/MEDLINE records, PMC full-text records and, optionally, preprints).
   - get_structures: UniProt accession -> a few experimental PDB structures
     (RCSB) plus the AlphaFold DB model with its confidence.
+  - get_ligands: UniProt accession -> ChEMBL ligands ranked by potency.
+  - get_protein_profile: UniProt accession -> UniProt annotation + Open Targets
+    associations and tractability (full result saved to the dossier on disk).
 
-Logic lives in one module per source: uniprot, europepmc, rcsb, alphafold.
+Logic lives in one module per source: uniprot, europepmc, rcsb, alphafold,
+chembl, opentargets; target_profile combines uniprot + opentargets.
 Shared helpers are in common.
 
 IMPORTANT: this server talks to Claude Desktop over stdio.
@@ -24,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 logging.basicConfig(level=logging.INFO)
 
 import europepmc  # noqa: E402
+import target_profile  # noqa: E402
 import uniprot  # noqa: E402
 import chembl
 from alphafold import fetch_alphafold  # noqa: E402
@@ -165,6 +170,39 @@ async def get_ligands(uniprot_id: str, mutation: str = "", max_ligands: int = 15
     Link every document with its `links`. If target is None, say "sin registro en ChEMBL".
     """
     return await chembl.get_ligands(uniprot_id, mutation, max_ligands)
+
+
+@mcp.tool()
+async def get_protein_profile(uniprot_id: str, max_diseases: int = 10) -> dict:
+    """Get the target profile of a protein: UniProt annotation + Open Targets.
+
+    Args:
+        uniprot_id: UniProt accession from resolve_protein, e.g. "P01116".
+        max_diseases: How many Open Targets disease associations to list in each
+            of top_overall and top_oncology (1-50).
+
+    This reply is a COMPACT summary. The full result (every variant with its
+    description and PubMed IDs, disease descriptions, all examined associations
+    with datatype scores, all tractability flags) is saved to `dossier_path`.
+
+    Rules for using the result:
+    - Keep the two sources separate: UniProt = curated annotation; Open Targets =
+      association scores (0-1) computed from evidence, not proof of causality.
+    - Say "N of total" for associations: they are the top `examined` of `total`
+      by overall score. top_oncology keeps those in Open Targets' therapeutic
+      area "cancer or benign tumor" (its classification; it includes some
+      syndromes). Overall score can rank germline syndromes first (e.g. KRAS):
+      always say which list you describe.
+    - A UniProt disease with name None only has a note: quote the note, never
+      give it a name.
+    - Function evidence "by similarity" means inferred from another protein.
+    - Tractability gives Open Targets' yes/no flags per modality; it is not a
+      druggability verdict. Cite data_version.
+    - If open_targets.found is false, say "sin registro en Open Targets". If
+      uniprot_crosscheck is false, warn that Open Targets maps the gene to
+      another protein.
+    """
+    return await target_profile.get_protein_profile(uniprot_id, max_diseases)
 
 
 

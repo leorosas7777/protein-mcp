@@ -1,13 +1,20 @@
-"""Shared helpers: logging, accession validation, text cleaning, safe wrapper.
+"""Shared helpers: logging, accession validation, text cleaning, safe wrapper, dossier.
 
 IMPORTANT: never use print() anywhere in this project (stdout is the MCP
 protocol channel). Use `log` (goes to stderr).
 """
 import html
+import json
 import logging
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 
 log = logging.getLogger("protein-mcp")
+
+# Full tool results are written here, one folder per accession (git-ignored).
+# The chat only gets a compact summary plus the path; build_report reads from disk.
+DOSSIER_DIR = Path(__file__).resolve().parent / "dossiers"
 
 ACCESSION_RE = re.compile(r"[A-Z0-9]{6,10}")
 _INLINE_TAG_RE = re.compile(r"</?(?:sup|sub|i|b|em|strong|u|span)\b[^>]*>", re.I)
@@ -49,6 +56,26 @@ def short(value, limit: int = 80):
     if len(text) > limit:
         return text[: limit - 3] + "..."
     return text or None
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def save_dossier(accession: str, name: str, data: dict):
+    """Write `data` to dossiers/<accession>/<name>.json. Return the path, or None on failure.
+
+    `accession` must already be validated by parse_accession (letters and digits only).
+    """
+    folder = DOSSIER_DIR / accession
+    path = folder / f"{name}.json"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        log.exception("Could not write dossier file %s", path)
+        return None
+    return str(path)
 
 
 async def safe(coro, label: str) -> dict:

@@ -18,8 +18,9 @@ Meta final: proyecto de portafolio para ser admitido en una empresa europea.
 
 ## 3. Arquitectura (decidida 2026-10-17)
 - `server.py` es el único punto de entrada: solo registra herramientas (`@mcp.tool()`) y delega. Los docstrings se quedan ahí (es lo que Claude lee para usar cada herramienta).
-- Un módulo por fuente: `uniprot.py`, `europepmc.py`, `rcsb.py` (no `pdb.py`: taparía el módulo `pdb` de Python), `alphafold.py`, `chembl.py`. `common.py` guarda helpers compartidos (`log`, `parse_accession`, `clean_text`, `short`, `safe`) y no importa nada del proyecto (evita ciclos). `chembl.py` tampoco importa módulos del proyecto (solo httpx).
-- Grafo: server → uniprot, europepmc, rcsb, alphafold, chembl, common; europepmc → uniprot, common; rcsb/alphafold → common.
+- Un módulo por fuente: `uniprot.py`, `europepmc.py`, `rcsb.py` (no `pdb.py`: taparía el módulo `pdb` de Python), `alphafold.py`, `chembl.py`, `opentargets.py`. `target_profile.py` (no `profile.py`: taparía el módulo `profile` de Python) combina uniprot + opentargets. `common.py` guarda helpers compartidos (`log`, `parse_accession`, `clean_text`, `short`, `safe`, `utc_now`, `save_dossier`, `DOSSIER_DIR`) y no importa nada del proyecto (evita ciclos). `chembl.py` tampoco importa módulos del proyecto (solo httpx).
+- Grafo: server → uniprot, europepmc, rcsb, alphafold, chembl, target_profile, common; europepmc → uniprot, common; target_profile → uniprot, opentargets, common; rcsb/alphafold/opentargets/uniprot → common.
+- **Expediente en disco:** `common.save_dossier(acc, nombre, datos)` escribe `dossiers/<acc>/<nombre>.json` (en `.gitignore`). Hoy solo lo usa `get_protein_profile`; las otras 4 herramientas aún devuelven todo al chat.
 - **Un solo servidor para todas las fases** (config sin cambios). Al empezar la Fase 2: migrar a paquetes por fase con `register(mcp)` y mover `common.py` a un lugar compartido. Mover la Fase 3 a su propio servidor solo si necesita dependencias distintas, cómputo largo o subprocesos que bloqueen. No crear carpetas de fase antes de tiempo.
 
 ## 4. Herramientas implementadas
@@ -44,6 +45,11 @@ Probadas contra APIs reales, KRAS/P01116.
    - Identidad, propiedades (None si ChEMBL no las tiene), estado de desarrollo y documento fuente con enlaces PubMed/DOI. El nombre es el `pref_name` de ChEMBL y es None en la mayoría de los compuestos de investigación.
    - Constantes: `MAX_ACTIVITIES = 6000`, `MAX_LIGANDS = 15`, `PAGE = 1000`.
    - Alcance v1: bloques 1, 2, 3, 6 y 8 de la lista original (identidad, potencia, ensayo, desarrollo, fuente). Fuera: selectividad (4), datos negativos (7), cruce PDB↔ChEMBL.
+5. `get_protein_profile(uniprot_id, max_diseases=10)`: UniProt + Open Targets, módulos `uniprot.py` (`fetch_entry_json`, `parse_profile`), `opentargets.py` y `target_profile.py`. Primera herramienta con **expediente en disco**: guarda el resultado completo en `dossiers/<acc>/profile.json` y devuelve un resumen compacto con `dossier_path`.
+   - UniProt: función (texto + PubMed + tipo de evidencia), localización subcelular (con isoforma), enfermedades (nombre None si UniProt solo tiene nota; enlaces UniProt diseases y OMIM), variantes naturales y mutagénesis (`change` solo para sustituciones de un residuo), Ensembl sin versión y deduplicado, target ChEMBL.
+   - Open Targets: solo si `taxonId == 9606` y hay Ensembl; examina `ASSOCIATION_POOL = 500` asociaciones (ordenadas por score) y devuelve `top_overall` y `top_oncology` (área `MONDO_0045024`) con `datatype_scores` y enlace de evidencia; tractabilidad sí/no por modalidad; `data_version`; `uniprot_crosscheck`.
+   - Entradas UniProt inactivas (HTTP 200, `entryType: "Inactive"`) se reportan como error; esto también afecta a `search_literature` vía `fetch_entry`.
+   - Pruebas reales 2026-10-20: KRAS (respuesta 10,8 KB, expediente 308 KB; 2262 asociaciones, 500 examinadas, 449 de oncología; top general = Noonan, top oncología = NSCLC), BACE1 P56817 (sin enfermedades UniProt; 923 asociaciones; SM Advanced Clinical sí, Approved Drug no), Kras de ratón P32883 (Open Targets "sin registro", no se llama), Q0ZZZ9 inactiva y P0DZZ9 inexistente (errores claros). Prueba offline: `tests/test_profile.py` con fixtures reales.
 
 ## 5. Decisiones tomadas (no reabrir sin motivo)
 - **Fuente de ligandos: solo ChEMBL** (licencia CC BY-SA 3.0, API gratuita; ChEMBL_37, ~24,5 M de actividades; verificado en `ebi.ac.uk/chembl/api/data/status.json`).
@@ -57,13 +63,14 @@ Probadas contra APIs reales, KRAS/P01116.
 
 ## 6. Limitaciones conocidas y bugs abiertos
 - **RCSB, falso negativo del lado del servidor:** la búsqueda `full_text` de RCSB no separa el gen de la variante, así que entradas con el campo de mutación vacío y la variante solo pegada en el título no llegan al conjunto (verificado 2026-10-20: 9GLU "KRasG12D-GDP…" y 5UFQ no aparecen al buscar "G12D"). Nuestra confirmación sí las reconocería. Posible arreglo: añadir al OR una búsqueda por `pdbx_mutation` o por título con prefijos de gen; no validado.
-- **Salida demasiado grande:** `get_ligands` con P01116/G12C devuelve ~55 KB y la herramienta la guarda en un archivo en lugar de mostrarla. Encadenar herramientas por el contexto del modelo no escala: hace falta el expediente en disco y salidas compactas.
+- **Salida demasiado grande:** `get_ligands` con P01116/G12C devuelve ~55 KB y la herramienta la guarda en un archivo en lugar de mostrarla. El expediente en disco ya existe (`common.save_dossier`) pero solo lo usa `get_protein_profile`; falta migrar las otras 4 herramientas.
+- `get_protein_profile`: el área "cancer or benign tumor" de Open Targets incluye algunos síndromes (p. ej. nevo sebáceo lineal, ALPS4 en KRAS); solo se examinan las 500 primeras asociaciones; si UniProt da varios genes Ensembl solo se consulta el primero (los demás en `other_ensembl_genes_not_queried`); OMIM responde 403 a clientes automatizados (el enlace `omim.org/entry/{MIM}` funciona en navegador, no comprobado aquí).
 - `get_ligands`: el ranking por mejor pChEMBL favorece mediciones únicas; solo se comprueba `max_phase` en los compuestos devueltos y en los de mecanismo registrado, así que otros compuestos clínicos sin mecanismo pueden no aparecer (el filtro `max_phase__gte` sobre molecule NO está validado). Los ligandos del PDB no se cruzan con ChEMBL. Un ensayo de ChEMBL puede estar mal etiquetado en el sentido contrario (texto sin mutación nombrada y etiqueta equivocada): no se detecta.
 - Filtro de mutación de RCSB: solo se examinan los 100 mejores por resolución de los que RCSB encuentra por texto; la confirmación puede descartar entradas que nombran la variante solo en otros campos (se listan en `discarded_not_confirmed`).
 - Con filtro de mutación, varias estructuras salen sin ligando de molécula pequeña; los análogos de nucleótido (GDP/GCP/GNP) ocupan slots (pendiente: agruparlos GDP vs análogo de GTP).
 - 7ROV y 6WGN están unidas a péptidos (aparecen en `partner_chains`, `ligands: []`); pendiente contar binders poliméricos como ligandos.
 - El DOI de 7T47 es un preprint (Research Square).
-- Los caminos "no encontrado" no se han probado contra APIs reales (usar un accession bien formado que no exista, verificado en uniprot.org; P99999 NO sirve: es citocromo c humano).
+- Caminos "no encontrado": probados contra UniProt real solo en `get_protein_profile`/`search_literature` (P0DZZ9 → 404; Q0ZZZ9 → inactiva con HTTP 200). En `get_structures` y `get_ligands` siguen sin probar. P99999 NO sirve: es citocromo c humano.
 - `resolve_protein("insulin receptor")` devuelve ruido; mejora diferida (búsqueda por nombre entre comillas).
 - La relevancia de `search_literature` con `topic="inhibitor"` incluye artículos poco ligados a KRAS (p. ej. PP2A/EGFR); es el comportamiento de `TITLE_ABS` y se aceptó.
 
@@ -74,15 +81,16 @@ Probadas contra APIs reales, KRAS/P01116.
 - 2026-10-20 (Claude Code): `.gitignore` creado; `test_chembl.py` movido a `tests/` (pasa: ALL OK); commit y push del paso de ChEMBL.
 - 2026-10-20 (Claude Code): validados los campos de UniProt y Open Targets para el perfil (sección 8.1). `pyproject.toml`: descripción real, se quitan `[project.scripts]` y `[build-system]` (apuntaban a la plantilla `src/protein_mcp/`, sin uso; el proyecto pasa a `virtual` en `uv.lock`). `uv sync` quitó del `.venv` paquetes que no estaban en el lock (`httpx2`, `mcp-types`, `opentelemetry-api`, `truststore`); el servidor carga sus 4 herramientas y las pruebas pasan.
 - 2026-10-20 (Claude Code): **corregido 9TBR** en `rcsb.py` (`_LEFT_EDGE` compartido por `_TITLE_MUTATION_RE` y `_mutation_matches`). El defecto era más amplio: en los 552 títulos de KRAS, 34 entradas ganan su mutación de título y ninguna pierde la que tenía. Prueba real: `G12D` 96 confirmados / 4 descartados de 100 examinados (127 encontrados), 9TBR (puesto 69) confirmado; 9E3S (G12N) sigue descartado; `G12C` 95/5; `Q61H` 12/0.
+- 2026-10-20 (Claude Code): borrados `src/`, `Litreview/`, `a.json`, `m.json`, `t.json` (autorizado por el usuario). **`get_protein_profile` implementado** con expediente en disco (ver sección 4, herramienta 5).
 
 ## 8. Siguientes tareas (en este orden)
 1. ~~Corregir 9TBR~~ (hecho 2026-10-20).
-2. **Expediente en disco** (`dossiers\P01116\`, en .gitignore): cada herramienta guarda su JSON completo y devuelve al chat solo un resumen compacto con la ruta. `build_report` leerá del disco, no de la conversación.
-3. **`get_protein_profile`** (`profile.py`): UniProt (función con evidencia, localización, comentarios de enfermedad, variantes) y Open Targets (asociaciones diana-enfermedad con score, tractabilidad por modalidad). Mantener separadas las dos fuentes. Campos ya validados contra las APIs reales (ver 8.1); `probe_profile.ps1` ya no hace falta.
+2. **Expediente en disco para las otras 4 herramientas** (el helper y el patrón ya existen en `get_protein_profile`): cada una guarda su JSON completo y devuelve un resumen compacto con la ruta. Prioridad: `get_ligands` (~55 KB). `build_report` leerá del disco, no de la conversación.
+3. ~~`get_protein_profile`~~ (hecho 2026-10-20).
 4. **`build_report`** (Markdown → PDF, ~11 secciones, regla anti-alucinación). Sección de métodos con las limitaciones de la sección 6.
 
 ### 8.1 Campos validados para `get_protein_profile` (2026-10-20, KRAS/P01116, llamadas reales desde Claude Code)
-Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P01116_profile.json`, `opentargets_ENSG00000133703.json`, `opentargets_versioned_id_null.json`.
+Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P01116_profile.json`, `opentargets_ENSG00000133703.json`, `opentargets_versioned_id_null.json`, `uniprot_inactive_Q0ZZZ9.json`.
 - **UniProt** `GET https://rest.uniprot.org/uniprotkb/{acc}.json` (el mismo que usa `uniprot.fetch_entry`).
   - `comments[]` por `commentType`. `FUNCTION`: `texts[].value` + `texts[].evidences[]` (`evidenceCode` ECO, `source` PubMed/UniProtKB, `id`). ECO:0000269 = experimental; ECO:0000250 = "By similarity" (inferida de otra proteína, `source: UniProtKB`); ECO:0000305 = inferencia del curador.
   - `SUBCELLULAR LOCATION` (2 en KRAS, una con `molecule: "Isoform 2B"`): `subcellularLocations[].location/topology/orientation` con `value`, `id` (SL-xxxx) y `evidences`.
