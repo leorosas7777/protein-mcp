@@ -8,23 +8,35 @@ Meta final: proyecto de portafolio para ser admitido en una empresa europea.
 
 ## 2. Entorno
 - Windows, PowerShell, PyMOL gratuito. Idioma: español. Plan Claude Pro (incluye Claude Code) desde 2026-10-20.
-- Carpeta del proyecto: `C:\bioinformatics\protein-mcp\` (todos los .py en la raíz). Python con `uv`, `mcp[cli]<2` (1.30.0, FastMCP). Migrar a mcp v2 es una tarea aparte y diferida.
-- Claude Desktop: `claude_desktop_config.json` → `uv --directory C:\bioinformatics\protein-mcp run server.py`.
+- Carpeta del proyecto: `C:\bioinformatics\protein-mcp\` (código en el paquete `protein_mcp/`, sección 3). Python con `uv`, `mcp[cli]<2` (1.30.0, FastMCP). Migrar a mcp v2 es una tarea aparte y diferida.
+- Claude Desktop: `claude_desktop_config.json` → `uv --directory C:\bioinformatics\protein-mcp run protein-mcp` (script de `[project.scripts]`; antes `run server.py`, cambiado 2026-10-21).
 - Para recargar código: Quit completo desde la bandeja + chat nuevo. El campo `query_used` de `resolve_protein` y `selection_reason` de AlphaFold indican qué versión corre.
-- Node.js solo para el MCP Inspector (`uv run mcp dev server.py`).
+- Node.js solo para el MCP Inspector (`uv run mcp dev protein_mcp/server.py`; no probado tras la reestructuración).
 - Nunca `print()` a stdout (rompe stdio); usar `logging`.
 - Git/GitHub: repo privado, un commit por paso, sin secretos. El usuario hace los commits, salvo que pida explícitamente uno a Claude Code. Nunca `git push` desde Claude Code.
 - Chat de claude.ai: su shell NO alcanza ChEMBL, UniProt ni Open Targets (proxy rechaza); WebFetch devuelve un resumen hecho por otro modelo, no sirve como evidencia de formas JSON. Desde Claude Code en la máquina local hay red completa (verificado 2026-10-20/21: UniProt, Europe PMC, RCSB, AlphaFold, ChEMBL y Open Targets responden).
 
 ## 3. Arquitectura (decidida 2026-10-17)
-- `server.py` es el único punto de entrada: registra las 6 herramientas (`@mcp.tool()`) y delega. Los docstrings se quedan ahí (es lo que Claude lee para usar cada herramienta). Excepción actual: `get_structures` valida la mutación y arma el resultado (RCSB + AlphaFold) dentro de `server.py`; moverlo a su módulo encaja en la tarea 7.
-- Un módulo por fuente: `uniprot.py`, `europepmc.py`, `rcsb.py` (no `pdb.py`: taparía el módulo `pdb` de Python), `alphafold.py`, `chembl.py`, `opentargets.py`. `target_profile.py` (no `profile.py`: taparía el módulo `profile` de Python) combina uniprot + opentargets. `report.py` (build_report) solo lee el expediente: importa `common` y reportlab, nunca las APIs. `common.py` guarda helpers compartidos (`log`, `parse_accession`, `clean_text`, `short`, `safe`, `utc_now`, `save_dossier`, `dossier_name`, `attach_dossier`, `DOSSIER_DIR`) y no importa nada del proyecto (evita ciclos). `chembl.py` tampoco importa módulos del proyecto (solo httpx).
-- Grafo: server → uniprot, europepmc, rcsb, alphafold, chembl, target_profile, report, common; europepmc → uniprot, common; target_profile → uniprot, opentargets, common; report → common (+ reportlab); rcsb/alphafold/opentargets/uniprot → common.
-- **Expediente en disco (2026-10-20):** `server.py` llama a `common.attach_dossier(resultado, acc, nombre, herramienta, params, compact=None)` tras cada herramienta con accession: guarda el resultado COMPLETO en `dossiers/<acc>/<nombre>.json` (en `.gitignore`) con el formato `{tool, params, retrieved_at, result}` y devuelve al chat `compact(resultado)` (o el resultado tal cual) + `dossier_path`. Los resultados con `ok: false` no se guardan. Los módulos de cada fuente no escriben en disco.
+- **Paquete por responsabilidad (decidido por el usuario 2026-10-21, tarea 7):**
+  ```
+  protein_mcp/
+    server.py          registra las herramientas; main() = script protein-mcp
+    common.py          log, parse_accession, clean_text, short, safe, utc_now (no importa nada del proyecto)
+    dossier.py         DOSSIER_DIR, save_dossier, dossier_name, attach_dossier (importa common)
+    target_profile.py  combina uniprot + opentargets
+    report.py          build_report (lee el expediente; importa dossier, common y reportlab)
+    sources/           uniprot, europepmc, rcsb, alphafold, chembl, opentargets
+  tests/  docs/  dossiers/ (en .gitignore, en la raíz del repo)
+  ```
+  `files/` (descargas y PyMOL) se creará en la Fase 2. Imports absolutos (`from protein_mcp.sources import uniprot`) para que funcionen igual con `uv run`, el Inspector y `uvx`. `pyproject.toml` tiene `[build-system]` (hatchling) y `uv sync` instala el paquete en modo editable; las pruebas importan `protein_mcp` sin `sys.path`. `DOSSIER_DIR` = `<repo>/dossiers` (carpeta padre del paquete) o la variable de entorno `PROTEIN_MCP_DOSSIER_DIR` (necesaria si se instala fuera del repo, p. ej. con `uvx`).
+- `server.py` es el único punto de entrada: registra las 6 herramientas (`@mcp.tool()`) y delega. Los docstrings se quedan ahí (es lo que Claude lee para usar cada herramienta). Excepción actual: `get_structures` valida la mutación y arma el resultado (RCSB + AlphaFold) dentro de `server.py` (no se movió en la reestructuración, que no cambió lógica).
+- Un módulo por fuente en `sources/` (`rcsb.py`, no `pdb.py`; `target_profile.py`, no `profile.py`: nombres heredados de cuando tapaban módulos de Python en la raíz). `report.py` solo lee el expediente, nunca las APIs. `chembl.py` no importa módulos del proyecto (solo httpx).
+- Grafo: server → sources.{uniprot, europepmc, rcsb, alphafold, chembl}, target_profile, report, dossier, common; sources.europepmc → sources.uniprot, common; target_profile → sources.{uniprot, opentargets}, common; report → dossier, common (+ reportlab); dossier → common; sources.{rcsb, alphafold, opentargets, uniprot} → common.
+- **Expediente en disco (2026-10-20):** `server.py` llama a `dossier.attach_dossier(resultado, acc, nombre, herramienta, params, compact=None)` tras cada herramienta con accession: guarda el resultado COMPLETO en `dossiers/<acc>/<nombre>.json` (en `.gitignore`) con el formato `{tool, params, retrieved_at, result}` y devuelve al chat `compact(resultado)` (o el resultado tal cual) + `dossier_path`. Los resultados con `ok: false` no se guardan. Los módulos de cada fuente no escriben en disco.
   - Nombres (`dossier_name`): un archivo por mutación, tema, orden y preprints; la llamada por defecto es solo la base. Los parámetros de tamaño (`max_ligands`, `max_results`, `max_models`, `max_diseases`) NO entran en el nombre: una llamada con otro tamaño sobrescribe el archivo por defecto. `literature[_tema][_orden][_preprints]`, `structures[_mutación]`, `ligands[_mutación]`, `profile`. Una llamada repetida con los mismos parámetros sobrescribe su archivo.
   - Qué va al chat: `get_ligands` → `chembl.compact` (sin SMILES, propiedades, textos de ensayo ni lista de documentos; máximo 3 grupos de potencia por ligando; un enlace `source` por fila). `get_protein_profile` → `target_profile.compact`. `search_literature` y `get_structures` → sin cambios (los abstracts son la evidencia que Claude cita; estructuras pesa ~6 KB). `resolve_protein` → sin expediente (no hay accession).
 - **Un solo servidor para todas las fases** (config sin cambios). Mover la Fase 3 a su propio servidor solo si necesita dependencias distintas, cómputo largo o subprocesos que bloqueen.
-- **Organización del código antes de la Fase 2: pendiente de decisión del usuario** (sección 8, tarea 7). Plan original (2026-10-17): paquetes por fase con `register(mcp)`. Propuesta de Claude Code (2026-10-20): paquete por responsabilidad (`sources/`, `dossier.py`, `report.py`), porque la Fase 2 reutiliza `rcsb.py` y `alphafold.py`. Hasta decidir, todo sigue en la raíz.
+- Organización: se descartó el plan original de paquetes por fase con `register(mcp)` (2026-10-17) porque la Fase 2 reutiliza `rcsb.py` y `alphafold.py`.
 
 ## 4. Herramientas implementadas
 Probadas contra APIs reales (KRAS/P01116; ligandos también PCSK9 y EGFR). `tests/smoke_live.py` repite las comprobaciones reales clave (34 comprobaciones, 33 + 1 informativa; 2026-10-21: todas pasan, EGFR repetido tras un `ConnectError` real de ChEMBL; después se añadió el grupo `tnf` con 2 más, que pasan).
@@ -120,6 +132,8 @@ Probadas contra APIs reales (KRAS/P01116; ligandos también PCSK9 y EGFR). `test
 - 2026-10-21 (usuario en Claude Desktop + revisión en Claude Code): **pruebas A/B/C de la tarea 6** (expedientes en `dossiers/P15056`, `P01375`, `P0DTD1`). A (BRAF V600E): filtro de mutación OK en estructuras (38 encontradas, 26 confirmadas, 12 descartadas) y ligandos (3827 actividades de otras variantes excluidas); encorafenib, dabrafenib, sorafenib, vemurafenib y regorafenib (fase 4) primero; "At least 1740" por truncado. B (TNF): tabla de 15 fármacos sin IC50/Ki/Kd (etanercept, adalimumab, infliximab, certolizumab, golimumab fase 4); **bug: Open Targets "sin registro"** (solo se consultaba el primer gen Ensembl, de un haplotipo alternativo). C (SARS-CoV-2): accession P0DTD1, Open Targets "sin registro" correcto; limitaciones de poliproteína en la sección 6. No verificables desde los archivos (dependen del chat de Desktop, pendientes de que el usuario los informe): candidatos de `resolve_protein` para "TNF alpha" y "proteasa principal", el `organism_id` usado, lo que Claude dijo sobre fármacos aprobados de TNF y la duración de `get_ligands` en BRAF.
 - 2026-10-21 (Claude Code): **corregido Open Targets con varios genes Ensembl** (`target_profile._open_targets`, sección 4). Prueba real: TNF → ENSG00000232810, 5627 asociaciones; top general = artritis psoriásica, psoriasis, artritis reumatoide (0,61–0,71); el bloque de oncología aporta poco (82 de 500, puntuaciones 0,12–0,40), como se esperaba en la prueba B. Pruebas offline: `test_profile.py` (gen sin target antes del bueno, ninguno con target, error que corta) y `test_report.py` (genes saltados en la sección 2 con target encontrado, sin target y con error; en el caso de error el reporte también los lista) OK; `smoke_live.py tnf notfound kras` 21/21 (grupo `tnf` nuevo). Revisor: sin defectos graves; hallazgos menores corregidos.
 
+- 2026-10-21 (Claude Code): **reestructuración en paquete** `protein_mcp/` (tarea 7, sección 3) con `git mv` (historial conservado), sin cambiar lógica: `common.py` dividido en `common.py` + `dossier.py`; imports absolutos; `main()` en `server.py`; `[project.scripts] protein-mcp` + `[build-system]`; pruebas sin `sys.path`. Verificado: 5 pruebas offline ALL OK; `smoke_live.py --skip-slow` 25/25; arranque real por stdio con `uv --directory … run protein-mcp` (initialize + tools/list: 6 herramientas); `DOSSIER_DIR` = `C:\bioinformatics\protein-mcp\dossiers`. No probados: Inspector, `uvx`, Claude Desktop con la config nueva.
+
 ## 8. Siguientes tareas (en este orden)
 1. ~~Corregir 9TBR~~ (hecho 2026-10-20).
 2. ~~Expediente en disco~~ (hecho 2026-10-20 para las 5 herramientas).
@@ -130,7 +144,7 @@ Probadas contra APIs reales (KRAS/P01116; ligandos también PCSK9 y EGFR). `test
    - **A. BRAF V600E** (oncología, quinasa, molécula pequeña, mutación): filtro de mutación en estructuras y ligandos, fármacos aprobados entre los primeros, posible truncado ("At least N"), tiempo de `get_ligands` frente al timeout de Desktop.
    - **B. TNF** (inmunología, diana de anticuerpos/proteínas de fusión): tabla de fármacos sin IC50/Ki/Kd, bloque de oncología de Open Targets poco útil en diana no oncológica, nombre ambiguo ("TNF alpha") en `resolve_protein`.
    - **C. Proteasa principal del SARS-CoV-2** (no humana, poliproteína): `organism_id` distinto de 9606, Open Targets "sin registro", accession de poliproteína en ChEMBL/RCSB; prueba anti-alucinación (Claude no debe nombrar fármacos que no estén en el resultado).
-7. **Antes de la Fase 2: reestructurar en paquete** (propuesta de Claude Code 2026-10-20, pendiente de decisión del usuario): `protein_mcp/` con `sources/` (una fuente por módulo), `dossier.py`, `report.py`, `server.py`; tests sin `sys.path`; `[project.scripts]` para poder ejecutar con `uvx`. Sin cambiar lógica, en un commit aparte. Reabre la decisión de la sección 3 ("paquetes por fase"): se propone organizar por responsabilidad, porque la Fase 2 (descargas, PyMOL) reutiliza las mismas fuentes.
+7. ~~Reestructurar en paquete~~ (hecho 2026-10-21, sección 3). Pendiente del usuario: cambiar `claude_desktop_config.json` a `run protein-mcp`.
 8. README del portafolio (inglés) con instalación, ejemplo y un PDF de muestra (hoy `README.md` está vacío).
 9. `get_ligands`/`get_structures`: distinguir accession inexistente de "sin datos" (sección 6).
 
@@ -153,7 +167,7 @@ Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P
   - Open Targets solo cubre diana humana: con `organism_id != 9606` debe quedar "sin registro".
 
 ## 9. Hoja de ruta posterior
-- Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess), con la organización que se decida en la tarea 7.
+- Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess), en `protein_mcp/files/` (sección 3).
 - Opcional: validar `max_phase__gte` para encontrar compuestos clínicos sin mecanismo; cruce PDB↔ChEMBL por InChIKey; clave NCBI/PubMed; migración a mcp v2; ClinicalTrials.gov limitado; rama de DrugBank; `lookup_compound`; selectividad y datos negativos de ChEMBL.
 - Fila no cubierta por ninguna fuente: disponibilidad comercial / calidad de sonda química.
 

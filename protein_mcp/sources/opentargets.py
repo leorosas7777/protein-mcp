@@ -10,7 +10,7 @@ import re
 
 import httpx
 
-from common import log
+from protein_mcp.common import log
 
 OT_GRAPHQL = "https://api.platform.opentargets.org/api/v4/graphql"
 OT_WEB = "https://platform.opentargets.org"

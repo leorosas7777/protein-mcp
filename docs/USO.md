@@ -14,7 +14,7 @@ Requisitos: Windows, [uv](https://docs.astral.sh/uv/), Claude Desktop y conexió
      "mcpServers": {
        "protein-research": {
          "command": "uv",
-         "args": ["--directory", "C:\\bioinformatics\\protein-mcp", "run", "server.py"]
+         "args": ["--directory", "C:\\bioinformatics\\protein-mcp", "run", "protein-mcp"]
        }
      }
    }

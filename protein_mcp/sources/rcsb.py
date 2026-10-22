@@ -6,7 +6,7 @@ import re
 
 import httpx
 
-from common import clean_text, log, short
+from protein_mcp.common import clean_text, log, short
 
 # >>> EDIT THIS LINE to change how many experimental PDB structures are returned <<<
 MAX_PDB_MODELS = 7

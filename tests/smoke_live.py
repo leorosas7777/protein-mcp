@@ -23,9 +23,8 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
-import common  # noqa: E402
-import server  # noqa: E402
+from protein_mcp import dossier
+from protein_mcp import server
 
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -197,7 +196,7 @@ async def main(argv):
     global GROUP
     chosen = [a for a in argv if a in GROUPS] or [g for g in GROUPS
                                                   if not ("--skip-slow" in argv and g in SLOW)]
-    common.DOSSIER_DIR = Path(tempfile.mkdtemp(prefix="smoke_"))
+    dossier.DOSSIER_DIR = Path(tempfile.mkdtemp(prefix="smoke_"))
     for g in chosen:
         GROUP = g
         try:
@@ -207,7 +206,7 @@ async def main(argv):
     fails = [r for r in RESULTS if not r[3]]
     for g, kind, name, ok, detail in RESULTS:
         print(f"{'PASS' if ok else 'FAIL'}  [{g}/{kind}] {name}" + (f"\n      -> {detail}" if detail else ""))
-    print(f"\n{len(RESULTS) - len(fails)} passed, {len(fails)} failed. Dossiers: {common.DOSSIER_DIR}")
+    print(f"\n{len(RESULTS) - len(fails)} passed, {len(fails)} failed. Dossiers: {dossier.DOSSIER_DIR}")
     print("ALL OK" if not fails else "FAILURES")
     return 1 if fails else 0
 

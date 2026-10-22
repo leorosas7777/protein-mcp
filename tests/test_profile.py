@@ -8,17 +8,15 @@ Run: uv run python tests/test_profile.py
 import asyncio
 import copy
 import json
-import sys
 import tempfile
 from pathlib import Path
 
 import httpx
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))  # project root
-import common  # noqa: E402
-import target_profile  # noqa: E402
-import uniprot  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent  # fixtures live in tests/fixtures
+from protein_mcp import dossier
+from protein_mcp import target_profile
+from protein_mcp.sources import uniprot
 
 FIX = ROOT / "tests" / "fixtures"
 
@@ -61,14 +59,14 @@ async def run(uniprot_entry=KRAS, ot_body=OT_KRAS, acc="P01116", max_diseases=10
     transport = httpx.MockTransport(make_handler(uniprot_entry, ot_body, calls))
     async with httpx.AsyncClient(transport=transport) as c:
         full = await target_profile.get_protein_profile(acc, _client=c)
-    r = common.attach_dossier(full, acc, "profile", "get_protein_profile", {"max_diseases": max_diseases},
+    r = dossier.attach_dossier(full, acc, "profile", "get_protein_profile", {"max_diseases": max_diseases},
                               compact=lambda x: target_profile.compact(x, max_diseases))
     return r, calls
 
 
 async def main():
     tmp = tempfile.mkdtemp()
-    common.DOSSIER_DIR = Path(tmp)
+    dossier.DOSSIER_DIR = Path(tmp)
 
     r, calls = await run()
     assert r["ok"] and r["dossier_path"], r

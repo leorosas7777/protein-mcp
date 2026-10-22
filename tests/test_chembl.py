@@ -5,13 +5,11 @@ Run: uv run python tests/test_chembl.py
 """
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
-import chembl  # noqa: E402
+from protein_mcp.sources import chembl
 
 
 def act(aid, mol, val, pchembl, mut="G12V", rel="=", units="nM", assay="CHEMBL3223233", **kw):

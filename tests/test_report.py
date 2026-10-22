@@ -10,17 +10,15 @@ import asyncio
 import json
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
 import httpx
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))  # project root
-import common  # noqa: E402
-import report  # noqa: E402
-import target_profile  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent  # fixtures live in tests/fixtures
+from protein_mcp import dossier
+from protein_mcp import report
+from protein_mcp import target_profile
 
 FIX = ROOT / "tests" / "fixtures"
 ACC = "P01116"
@@ -35,7 +33,7 @@ async def save_profile():
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
         full = await target_profile.get_protein_profile(ACC, _client=c)
-    common.attach_dossier(full, ACC, "profile", "get_protein_profile", {"max_diseases": 10})
+    dossier.attach_dossier(full, ACC, "profile", "get_protein_profile", {"max_diseases": 10})
 
 
 def links_are_sourced(md: str, folder: Path):
@@ -49,8 +47,8 @@ def links_are_sourced(md: str, folder: Path):
 
 
 def main():
-    common.DOSSIER_DIR = Path(tempfile.mkdtemp())
-    folder = common.DOSSIER_DIR / ACC
+    dossier.DOSSIER_DIR = Path(tempfile.mkdtemp())
+    folder = dossier.DOSSIER_DIR / ACC
 
     # no dossier -> clear error, nothing written
     r = report.build_report(ACC)

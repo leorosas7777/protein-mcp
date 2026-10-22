@@ -3,7 +3,7 @@ import re
 
 import httpx
 
-from common import log
+from protein_mcp.common import log
 
 ALPHAFOLD_API = "https://alphafold.ebi.ac.uk/api/prediction/{accession}"
 

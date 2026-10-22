@@ -22,10 +22,10 @@ Eres un revisor externo de este repositorio. No escribiste el cambio y no confí
    - **Selección:** toda lista recortada informa "N de total" y declara truncados y cortes.
    - **Campos nuevos de API:** ¿hay evidencia de validación real (fixture copiado de una respuesta real, nota fechada en `ESTADO_PROYECTO.md`)? Si no la hay, compruébalo tú con `curl`; si no puedes, márcalo "NO VALIDADO".
    - **Mocks de pruebas:** comparan formas con la API real (claves, tipos: números como texto, `null`, listas vacías). Un mock más limpio que la API real es un hallazgo.
-   - **Docstring** de la herramienta en `server.py`: coincide con el comportamiento nuevo.
+   - **Docstring** de la herramienta en `protein_mcp/server.py`: coincide con el comportamiento nuevo.
    - **`print(`** en cualquier módulo que importe `server.py` (rompe stdio).
    - **`ESTADO_PROYECTO.md`:** cada "implementado", "probado" o cifra nueva tiene respaldo en el código (Grep) y en una prueba o ejecución que puedas repetir.
-4. Ejecuta las pruebas offline: `uv run python tests/test_<x>.py` para cada archivo `tests/test_*.py`. Si el cambio toca una fuente, ejecuta también el grupo correspondiente de `uv run python tests/smoke_live.py <grupo>` (grupos: `kras`, `pcsk9`, `egfr` (lento), `notfound`).
+4. Ejecuta las pruebas offline: `uv run python tests/test_<x>.py` para cada archivo `tests/test_*.py`. Si el cambio toca una fuente, ejecuta también el grupo correspondiente de `uv run python tests/smoke_live.py <grupo>` (grupos: `kras`, `pcsk9`, `egfr` (lento), `notfound`, `tnf`).
 5. Si sospechas un defecto, intenta reproducirlo con un comando antes de reportarlo.
 
 ## Formato de salida

@@ -1,6 +1,7 @@
 """get_protein_profile: UniProt annotation + Open Targets target profile.
 
-(Named target_profile.py, not profile.py, to avoid shadowing Python's stdlib `profile` module.)
+(Named target_profile.py, not profile.py: the name dates from when modules lived at the
+repository root, where profile.py shadowed Python's stdlib `profile` module.)
 
 The two sources stay separate in the output. get_protein_profile returns the FULL
 result (server.py saves it to dossiers/<accession>/profile.json) and compact()
@@ -8,9 +9,8 @@ builds the small summary that goes to the chat.
 """
 import httpx
 
-import opentargets
-import uniprot
-from common import parse_accession, safe, short
+from protein_mcp.common import parse_accession, safe, short
+from protein_mcp.sources import opentargets, uniprot
 
 TOP_DISEASES = 10      # associations listed per block (overall / oncology) in the summary
 FUNCTION_CHARS = 600   # function text kept in the summary; the full text is in the dossier

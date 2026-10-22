@@ -3,11 +3,9 @@ the REAL RCSB GraphQL responses (2026-10-20): pdbx_mutation null, gene glued to
 the variant in the title ("KRASG12D"), isoform name "KRAS4B", other-protein entity.
 Run: uv run python tests/test_rcsb.py
 """
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
-import rcsb  # noqa: E402
+from protein_mcp.sources import rcsb
 
 KRAS = {"rcsb_polymer_entity": {"pdbx_description": "Isoform 2B of GTPase KRas", "pdbx_mutation": None},
         "rcsb_polymer_entity_container_identifiers": {"uniprot_ids": ["P01116"]}}

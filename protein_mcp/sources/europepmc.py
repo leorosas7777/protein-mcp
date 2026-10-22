@@ -3,8 +3,8 @@ import re
 
 import httpx
 
-from common import clean_text, log, parse_accession
-from uniprot import fetch_entry
+from protein_mcp.common import clean_text, log, parse_accession
+from protein_mcp.sources.uniprot import fetch_entry
 
 EUROPEPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 _SORT_MAP = {"relevance": None, "recent": "P_PDATE_D desc", "cited": "CITED desc"}

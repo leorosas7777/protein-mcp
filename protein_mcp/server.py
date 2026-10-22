@@ -11,8 +11,9 @@ Tools:
     associations and tractability (full result saved to the dossier on disk).
   - build_report: dossier on disk -> PDF + Markdown data report.
 
-Logic lives in one module per source: uniprot, europepmc, rcsb, alphafold,
-chembl, opentargets; target_profile combines uniprot + opentargets.
+Logic lives in one module per source in protein_mcp/sources/: uniprot,
+europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
+uniprot + opentargets; dossier saves results to disk; report builds the PDF.
 Shared helpers are in common.
 
 IMPORTANT: this server talks to Claude Desktop over stdio.
@@ -28,14 +29,12 @@ from mcp.server.fastmcp import FastMCP
 
 logging.basicConfig(level=logging.INFO)
 
-import europepmc  # noqa: E402
-import report  # noqa: E402
-import target_profile  # noqa: E402
-import uniprot  # noqa: E402
-import chembl
-from alphafold import fetch_alphafold  # noqa: E402
-from common import attach_dossier, dossier_name, parse_accession, safe  # noqa: E402
-from rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
+from protein_mcp import report, target_profile  # noqa: E402
+from protein_mcp.common import parse_accession, safe  # noqa: E402
+from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
+from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
+from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
+from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
 
 mcp = FastMCP("protein-research")
 
@@ -101,7 +100,7 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
     Args:
         uniprot_id: UniProt accession from resolve_protein, e.g. "P01116".
         max_models: How many experimental PDB structures to return (1-25).
-            0 (default) uses the MAX_PDB_MODELS constant in rcsb.py.
+            0 (default) uses the MAX_PDB_MODELS constant in sources/rcsb.py.
         mutation: Optional text to restrict the PDB entries to one variant,
             e.g. "G12D". Use it when the user cares about a specific mutation;
             without it the picks come from the best-resolution entries overall,
@@ -267,5 +266,10 @@ async def build_report(uniprot_id: str) -> dict:
 
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point of the `protein-mcp` script (pyproject.toml)."""
     mcp.run()  # stdio transport
+
+
+if __name__ == "__main__":
+    main()

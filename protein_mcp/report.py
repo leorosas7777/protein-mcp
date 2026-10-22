@@ -1,7 +1,7 @@
 """build_report: dossier on disk -> Markdown + PDF report.
 
 Option (a), decided 2026-10-20: everything in the report is read from
-dossiers/<accession>/*.json (written by the tools through common.attach_dossier)
+dossiers/<accession>/*.json (written by the tools through dossier.attach_dossier)
 and laid out deterministically. Nothing is generated or inferred here: values
 and links come from the saved source records, empty fields say "no record",
 and the only fixed text describes how the data were selected. The analyst's
@@ -24,8 +24,8 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (ListFlowable, ListItem, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
-import common
-from common import log, parse_accession, utc_now
+from protein_mcp import dossier
+from protein_mcp.common import log, parse_accession, utc_now
 
 NO_RECORD = "no record"
 LINK_COLOR = "#1a4fa0"
@@ -190,7 +190,7 @@ def _paper_link(p):
 def load_dossier(accession: str) -> dict:
     """{tool: [entries]} from dossiers/<accession>/*.json; the default call
     (shortest file name, e.g. ligands.json before ligands_g12c.json) first."""
-    folder = common.DOSSIER_DIR / accession
+    folder = dossier.DOSSIER_DIR / accession
     entries = {}
     for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         try:
@@ -688,7 +688,7 @@ def build_report(uniprot_id: str) -> dict:
                          "and/or search_literature first: each one saves its result to the dossier."}
     generated = utc_now()
     doc = build_document(accession, entries, generated)
-    folder = common.DOSSIER_DIR / accession
+    folder = dossier.DOSSIER_DIR / accession
     md_path, pdf_path = folder / f"report_{accession}.md", folder / f"report_{accession}.pdf"
     gene = next((d["result"]["uniprot"].get("gene") for d in entries.get("get_protein_profile") or []), None)
     try:

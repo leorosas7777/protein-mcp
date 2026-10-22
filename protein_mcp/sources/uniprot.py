@@ -3,7 +3,7 @@ import re
 
 import httpx
 
-from common import clean_text, log
+from protein_mcp.common import clean_text, log
 
 UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
 UNIPROT_ENTRY = "https://rest.uniprot.org/uniprotkb/{accession}"
