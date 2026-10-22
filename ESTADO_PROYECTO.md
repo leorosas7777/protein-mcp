@@ -147,6 +147,42 @@ Probadas contra APIs reales (KRAS/P01116; ligandos también PCSK9 y EGFR). `test
 7. ~~Reestructurar en paquete~~ (hecho 2026-10-21, sección 3). Pendiente del usuario: cambiar `claude_desktop_config.json` a `run protein-mcp`.
 8. README del portafolio (inglés) con instalación, ejemplo y un PDF de muestra (hoy `README.md` está vacío).
 9. `get_ligands`/`get_structures`: distinguir accession inexistente de "sin datos" (sección 6).
+10. **Fase 2: preparación de experimentos in silico** (plan aprobado 2026-10-21). Insumos para la Fase 3 (proteína-ligando: docking → MD → ADMET; proteína-biológico: AlphaFold de complejo → MD → ADMET), con una revisión humana antes de lanzar nada.
+    - Decisiones:
+      - limpieza mínima y declarada: mmCIF original + PDB solo con las cadenas de la diana, sin aguas ni aditivos; completar loops y protonar van a la Fase 3;
+      - el contrato con la Fase 3 es `dossiers/<acc>/prep/manifest.json` (procedencia de cada archivo, decisiones, bolsillo y caja, FASTA, elección del usuario);
+      - gemmi calcula, PyMOL open-source solo visualiza mediante un `.pml` generado y lanzado; se descartan los puentes Claude↔PyMOL que ejecutan código arbitrario y un chat propio;
+      - la elección de estructura se hace en el chat y una herramienta (`select_structure`) la escribe en el manifiesto;
+      - una mutación modelada en PyMOL queda diferida y, si se hace, se marca `"modeled": true`;
+      - RDKit (ligandos de ChEMBL a 3D) queda fuera hasta la Fase 3.
+    - Pasos (uno por sesión):
+      0. ~~validación~~ (hecho 2026-10-21, sección 8.2);
+      1. descarga + manifiesto + `prepare_structures`;
+      2. limpieza, métricas, bolsillo y caja (`files/clean.py`);
+      3. `.pml` + `open_in_pymol` (modo sin PyMOL: devuelve la ruta del `.pml`);
+      4. `select_structure` + sección "Preparación" en el reporte;
+      5. biológicos (cadenas pareja, secuencias, interfaz en el ensamblaje biológico);
+      6. diferido: mutación modelada y ligandos de ChEMBL en 3D.
+
+### 8.2 Validación de la Fase 2 (2026-10-21, llamadas reales desde Claude Code, script en el scratchpad, sin código del servidor)
+- Descargas, todas con HTTP 200:
+  - `https://files.rcsb.org/download/3OG7.cif` (833 KB) y `3WD5.cif`;
+  - modelo AlphaFold `AF-P15056-F1-model_v6.cif` (URL que ya devuelve `fetch_alphafold`);
+  - FASTA `https://rest.uniprot.org/uniprotkb/P15056.fasta` (cabecera `>sp|P15056|BRAF_HUMAN …`).
+- Ligandos en SDF:
+  - **ModelServer** `https://models.rcsb.org/v1/3OG7/ligand?label_comp_id=032&encoding=sdf` devuelve un SDF de 33 átomos y 36 enlaces con las coordenadas del cristal (`text/plain`, ModelServer 0.9.13);
+  - `https://files.rcsb.org/ligands/download/032_ideal.sdf` devuelve la geometría ideal, sin pose.
+- gemmi 0.7.5 (rueda para Python 3.13 en Windows) lee los mmCIF, las entidades y las cadenas. El bolsillo a ≤5 Å del vemurafenib (032) en 3OG7 cadena A son 22 residuos, entre ellos K483, T529, Q530-C532 (bisagra) y D594-F595-G596 (DFG). Se obtuvieron del archivo.
+- **Defecto real: el mapeo cadena→UniProt del mmCIF no es fiable.**
+  - En 3OG7, `_struct_ref` dice `UNP Q5IBP5`, no P15056, aunque RCSB lo devuelve para P15056.
+  - En 3WD5, las cadenas del Fab de adalimumab tienen `PDB 3WD5`, sin UniProt.
+  - Conclusión: tomar las cadenas de la diana de RCSB (`rcsb_polymer_entity_container_identifiers.uniprot_ids`, como ya hace `sources/rcsb.py`), no del `_struct_ref` del archivo.
+- **3OG7 tiene el ligando solo en la cadena A (cadena B sin ligando).** El bolsillo debe calcularse por instancia del ligando, y el manifiesto debe decir en qué cadena está.
+- **Constructos con mutaciones de solubilidad:** 3OG7, 4XV1, 5JSM y 6V34 (expediente BRAF V600E) llevan entre 11 y más de 15 mutaciones introducidas, según el campo `mutations` del expediente (I543A, I544S, F667E, Y673S…). Una estructura "limpia" de estas entradas no es la secuencia nativa: el manifiesto debe listar las mutaciones de `get_structures`.
+- **Unidad asimétrica ≠ ensamblaje biológico:** 3WD5 tiene 1 cadena de TNF (A, residuos 6-157) + Fab (L, H). TNF es un trímero, así que la interfaz para biológicos debe calcularse en el ensamblaje biológico, no en la unidad asimétrica (paso 5).
+- PyMOL open-source:
+  - la rueda pip `pymol-open-source-whl` (PyMOL 3.2.0a) se instala en Python 3.13 en Windows y carga 3OG7 sin interfaz (4177 átomos);
+  - no trae Qt (sin PyQt5/PyQt6/PySide6). La ventana gráfica necesita una de esas librerías: está sin probar (paso 3).
 
 ### 8.1 Campos validados para `get_protein_profile` (2026-10-20, KRAS/P01116, llamadas reales desde Claude Code)
 Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P01116_profile.json`, `opentargets_ENSG00000133703.json`, `opentargets_versioned_id_null.json`, `uniprot_inactive_Q0ZZZ9.json`.
@@ -167,7 +203,8 @@ Fixtures reales (recortados, valores sin tocar) en `tests/fixtures/`: `uniprot_P
   - Open Targets solo cubre diana humana: con `organism_id != 9606` debe quedar "sin registro".
 
 ## 9. Hoja de ruta posterior
-- Fase 2: recuperación de archivos (PDB/FASTA, CIF→PDB) y PyMOL a petición (`.pml` + subprocess), en `protein_mcp/files/` (sección 3).
+- Fase 2: preparación de experimentos (descarga, limpieza declarada, manifiesto, PyMOL a petición con `.pml` + subprocess), en `protein_mcp/files/`. Plan y pasos en la sección 8, tarea 10.
+- Fase 3: lanzar experimentos a partir del manifiesto. Avisos: AlphaFold Server no tiene API pública, y AF3 local exige pesos con licencia y GPU, así que el manifiesto deja FASTA y no se ata a un motor; una MD sin HPC está limitada a sistemas pequeños o simulaciones cortas.
 - Opcional: validar `max_phase__gte` para encontrar compuestos clínicos sin mecanismo; cruce PDB↔ChEMBL por InChIKey; clave NCBI/PubMed; migración a mcp v2; ClinicalTrials.gov limitado; rama de DrugBank; `lookup_compound`; selectividad y datos negativos de ChEMBL.
 - Fila no cubierta por ninguna fuente: disponibilidad comercial / calidad de sonda química.
 
