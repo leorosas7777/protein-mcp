@@ -60,6 +60,133 @@ query ($ids: [String!]!) {
 """
 
 
+# Chains and ligand instances, for prepare_structures (Phase 2). Chain -> UniProt comes
+# from RCSB's mapping: the mmCIF `_struct_ref` is unreliable (3OG7 cites Q5IBP5, not
+# P15056). Polymer `auth_asym_ids` can differ from `asym_ids` (7ZR0: BRAF is label D,
+# auth K). `rcsb_target_neighbors.target_asym_id` is a label asym ID; RCSB does not
+# document its distance cutoff (a 4.87 Å neighbour was seen in 5JSM).
+_CHAINS_QUERY = """
+query ($ids: [String!]!) {
+  entries(entry_ids: $ids) {
+    rcsb_id
+    polymer_entities {
+      rcsb_polymer_entity { pdbx_description }
+      entity_poly { rcsb_sample_sequence_length }
+      rcsb_polymer_entity_container_identifiers { entity_id uniprot_ids }
+      polymer_entity_instances { rcsb_polymer_entity_instance_container_identifiers { asym_id auth_asym_id } }
+      rcsb_polymer_entity_align {
+        reference_database_name reference_database_accession
+        aligned_regions { entity_beg_seq_id ref_beg_seq_id length }
+      }
+    }
+    nonpolymer_entities {
+      nonpolymer_entity_instances {
+        rcsb_nonpolymer_entity_instance_container_identifiers { asym_id auth_asym_id auth_seq_id comp_id }
+        rcsb_target_neighbors { target_asym_id distance }
+      }
+    }
+  }
+}
+"""
+
+MODELSERVER_LIGAND = "https://models.rcsb.org/v1/{pdb_id}/ligand"
+
+
+def cif_url(pdb_id: str) -> str:
+    return f"https://files.rcsb.org/download/{pdb_id}.cif"
+
+
+def ligand_sdf_url(pdb_id: str, label_asym_id: str) -> str:
+    """Crystal pose of ONE ligand instance. Asking by label_comp_id returns only the first
+    instance (5JSM has two 6NB, J and R, with different coordinates), so ask by label_asym_id."""
+    return f"{MODELSERVER_LIGAND.format(pdb_id=pdb_id)}?label_asym_id={label_asym_id}&encoding=sdf"
+
+
+def component_category(comp_id: str) -> str:
+    """Same classification as get_structures: nucleotide, additive, cofactor or ligand."""
+    if comp_id in _NUCLEOTIDES:
+        return "nucleotide"
+    if comp_id in _ADDITIVES:
+        return "additive"
+    if comp_id in _COFACTORS:
+        return "cofactor"
+    return "ligand"
+
+
+def _parse_chains(e: dict, accession: str) -> dict:
+    target, others, instances = [], [], []
+    target_asyms, auth_of = set(), {}
+    for ent in e.get("polymer_entities") or []:
+        ids = (ent or {}).get("rcsb_polymer_entity_container_identifiers") or {}
+        # Entity-level asym_ids/auth_asym_ids lists are not paired (5JSM: 3 label, 2 auth),
+        # so the label -> auth pairs come from the instances.
+        chains = sorted(
+            ({"label_asym_id": c.get("asym_id"), "auth_asym_id": c.get("auth_asym_id")}
+             for c in (i.get("rcsb_polymer_entity_instance_container_identifiers") or {}
+                       for i in ent.get("polymer_entity_instances") or [])
+             if c.get("asym_id")),
+            key=lambda c: c["label_asym_id"])
+        auth_of.update((c["label_asym_id"], c["auth_asym_id"]) for c in chains)
+        row = {"entity_id": ids.get("entity_id"), "chains": chains}
+        if accession in (ids.get("uniprot_ids") or []):
+            row["sample_sequence_length"] = ((ent.get("entity_poly") or {}).get("rcsb_sample_sequence_length"))
+            row["uniprot_alignment"] = [
+                {"entity_begin": r.get("entity_beg_seq_id"), "uniprot_begin": r.get("ref_beg_seq_id"),
+                 "length": r.get("length")}
+                for a in ent.get("rcsb_polymer_entity_align") or []
+                if a.get("reference_database_name") == "UniProt" and a.get("reference_database_accession") == accession
+                for r in a.get("aligned_regions") or []
+            ]
+            target.append(row)
+            target_asyms.update(c["label_asym_id"] for c in chains)
+        else:
+            row["description"] = ((ent.get("rcsb_polymer_entity") or {}).get("pdbx_description"))
+            row["uniprot_ids"] = ids.get("uniprot_ids") or []
+            others.append(row)
+    for ent in e.get("nonpolymer_entities") or []:
+        for inst in (ent or {}).get("nonpolymer_entity_instances") or []:
+            ids = inst.get("rcsb_nonpolymer_entity_instance_container_identifiers") or {}
+            if not ids.get("asym_id") or not ids.get("comp_id"):
+                continue
+            closest = {}
+            for n in inst.get("rcsb_target_neighbors") or []:
+                chain, dist = n.get("target_asym_id"), n.get("distance")
+                if chain and isinstance(dist, (int, float)):
+                    closest[chain] = round(min(dist, closest.get(chain, dist)), 2)
+            instances.append({
+                "comp_id": ids["comp_id"],
+                "category": component_category(ids["comp_id"]),
+                "label_asym_id": ids["asym_id"],
+                "auth_asym_id": ids.get("auth_asym_id"),
+                "auth_seq_id": ids.get("auth_seq_id"),
+                # {label_asym_id: {"auth_asym_id", "closest_angstrom"}} from rcsb_target_neighbors
+                "neighbor_target_chains": {c: {"auth_asym_id": auth_of.get(c), "closest_angstrom": d}
+                                           for c, d in sorted(closest.items()) if c in target_asyms},
+                "neighbor_other_chains": {c: {"auth_asym_id": auth_of.get(c), "closest_angstrom": d}
+                                          for c, d in sorted(closest.items()) if c not in target_asyms},
+            })
+    instances.sort(key=lambda i: (i["comp_id"], i["label_asym_id"]))
+    return {"target_entities": target, "other_polymer_entities": others, "nonpolymer_instances": instances}
+
+
+async def fetch_chains(client, pdb_ids: list, accession: str) -> dict:
+    """{pdb_id: {target_entities, other_polymer_entities, nonpolymer_instances}} in ONE request.
+    Entries RCSB does not return are simply absent from the dict."""
+    try:
+        resp = await client.post(RCSB_GRAPHQL, json={"query": _CHAINS_QUERY, "variables": {"ids": pdb_ids}})
+        resp.raise_for_status()
+        gdata = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.error("RCSB chains query failed: %s", exc)
+        return {"ok": False, "error": f"RCSB chains request failed: {exc}"}
+    raw = ((gdata or {}).get("data") or {}).get("entries") if isinstance(gdata, dict) else None
+    if raw is None:
+        return {"ok": False, "error": "Unexpected RCSB GraphQL response format.",
+                "graphql_errors": str((gdata or {}).get("errors"))[:300] if isinstance(gdata, dict) else None}
+    return {"ok": True, "entries": {e["rcsb_id"]: _parse_chains(e, accession)
+                                    for e in raw if isinstance(e, dict) and e.get("rcsb_id")}}
+
+
 def _pdb_search_payload(accession: str, rows: int, mutation: str = "") -> dict:
     nodes = [
         {"type": "terminal", "service": "text", "parameters": {
@@ -138,7 +265,7 @@ def _parse_pdb_entry(e: dict, accession: str) -> dict:
     links = {}
     if pdb_id:
         links["rcsb"] = f"https://www.rcsb.org/structure/{pdb_id}"
-        links["download_cif"] = f"https://files.rcsb.org/download/{pdb_id}.cif"
+        links["download_cif"] = cif_url(pdb_id)
     if pubmed:
         links["pubmed"] = f"https://pubmed.ncbi.nlm.nih.gov/{pubmed}/"
     if doi:

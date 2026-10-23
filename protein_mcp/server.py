@@ -10,11 +10,13 @@ Tools:
   - get_protein_profile: UniProt accession -> UniProt annotation + Open Targets
     associations and tractability (full result saved to the dossier on disk).
   - build_report: dossier on disk -> PDF + Markdown data report.
+  - prepare_structures (Phase 2): structures dossier file -> original files on disk
+    (mmCIF, AlphaFold, FASTA, ligand poses) + prep/manifest.json.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
 uniprot + opentargets; dossier saves results to disk; report builds the PDF.
-Shared helpers are in common.
+Shared helpers are in common. Phase 2 (files for in-silico experiments) is in protein_mcp/files/.
 
 IMPORTANT: this server talks to Claude Desktop over stdio.
 Never use print() anywhere: anything written to stdout corrupts the protocol.
@@ -32,6 +34,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
+from protein_mcp.files import prepare  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -263,6 +266,55 @@ async def build_report(uniprot_id: str) -> dict:
     - If it fails because the PDF is open in a viewer, ask the user to close it.
     """
     return await asyncio.to_thread(report.build_report, uniprot_id)
+
+
+@mcp.tool()
+async def prepare_structures(
+    uniprot_id: str, mutation: str = "", pdb_ids: list[str] | None = None, include_alphafold: bool = True
+) -> dict:
+    """Download the structures chosen by get_structures and write the preparation manifest (Phase 2, step 1).
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+        mutation: The same mutation used in get_structures, e.g. "V600E"; it picks
+            the dossier file (structures_v600e.json). Empty = structures.json.
+            Run get_structures with that mutation first.
+        pdb_ids: Optional subset of the PDB IDs in that file, e.g. ["3OG7"]. IDs
+            that are not in the file are NOT downloaded (`pdb_ids_not_in_dossier`).
+        include_alphafold: Also download the AlphaFold model of the dossier file.
+
+    Downloads into dossiers/<acc>/prep/: raw/<PDB>.cif (original mmCIF), the
+    AlphaFold mmCIF, raw/<acc>.fasta (UniProt canonical sequence) and
+    ligands/<PDB>_<comp>_<label chain>.sdf (crystal pose of every non-additive
+    ligand instance). Writes prep/manifest.json (provenance with SHA-256,
+    chains, ligand instances, construct mutations, decisions, pending steps).
+    Running it again replaces the manifest (`replaced_manifest_from`). If the RCSB
+    chain query or every structure download fails, it returns ok false and keeps
+    the previous manifest.
+
+    Rules for using the result:
+    - Say "N of M" from `selection`, and list `failed_downloads` and `warnings`
+      if any (e.g. RCSB or AlphaFold failed when the dossier was made: then the
+      structures are unknown, not absent).
+    - The files are ORIGINAL downloads: nothing is cleaned, protonated, completed
+      or mutated. Pocket, box and cleaned PDB come in a later step: never
+      describe them as done.
+    - Name chains by auth_asym_id (what PyMOL shows) and say when it differs from
+      label_asym_id. Target chains come from RCSB's UniProt mapping.
+    - Say which chain(s) each ligand touches (`neighbor_target_auth_chains`): a
+      ligand can be bound to one chain only. An empty list with
+      touches_other_chains true means it sits on a partner protein only: do not
+      call it a target ligand. Empty with touches_other_chains false means RCSB
+      gave no neighbours: say it is unknown.
+    - `declared_mutations` lists the depositor's mutations of the target chain,
+      including engineered ones: if it is not empty, the construct is not the
+      native sequence. Empty does NOT prove a native sequence (the variant may be
+      named only in the title, or `mutations_unparsed` may hold text like "YES"):
+      say it is unconfirmed.
+    - `sample_uniprot_ranges` is the UniProt range of the crystallised/sampled
+      construct, not the residues resolved in the model (7ZR0: 1-766 sampled).
+    """
+    return await prepare.prepare_structures(uniprot_id, mutation, pdb_ids, include_alphafold)
 
 
 

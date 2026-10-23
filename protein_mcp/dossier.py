@@ -30,6 +30,20 @@ def save_dossier(accession: str, name: str, data: dict):
     return str(path)
 
 
+def read_dossier(accession: str, name: str):
+    """The saved {tool, params, retrieved_at, result} of dossiers/<accession>/<name>.json, or None
+    if it is missing or unreadable. `name` must come from dossier_name (no path separators)."""
+    path = DOSSIER_DIR / accession / f"{name}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        log.exception("Could not read dossier file %s", path)
+        return None
+    return data if isinstance(data, dict) and "result" in data else None
+
+
 def dossier_name(base: str, *parts) -> str:
     """File name for one call, e.g. ("ligands", "G12C") -> "ligands_g12c". Empty parts are
     skipped, so the default call is just `base`; other parameters get their own file."""

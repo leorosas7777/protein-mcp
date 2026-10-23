@@ -12,6 +12,7 @@ Dossiers go to a temp folder; dossiers/ is never touched.
 Run:  uv run python tests/smoke_live.py              (all, ~2-3 min)
       uv run python tests/smoke_live.py --skip-slow  (without EGFR, ~1 min)
       uv run python tests/smoke_live.py kras pcsk9   (only these groups)
+Groups: kras pcsk9 egfr notfound tnf prep (Phase 2 downloads, BRAF V600E).
 Exit code 1 if any check fails.
 """
 import asyncio
@@ -188,7 +189,52 @@ async def tnf():
           len(ot.get("ensembl_genes_without_target") or []) >= 1, ot.get("ensembl_genes_without_target"))
 
 
-GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf}
+async def prep():
+    """Phase 2 step 1: prepare_structures on BRAF V600E (defects found in the 8.2 validation)."""
+    st = await server.get_structures("P15056", mutation="V600E")
+    have = {s["pdb_id"] for s in (st.get("experimental") or {}).get("structures") or []}
+    wanted = ["3OG7", "5JSM", "7ZR0"]
+    check("EXTERNAL", "BRAF V600E structures include 3OG7, 5JSM and 7ZR0 (needed by this group)",
+          set(wanted) <= have, sorted(have))
+    rep = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=wanted + ["1UWH"])
+    check("REGRESSION", "prepare_structures works", rep.get("ok"), rep.get("error"))
+    if not rep.get("ok"):
+        return
+    check("ANTI-HALLUCINATION", "an ID outside the dossier file is not downloaded",
+          rep["pdb_ids_not_in_dossier"] == ["1UWH"] and not any(s["pdb_id"] == "1UWH" for s in rep["structures"]),
+          rep["pdb_ids_not_in_dossier"])
+    base = Path(rep["prep_dir"])
+    m = json.loads(Path(rep["manifest_path"]).read_text(encoding="utf-8"))
+    by_id = {s["pdb_id"]: s for s in m["structures"]}
+    o = by_id.get("3OG7") or {}
+    chains = [c["auth_asym_id"] for t in o.get("target_entities") or [] for c in t["chains"]]
+    check("REGRESSION", "3OG7: target chains A, B from RCSB (its mmCIF _struct_ref cites Q5IBP5)",
+          chains == ["A", "B"], chains)
+    lig = [i for i in o.get("nonpolymer_instances") or [] if i["comp_id"] == "032"]
+    check("REGRESSION", "3OG7: one vemurafenib (032) instance, on chain A only",
+          len(lig) == 1 and [v["auth_asym_id"] for v in lig[0]["neighbor_target_chains"].values()] == ["A"], lig)
+    z = by_id.get("7ZR0") or {}
+    zc = [c for t in z.get("target_entities") or [] for c in t["chains"]]
+    check("REGRESSION", "7ZR0: BRAF chain is label D, auth K", zc == [{"label_asym_id": "D", "auth_asym_id": "K"}], zc)
+    atp = [i for i in z.get("nonpolymer_instances") or [] if i["comp_id"] == "ATP"]
+    check("REGRESSION", "7ZR0: ATP touches HSP90 only, no BRAF chain",
+          atp and all(not i["neighbor_target_chains"] and i["neighbor_other_chains"] for i in atp), atp)
+    six = [i for i in (by_id.get("5JSM") or {}).get("nonpolymer_instances") or [] if i["comp_id"] == "6NB"]
+    poses = {(base / i["sdf"]["path"]).read_text().splitlines()[4] for i in six if (i["sdf"] or {}).get("ok")}
+    check("REGRESSION", "5JSM: two 6NB instances, two SDFs with different poses", len(six) == 2 and len(poses) == 2,
+          [i["label_asym_id"] for i in six])
+    recs = [m["sequence"]] + ([m["alphafold"]["file"]] if m["alphafold"] else []) + [s["file"] for s in m["structures"]]         + [i["sdf"] for s in m["structures"] for i in s["nonpolymer_instances"] or [] if i["sdf"]]
+    import hashlib
+    bad = [r.get("path") or r.get("url") for r in recs if not r.get("ok")
+           or hashlib.sha256((base / r["path"]).read_bytes()).hexdigest() != r["sha256"]]
+    check("ANTI-HALLUCINATION", "every file in the manifest exists with its SHA-256", not bad, bad)
+    src = json.dumps(st)
+    urls = re.findall(r'https?://[^"\s]+', json.dumps(m))
+    unbacked = [u for u in urls if u not in src and not any(i in u for i in by_id) and "P15056" not in u]
+    check("ANTI-HALLUCINATION", "every manifest URL comes from the dossier or a returned ID", not unbacked, unbacked[:5])
+
+
+GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep}
 SLOW = {"egfr"}
 
 

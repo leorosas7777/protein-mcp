@@ -7,6 +7,7 @@ from protein_mcp.common import clean_text, log
 
 UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
 UNIPROT_ENTRY = "https://rest.uniprot.org/uniprotkb/{accession}"
+UNIPROT_FASTA = "https://rest.uniprot.org/uniprotkb/{accession}.fasta"  # header ">sp|P15056|BRAF_HUMAN ..."
 FIELDS = "accession,id,protein_name,gene_names,organism_name,length,reviewed"
 
 # Evidence codes seen in the real KRAS entry (2026-10-20). Others pass through as the raw code.
