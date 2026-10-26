@@ -270,6 +270,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
                     hit = by_key.get((pdb_id, pk["label_asym_id"]))
                     if hit:
                         pk["alphafold_plddt"] = {k: hit[k] for k in ("mean_plddt", "residues_below_70", "residues_compared")}
+    summary = summarize(structures)
     variant = clean.parse_variant(exp.get("mutation_filter"), canonical)
     if variant and variant[3]:
         warnings.append(f"Variant check: {variant[3]}.")
@@ -298,6 +299,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
                            "retrieved_at": saved.get("retrieved_at")},
         "mutation_filter": exp.get("mutation_filter"),
         "selection": selection,
+        "summary": summary,
         "sequence": fasta,
         "structures": structures,
         "alphafold": alphafold,
@@ -325,6 +327,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "prep_dir": str(base),
         "source_dossier": f"{name}.json",
         "selection": selection,
+        "summary": summary,
         "pdb_ids_not_in_dossier": not_in_dossier,
         "replaced_manifest_from": previous,
         "sequence": {k: fasta.get(k) for k in ("ok", "path", "header", "length", "error") if k in fasta},
@@ -344,6 +347,78 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
             "Full provenance (URL, size, SHA-256, time) and decisions are in the manifest.",
         ],
     }
+
+
+def summarize(structures: list) -> dict:
+    """Facts ACROSS entries, computed here so the chat does not have to cross them by hand.
+    Desktop tests 2026-10-26: Claude twice said "the 597-614 gap is in all 7 entries" (8C7Y A
+    has no gap) and that no pocket has V600E modelled in its own chain (8C7Y TXV A and 5JSM 6NB
+    have). Sorting and grouping only: no score and no docking ranking. File-derived lists cover
+    structures_compared only; pocket errors and ligands without a pocket are listed, not dropped."""
+    done = [r for r in structures if (r.get("prepared") or {}).get("ok")]
+    not_done = [r["pdb_id"] for r in structures if r not in done]
+
+    def label(r, value):
+        text = f"{r['pdb_id']} {value}" if value is not None else f"{r['pdb_id']} not reported"
+        return text if r in done else text + " (not compared)"
+
+    out = {
+        "scope": (f"{len(done)} of {len(structures)} structures compared (downloaded and cleaned). "
+                  "Every list below except by_resolution covers only structures_compared: an empty "
+                  "list says nothing about structures_not_compared."),
+        "structures_compared": [r["pdb_id"] for r in done],
+        "structures_not_compared": not_done,
+        # resolution comes from the dossier, so every entry is ranked, compared or not; best first
+        "by_resolution": [label(r, r.get("resolution_angstrom")) for r in sorted(
+            structures, key=lambda r: (r.get("resolution_angstrom") is None, r.get("resolution_angstrom") or 0))],
+        "by_r_free": [label(r, v) for r, v in sorted(((r, r["prepared"]["metrics"]["r_free"]) for r in done),
+                                                     key=lambda rv: (rv[1] is None, rv[1] or 0))],
+        # no gap INSIDE the modelled span; unmodelled termini are not gaps (8C7Y A: sample 444-721,
+        # modelled 448-721), so the modelled range is given with each chain
+        "chains_without_internal_gaps": [
+            f"{r['pdb_id']}:{c['auth_asym_id']} (modelled {c['modelled_uniprot_range'][0]}-{c['modelled_uniprot_range'][1]})"
+            for r in done for c in r["prepared"]["metrics"]["chains"]
+            if c["modelled_uniprot_range"] and not c["missing_uniprot_ranges"]],
+        # ligand instances without a pocket (too small, no target neighbour in RCSB), so that
+        # "every ligand" statements can see them
+        "ligands_without_pocket": [f"{r['pdb_id']} {x['comp_id']} {x['label_asym_id']}: {x['reason']}"
+                                   for r in done for x in r["prepared"]["pocket_not_computed"]],
+    }
+    chains = [(r, c) for r in done for c in r["prepared"]["metrics"]["chains"]]
+    if not any("variant_check" in c for _, c in chains):
+        return out                                 # no substitution filter: nothing to check
+    by_status = {}
+    for r, c in chains:
+        status = (c.get("variant_check") or {}).get("status", "not checked")
+        by_status.setdefault(status, []).append(f"{r['pdb_id']}:{c['auth_asym_id']}")
+    out["variant_position_by_chain_status"] = by_status
+    with_variant, ambiguous, without, unclassified = [], [], [], []
+    for r in done:
+        status = {c["auth_asym_id"]: (c.get("variant_check") or {}).get("status") for c in r["prepared"]["metrics"]["chains"]}
+        for pk in r["prepared"]["pockets"]:
+            name = f"{r['pdb_id']} {pk['comp_id']} {pk['label_asym_id']}"
+            pocket_chains = list(pk.get("residues_by_chain") or {})
+            if pk.get("error") or not pocket_chains:
+                unclassified.append(f"{name}: {pk.get('error') or 'no target residue within the cutoff'}")
+                continue
+            row = {"pdb_id": r["pdb_id"], "comp_id": pk["comp_id"], "label_asym_id": pk["label_asym_id"],
+                   "pocket_chains": pocket_chains,
+                   "residues_by_chain": pk["residues_by_chain"],
+                   # at least one pocket chain; the variant residue itself need not be a pocket residue
+                   "variant_modelled_in": [c for c in pocket_chains if status.get(c) == "variant"]}
+            if pk.get("spans_target_chains"):
+                row["spans_target_chains"] = True
+            if row["variant_modelled_in"]:
+                with_variant.append(row)
+            elif any(str(status.get(c)).startswith("ambiguous") for c in pocket_chains):
+                ambiguous.append(f"{name} ({', '.join(f'{c}: {status.get(c)}' for c in pocket_chains)})")
+            else:
+                without.append(f"{name} ({', '.join(f'{c}: {status.get(c)}' for c in pocket_chains)})")
+    out["pockets_with_variant_in_pocket_chain"] = with_variant
+    out["pockets_with_ambiguous_variant_position"] = ambiguous
+    out["pockets_without_variant_in_pocket_chain"] = without
+    out["pockets_not_classified"] = unclassified
+    return out
 
 
 def compact_structure(r: dict) -> dict:

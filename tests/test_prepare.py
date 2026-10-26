@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from protein_mcp import dossier
-from protein_mcp.files import download, prepare
+from protein_mcp.files import clean, download, prepare
 from protein_mcp.sources import rcsb
 
 FIX = Path(__file__).parent / "fixtures" / "prep"
@@ -187,6 +187,10 @@ def test_prepare():
     assert [(c["auth_asym_id"], c["variant"]) for c in c3["chain_checks"]] == [("A", "not modelled"), ("B", "variant")]
     (pk,) = c3["pockets"]
     assert pk["n_residues"] == 22 and "A:K483" in pk["residues"] and "A:G596" in pk["residues"]
+    sm = reply["summary"]                                 # same summary in the reply and the manifest
+    assert sm == m["summary"] and sm["structures_not_compared"] == ["5JSM", "7ZR0"]
+    assert sm["pockets_with_variant_in_pocket_chain"] == [] and sm["pockets_without_variant_in_pocket_chain"] == ["3OG7 032 C (A: not modelled)"]
+    assert sm["by_resolution"] == ["5JSM 2.19 (not compared)", "3OG7 2.45", "7ZR0 3.4 (not compared)"]
     assert pk["residues_by_chain"] == {"A": 22} and pk["heavy_atoms"] == 33 and "spans_target_chains" not in pk
     assert pk["adjacent_missing_ranges"] == [{"auth_asym_id": "A", "missing_uniprot_range": [597, 614]}]
     assert pk["alphafold_mean_plddt"] == 86.44 and reply["alphafold"]["variant_position"]["residue"] == "VAL"
@@ -227,10 +231,64 @@ def test_prepare():
     assert r["ok"] and not any("AlphaFold" in w for w in r["warnings"])
 
 
+def test_summary():
+    """Real 8C7Y, 5JSM and 3OG7 files: the cases where Claude generalised in Desktop (2026-10-26)."""
+    canonical = "".join(l.strip() for l in FASTA.decode().splitlines()[1:])
+    chains = {e["rcsb_id"]: rcsb._parse_chains(e, "P15056") for e in CHAINS["data"]["entries"]}
+    chains.update({e["rcsb_id"]: rcsb._parse_chains(e, "P15056") for e in
+                   json.loads((FIX / "rcsb_chains_8C7Y.json").read_text(encoding="utf-8"))["data"]["entries"]})
+    out, structures = Path(tempfile.mkdtemp()), []
+    for pdb_id, res in (("3OG7", 2.45), ("5JSM", 2.19), ("8C7Y", 1.65), ("7ZR0", 3.4)):
+        rec = dict(chains[pdb_id], pdb_id=pdb_id, resolution_angstrom=res)
+        rec["prepared"] = (clean.clean_structure(FIX / f"{pdb_id}.cif.gz", out, rec, "V600E", canonical)
+                           if pdb_id != "7ZR0" else {"ok": False, "error": "download failed"})
+        structures.append(rec)
+    s = prepare.summarize(structures)
+    assert s["structures_compared"] == ["3OG7", "5JSM", "8C7Y"] and s["structures_not_compared"] == ["7ZR0"]
+    assert s["by_resolution"] == ["8C7Y 1.65", "5JSM 2.19", "3OG7 2.45", "7ZR0 3.4 (not compared)"]
+    assert s["scope"].startswith("3 of 4 structures compared")
+    assert s["by_r_free"] == ["8C7Y 0.175", "3OG7 0.2575", "5JSM 0.2597"]
+    assert s["chains_without_internal_gaps"] == ["8C7Y:A (modelled 448-721)"]   # 597-614 is NOT everywhere; 444-447 unmodelled
+    assert s["ligands_without_pocket"] == ["5JSM BEN H: fewer than 10 heavy atoms", "5JSM EOH I: fewer than 10 heavy atoms",
+                                           "5JSM EOH M: fewer than 10 heavy atoms", "5JSM EOH N: fewer than 10 heavy atoms",
+                                           "5JSM BEN P: fewer than 10 heavy atoms"]   # too small: listed, not dropped
+    st = s["variant_position_by_chain_status"]
+    assert st["variant"] == ["3OG7:B", "5JSM:A", "5JSM:B", "5JSM:C", "5JSM:D", "8C7Y:A"]
+    assert st["not modelled"] == ["3OG7:A", "8C7Y:B"]
+    got = {(x["pdb_id"], x["comp_id"], x["label_asym_id"]): x for x in s["pockets_with_variant_in_pocket_chain"]}
+    assert set(got) == {("5JSM", "6NB", "J"), ("5JSM", "6NB", "R"), ("8C7Y", "TXV", "U")}
+    assert got[("8C7Y", "TXV", "U")]["variant_modelled_in"] == ["A"] and "spans_target_chains" not in got[("8C7Y", "TXV", "U")]
+    assert got[("5JSM", "6NB", "J")]["variant_modelled_in"] == ["A", "B"] and got[("5JSM", "6NB", "J")]["spans_target_chains"]
+    assert s["pockets_without_variant_in_pocket_chain"] == ["3OG7 032 C (A: not modelled)", "8C7Y TXV X (B: not modelled)"]
+    assert s["pockets_with_ambiguous_variant_position"] == [] and s["pockets_not_classified"] == []
+
+    # reviewer edge cases (2026-10-26): nothing is dropped silently and "ambiguous" is not "without"
+    edge = json.loads(json.dumps(structures[:3]))
+    o, j, y = edge
+    o["prepared"]["metrics"]["chains"][0]["variant_check"]["status"] = "ambiguous (microheterogeneity)"
+    y["prepared"]["pockets"][0] = {"comp_id": "TXV", "label_asym_id": "U", "error": "not found in the file"}
+    j["prepared"]["pockets"][0]["residues_by_chain"] = {"A": 24, "C": 1}         # variant chain + other
+    j["prepared"]["metrics"]["chains"][0]["variant_check"]["status"] = "not modelled"
+    e = prepare.summarize(edge)
+    assert e["pockets_with_ambiguous_variant_position"] == ["3OG7 032 C (A: ambiguous (microheterogeneity))"]
+    assert e["pockets_not_classified"] == ["8C7Y TXV U: not found in the file"]
+    j_row = next(x for x in e["pockets_with_variant_in_pocket_chain"] if x["label_asym_id"] == "J")
+    assert j_row["pocket_chains"] == ["A", "C"] and j_row["variant_modelled_in"] == ["C"]
+    assert j_row["residues_by_chain"] == {"A": 24, "C": 1}           # the variant chain holds 1 residue: visible
+    # no substitution filter: no variant fields, the rest is still there
+    for r in structures[:3]:
+        r["prepared"] = clean.clean_structure(FIX / f"{r['pdb_id']}.cif.gz", out, r, "", canonical)
+    s = prepare.summarize(structures)
+    assert "variant_position_by_chain_status" not in s and s["chains_without_internal_gaps"] == ["8C7Y:A (modelled 448-721)"]
+    empty = prepare.summarize([])
+    assert empty["scope"].startswith("0 of 0") and empty["by_resolution"] == [] and "variant_position_by_chain_status" not in empty
+
+
 def main():
     test_parse_chains()
     test_checks()
     test_prepare()
+    test_summary()
     print("ALL OK")
 
 

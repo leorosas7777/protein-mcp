@@ -193,8 +193,8 @@ async def prep():
     """Phase 2 steps 1-2: prepare_structures on BRAF V600E (defects found in the 8.2 validation and Desktop tests)."""
     st = await server.get_structures("P15056", mutation="V600E")
     have = {s["pdb_id"] for s in (st.get("experimental") or {}).get("structures") or []}
-    wanted = ["3OG7", "5JSM", "7ZR0"]
-    check("EXTERNAL", "BRAF V600E structures include 3OG7, 5JSM and 7ZR0 (needed by this group)",
+    wanted = ["3OG7", "5JSM", "7ZR0", "8C7Y"]
+    check("EXTERNAL", "BRAF V600E structures include 3OG7, 5JSM, 7ZR0 and 8C7Y (needed by this group)",
           set(wanted) <= have, sorted(have))
     rep = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=wanted + ["1UWH"])
     check("REGRESSION", "prepare_structures works", rep.get("ok"), rep.get("error"))
@@ -258,6 +258,14 @@ async def prep():
           p5 == [({"A": 24, "B": 23}, True), ({"C": 24, "D": 23}, True)] and "VEM-3-VEM" in (c5.get("title") or ""), p5)
     check("ANTI-HALLUCINATION", "manifest lists the same failed downloads as the reply",
           m.get("failed_downloads") == rep.get("failed_downloads"), m.get("failed_downloads"))
+    sm = rep.get("summary") or {}
+    pv = {(x["pdb_id"], x["comp_id"], tuple(x["variant_modelled_in"])) for x in sm.get("pockets_with_variant_in_pocket_chain") or []}
+    check("ANTI-HALLUCINATION", "summary: V600E modelled in the pocket chain of 8C7Y TXV (A) and 5JSM 6NB, not 3OG7 032",
+          {("8C7Y", "TXV", ("A",)), ("5JSM", "6NB", ("A", "B"))} <= pv and "3OG7 032 C (A: not modelled)" in sm.get("pockets_without_variant_in_pocket_chain", []),
+          sorted(pv))
+    check("ANTI-HALLUCINATION", "summary: 8C7Y chain A has no internal gap; 8C7Y is first by resolution and R-free",
+          any(c.startswith("8C7Y:A ") for c in sm.get("chains_without_internal_gaps", [])) and (sm.get("by_resolution") or [""])[0].startswith("8C7Y")
+          and (sm.get("by_r_free") or [""])[0].startswith("8C7Y"), {k: sm.get(k) for k in ("chains_without_internal_gaps", "by_resolution", "by_r_free")})
 
     ks = await server.get_structures("P01116", mutation="G12C")
     nuc = [s["pdb_id"] for s in (ks.get("experimental") or {}).get("structures") or [] if "GDP" in s.get("nucleotides", [])][:1]

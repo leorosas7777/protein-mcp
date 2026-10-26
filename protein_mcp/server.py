@@ -313,6 +313,29 @@ async def prepare_structures(
       UniProt canonical residue), "other residue", "not modelled" or "ambiguous
       (microheterogeneity)" (two residues modelled at that position). A structure titled with the variant can have it
       unmodelled in the chain that holds the ligand (3OG7 chain A): say so.
+    - Start from `summary`: facts across entries computed by the tool. Any
+      statement about several entries ("all", "none", "the best", "only")
+      must come from it, within its `scope`: every list except `by_resolution`
+      covers only `structures_compared`. If `structures_not_compared` is not
+      empty, say those entries were not checked; never turn an empty list
+      into "none exists in the selection".
+      - `by_resolution` (all entries, "(not compared)" marked) and
+        `by_r_free` (compared only), sorted best first.
+      - `chains_without_internal_gaps`: no gap inside the modelled span;
+        the termini may still be unmodelled (the modelled range is given),
+        so do not call such a chain complete.
+      - `ligands_without_pocket`: ligand instances that got no pocket, why.
+      - Only with a substitution filter such as "V600E" (not "G12"):
+        `variant_position_by_chain_status` (each target chain of the
+        compared entries by "variant", "not modelled", ...);
+        `pockets_with_variant_in_pocket_chain` = the variant is modelled in
+        at least one chain of the pocket (`variant_modelled_in` names it; see
+        `residues_by_chain` for how much of the pocket that chain holds; the
+        variant residue need not be a pocket residue);
+        `pockets_with_ambiguous_variant_position`;
+        `pockets_without_variant_in_pocket_chain`; and
+        `pockets_not_classified` (pocket errors). If a list is not empty,
+        never say that no such structure or chain exists.
     - Quote every number per structure and per chain, as given. Missing ranges,
       variant status, R-free and resolution differ between entries and between
       chains of one entry (8C7Y chain A has no missing range, 3OG7 chain A misses
