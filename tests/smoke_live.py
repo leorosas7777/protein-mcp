@@ -259,10 +259,12 @@ async def prep():
     check("ANTI-HALLUCINATION", "manifest lists the same failed downloads as the reply",
           m.get("failed_downloads") == rep.get("failed_downloads"), m.get("failed_downloads"))
     sm = rep.get("summary") or {}
-    pv = {(x["pdb_id"], x["comp_id"], tuple(x["variant_modelled_in"])) for x in sm.get("pockets_with_variant_in_pocket_chain") or []}
+    pv = sm.get("pockets_with_variant_in_pocket_chain") or []
     check("ANTI-HALLUCINATION", "summary: V600E modelled in the pocket chain of 8C7Y TXV (A) and 5JSM 6NB, not 3OG7 032",
-          {("8C7Y", "TXV", ("A",)), ("5JSM", "6NB", ("A", "B"))} <= pv and "3OG7 032 C (A: not modelled)" in sm.get("pockets_without_variant_in_pocket_chain", []),
-          sorted(pv))
+          "8C7Y TXV U: chain A variant (26 pocket residues); single-chain pocket" in pv
+          and any(x.startswith("5JSM 6NB J: chain A variant") for x in pv)
+          and any(x.startswith("3OG7 032 C: chain A not modelled") for x in sm.get("pockets_without_variant_in_pocket_chain", [])),
+          pv)
     check("ANTI-HALLUCINATION", "summary: 8C7Y chain A has no internal gap; 8C7Y is first by resolution and R-free",
           any(c.startswith("8C7Y:A ") for c in sm.get("chains_without_internal_gaps", [])) and (sm.get("by_resolution") or [""])[0].startswith("8C7Y")
           and (sm.get("by_r_free") or [""])[0].startswith("8C7Y"), {k: sm.get(k) for k in ("chains_without_internal_gaps", "by_resolution", "by_r_free")})

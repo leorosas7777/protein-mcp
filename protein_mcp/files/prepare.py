@@ -401,19 +401,22 @@ def summarize(structures: list) -> dict:
             if pk.get("error") or not pocket_chains:
                 unclassified.append(f"{name}: {pk.get('error') or 'no target residue within the cutoff'}")
                 continue
-            row = {"pdb_id": r["pdb_id"], "comp_id": pk["comp_id"], "label_asym_id": pk["label_asym_id"],
-                   "pocket_chains": pocket_chains,
-                   "residues_by_chain": pk["residues_by_chain"],
-                   # at least one pocket chain; the variant residue itself need not be a pocket residue
-                   "variant_modelled_in": [c for c in pocket_chains if status.get(c) == "variant"]}
-            if pk.get("spans_target_chains"):
-                row["spans_target_chains"] = True
-            if row["variant_modelled_in"]:
-                with_variant.append(row)
+            # ONE text format for the three lists. Desktop test 3 (2026-10-26): Claude quoted the
+            # string list correctly but misread the list of objects ("only 5JSM has the variant in
+            # the pocket chain"; 8C7Y TXV U was its first item)
+            n = pk["residues_by_chain"]
+            text = (f"{name}: " + ", ".join(f"chain {c} {status.get(c)} ({n[c]} pocket residue{'s' if n[c] != 1 else ''})"
+                                         for c in pocket_chains)
+                    + ("; spans several chains" if pk.get("spans_target_chains") else "; single-chain pocket"))
+            # at least one pocket chain; the variant residue itself need not be a pocket residue
+            if any(status.get(c) == "variant" for c in pocket_chains):
+                with_variant.append(text)
             elif any(str(status.get(c)).startswith("ambiguous") for c in pocket_chains):
-                ambiguous.append(f"{name} ({', '.join(f'{c}: {status.get(c)}' for c in pocket_chains)})")
+                ambiguous.append(text)
             else:
-                without.append(f"{name} ({', '.join(f'{c}: {status.get(c)}' for c in pocket_chains)})")
+                without.append(text)
+    out["pocket_counts"] = {"with_variant_in_pocket_chain": len(with_variant), "ambiguous": len(ambiguous),
+                            "without_variant_in_pocket_chain": len(without), "not_classified": len(unclassified)}
     out["pockets_with_variant_in_pocket_chain"] = with_variant
     out["pockets_with_ambiguous_variant_position"] = ambiguous
     out["pockets_without_variant_in_pocket_chain"] = without

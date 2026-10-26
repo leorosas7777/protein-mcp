@@ -328,10 +328,12 @@ async def prepare_structures(
       - Only with a substitution filter such as "V600E" (not "G12"):
         `variant_position_by_chain_status` (each target chain of the
         compared entries by "variant", "not modelled", ...);
-        `pockets_with_variant_in_pocket_chain` = the variant is modelled in
-        at least one chain of the pocket (`variant_modelled_in` names it; see
-        `residues_by_chain` for how much of the pocket that chain holds; the
-        variant residue need not be a pocket residue);
+        `pocket_counts`, then `pockets_with_variant_in_pocket_chain` = the
+        variant is modelled in at least one chain of the pocket (each line
+        gives every pocket chain's status and residue count, and whether the
+        pocket is single-chain; the variant residue need not be a pocket
+        residue). Name every pocket of this list when asked where the variant
+        and a ligand coexist;
         `pockets_with_ambiguous_variant_position`;
         `pockets_without_variant_in_pocket_chain`; and
         `pockets_not_classified` (pocket errors). If a list is not empty,

@@ -189,7 +189,7 @@ def test_prepare():
     assert pk["n_residues"] == 22 and "A:K483" in pk["residues"] and "A:G596" in pk["residues"]
     sm = reply["summary"]                                 # same summary in the reply and the manifest
     assert sm == m["summary"] and sm["structures_not_compared"] == ["5JSM", "7ZR0"]
-    assert sm["pockets_with_variant_in_pocket_chain"] == [] and sm["pockets_without_variant_in_pocket_chain"] == ["3OG7 032 C (A: not modelled)"]
+    assert sm["pockets_with_variant_in_pocket_chain"] == [] and sm["pockets_without_variant_in_pocket_chain"] == ["3OG7 032 C: chain A not modelled (22 pocket residues); single-chain pocket"]
     assert sm["by_resolution"] == ["5JSM 2.19 (not compared)", "3OG7 2.45", "7ZR0 3.4 (not compared)"]
     assert pk["residues_by_chain"] == {"A": 22} and pk["heavy_atoms"] == 33 and "spans_target_chains" not in pk
     assert pk["adjacent_missing_ranges"] == [{"auth_asym_id": "A", "missing_uniprot_range": [597, 614]}]
@@ -255,11 +255,15 @@ def test_summary():
     st = s["variant_position_by_chain_status"]
     assert st["variant"] == ["3OG7:B", "5JSM:A", "5JSM:B", "5JSM:C", "5JSM:D", "8C7Y:A"]
     assert st["not modelled"] == ["3OG7:A", "8C7Y:B"]
-    got = {(x["pdb_id"], x["comp_id"], x["label_asym_id"]): x for x in s["pockets_with_variant_in_pocket_chain"]}
-    assert set(got) == {("5JSM", "6NB", "J"), ("5JSM", "6NB", "R"), ("8C7Y", "TXV", "U")}
-    assert got[("8C7Y", "TXV", "U")]["variant_modelled_in"] == ["A"] and "spans_target_chains" not in got[("8C7Y", "TXV", "U")]
-    assert got[("5JSM", "6NB", "J")]["variant_modelled_in"] == ["A", "B"] and got[("5JSM", "6NB", "J")]["spans_target_chains"]
-    assert s["pockets_without_variant_in_pocket_chain"] == ["3OG7 032 C (A: not modelled)", "8C7Y TXV X (B: not modelled)"]
+    # one text format for all lists (Desktop test 3: Claude misread the former list of objects)
+    assert s["pockets_with_variant_in_pocket_chain"] == [
+        "5JSM 6NB J: chain A variant (24 pocket residues), chain B variant (23 pocket residues); spans several chains",
+        "5JSM 6NB R: chain C variant (24 pocket residues), chain D variant (23 pocket residues); spans several chains",
+        "8C7Y TXV U: chain A variant (26 pocket residues); single-chain pocket"]
+    assert s["pockets_without_variant_in_pocket_chain"] == [
+        "3OG7 032 C: chain A not modelled (22 pocket residues); single-chain pocket", "8C7Y TXV X: chain B not modelled (28 pocket residues); single-chain pocket"]
+    assert s["pocket_counts"] == {"with_variant_in_pocket_chain": 3, "ambiguous": 0,
+                                  "without_variant_in_pocket_chain": 2, "not_classified": 0}
     assert s["pockets_with_ambiguous_variant_position"] == [] and s["pockets_not_classified"] == []
 
     # reviewer edge cases (2026-10-26): nothing is dropped silently and "ambiguous" is not "without"
@@ -270,11 +274,10 @@ def test_summary():
     j["prepared"]["pockets"][0]["residues_by_chain"] = {"A": 24, "C": 1}         # variant chain + other
     j["prepared"]["metrics"]["chains"][0]["variant_check"]["status"] = "not modelled"
     e = prepare.summarize(edge)
-    assert e["pockets_with_ambiguous_variant_position"] == ["3OG7 032 C (A: ambiguous (microheterogeneity))"]
+    assert e["pockets_with_ambiguous_variant_position"] == [
+        "3OG7 032 C: chain A ambiguous (microheterogeneity) (22 pocket residues); single-chain pocket"]
     assert e["pockets_not_classified"] == ["8C7Y TXV U: not found in the file"]
-    j_row = next(x for x in e["pockets_with_variant_in_pocket_chain"] if x["label_asym_id"] == "J")
-    assert j_row["pocket_chains"] == ["A", "C"] and j_row["variant_modelled_in"] == ["C"]
-    assert j_row["residues_by_chain"] == {"A": 24, "C": 1}           # the variant chain holds 1 residue: visible
+    assert "5JSM 6NB J: chain A not modelled (24 pocket residues), chain C variant (1 pocket residue); spans several chains"         in e["pockets_with_variant_in_pocket_chain"]             # the variant chain holds 1 residue: visible
     # no substitution filter: no variant fields, the rest is still there
     for r in structures[:3]:
         r["prepared"] = clean.clean_structure(FIX / f"{r['pdb_id']}.cif.gz", out, r, "", canonical)
