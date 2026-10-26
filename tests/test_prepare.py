@@ -31,6 +31,7 @@ STRUCTURES = {
     "result": {"ok": True, "uniprot_id": "P15056",
                "experimental": {"ok": True, "total_entries": 38, "mutation_filter": "V600E", "returned": 3, "structures": [
                    {"pdb_id": "5JSM", "resolution_angstrom": 2.19,
+                    "title": "BRAFV600E Kinase Domain In Complex with Chemically Linked Vemurafenib Inhibitor VEM-3-VEM",
                     "mutations": ["A688R", "F667E", "I543A", "I544S", "I551K", "K630S", "K723G", "L588N", "L706S",
                                   "L716E", "P722S", "Q562R", "Q709R", "S713E", "S720E", "V600E", "Y673S"],
                     "mutations_from_title": [], "mutations_unparsed": [], "links": {"rcsb": "https://www.rcsb.org/structure/5JSM"}},
@@ -46,8 +47,13 @@ STRUCTURES = {
 }
 
 
+download.RETRY_WAIT = 0.0
+CALLS = {}      # url -> requests seen, for the retry checks
+
+
 def handler(request: httpx.Request) -> httpx.Response:
     url = str(request.url)
+    CALLS[url] = CALLS.get(url, 0) + 1
     if request.method == "POST" and url == rcsb.RCSB_GRAPHQL:
         return httpx.Response(200, json=CHAINS)
     if url.startswith("https://files.rcsb.org/download/"):
@@ -60,6 +66,10 @@ def handler(request: httpx.Request) -> httpx.Response:
     if url.endswith("/P15056.fasta"):
         return httpx.Response(200, content=FASTA)
     if url.startswith("https://models.rcsb.org/v1/"):
+        if "3OG7" in url and CALLS[url] == 1:       # real failure of 6V34 QOP C, 2026-10-26: retried
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.", request=request)
+        if "5JSM" in url and "label_asym_id=P" in url:
+            return httpx.Response(503, text="Service Unavailable")      # still down after the retries
         # 5JSM BEN instance H: the real empty reply (HTTP 200, no molecule)
         return httpx.Response(200, content=EMPTY_SDF if "label_asym_id=H" in url else SDF)
     return httpx.Response(500, text=f"unexpected {url}")
@@ -147,12 +157,28 @@ def test_prepare():
     assert not (base / "ligands" / "5JSM_BEN_H.sdf").exists()
     assert all(i["sdf"] is None for i in by_id["5JSM"]["nonpolymer_instances"] if i["category"] == "additive")
     assert not list(base.rglob("*.part"))
-    assert len(reply["failed_downloads"]) == 2 and any("7ZR0" in f for f in reply["failed_downloads"])
+    assert len(reply["failed_downloads"]) == 3 and any("7ZR0" in f for f in reply["failed_downloads"])
+    assert m["failed_downloads"] == reply["failed_downloads"]             # also at the top of the manifest
+    # retries: a cut connection is retried and recovers; a 503 gives up after 3 attempts; a rejected
+    # content (HTTP 200 without a molecule) and a 404 are not retried
+    o_sdf = next(i for i in by_id["3OG7"]["nonpolymer_instances"] if i["comp_id"] == "032")["sdf"]
+    assert o_sdf["ok"] and o_sdf["attempts"] == 2
+    ben_p = next(i for i in by_id["5JSM"]["nonpolymer_instances"] if i["label_asym_id"] == "P")["sdf"]
+    assert not ben_p["ok"] and ben_p["error"] == "HTTP 503 (after 3 attempts)"
+    assert CALLS[rcsb.ligand_sdf_url("5JSM", "P")] == 3 and CALLS[rcsb.ligand_sdf_url("5JSM", "H")] == 1
+    assert CALLS[rcsb.cif_url("7ZR0")] == 1 and "attempts" not in by_id["3OG7"]["file"]
 
     cz = next(s for s in reply["structures"] if s["pdb_id"] == "7ZR0")
     assert cz["download_error"] == "HTTP 404" and cz["sample_uniprot_ranges"] == ["1-766"]
     c3 = next(s for s in reply["structures"] if s["pdb_id"] == "3OG7")
     assert len(c3["declared_mutations"]) == 13 and "V600E" not in c3["declared_mutations"]
+    (vem,) = c3["ligand_instances"]                     # wwPDB synonyms only (no DrugBank ones)
+    assert vem["synonyms"] == ["Vemurafenib", "PLX4032"] and vem["formula_weight"] == 489.922
+    assert vem["name"].startswith("N-(3-{[5-(4-chlorophenyl)") and len(vem["name"]) <= 100
+    c5 = next(s for s in reply["structures"] if s["pdb_id"] == "5JSM")
+    assert c5["title"].endswith("VEM-3-VEM")              # the only hint that 6NB is a linked vemurafenib
+    six = next(x for x in c5["ligand_instances"] if x["comp_id"] == "6NB")
+    assert six["synonyms"] == [] and six["formula_weight"] == 1057.095
     assert cz["declared_mutations"] == [] and "receptor" not in cz                 # not downloaded, not cleaned
     # step 2 (cleaning) on the real 3OG7; the 5JSM stub fails and is reported, not hidden
     assert len(reply["warnings"]) == 1 and reply["warnings"][0].startswith("5JSM: cleaning failed: the file has no model"), reply["warnings"]
@@ -161,6 +187,7 @@ def test_prepare():
     assert [(c["auth_asym_id"], c["variant"]) for c in c3["chain_checks"]] == [("A", "not modelled"), ("B", "variant")]
     (pk,) = c3["pockets"]
     assert pk["n_residues"] == 22 and "A:K483" in pk["residues"] and "A:G596" in pk["residues"]
+    assert pk["residues_by_chain"] == {"A": 22} and pk["heavy_atoms"] == 33 and "spans_target_chains" not in pk
     assert pk["adjacent_missing_ranges"] == [{"auth_asym_id": "A", "missing_uniprot_range": [597, 614]}]
     assert pk["alphafold_mean_plddt"] == 86.44 and reply["alphafold"]["variant_position"]["residue"] == "VAL"
     assert m["structures"][1]["prepared"]["pockets"][0]["residues"][0]["uniprot"] == 463   # full detail in the manifest

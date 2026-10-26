@@ -296,7 +296,9 @@ async def prepare_structures(
     box (ligand + 5 Å per side, mmCIF frame), plus AlphaFold pLDDT at the same
     residues. Writes prep/manifest.json (provenance with SHA-256, chains, ligand
     instances, construct mutations, all of the above, decisions, pending steps).
-    Running it again replaces the manifest (`replaced_manifest_from`). If the RCSB
+    Requested IDs that are in the file are prepared even when others are not.
+    Running it again replaces the manifest (`replaced_manifest_from`), also with a
+    subset of pdb_ids: then the manifest holds only that subset. If the RCSB
     chain query or every structure download fails, it returns ok false and keeps
     the previous manifest.
 
@@ -311,9 +313,23 @@ async def prepare_structures(
       UniProt canonical residue), "other residue", "not modelled" or "ambiguous
       (microheterogeneity)" (two residues modelled at that position). A structure titled with the variant can have it
       unmodelled in the chain that holds the ligand (3OG7 chain A): say so.
+    - Quote every number per structure and per chain, as given. Missing ranges,
+      variant status, R-free and resolution differ between entries and between
+      chains of one entry (8C7Y chain A has no missing range, 3OG7 chain A misses
+      597-614): never generalise one entry's value to "all structures". To rank
+      entries by a metric (resolution, r_free), sort the returned values; r_free
+      None means not reported, not good.
+    - If asked which structure to use, a recommendation is your judgement, not
+      a result: compare all entries on the returned values, say which ones it
+      rests on, and that the protein conformation (DFG, αC helix) and the fit
+      to a different ligand are NOT measured by this tool.
     - For each pocket, give its chain, n_residues, box and any
       `adjacent_missing_ranges` (the pocket may be incomplete there). Flag
-      `large_box`. `alphafold_mean_plddt` is AlphaFold's confidence at those
+      `large_box`. `spans_target_chains` means ONE ligand instance has pocket
+      residues in several target chains (`residues_by_chain`), e.g. a bivalent
+      compound bridging two sites: its box covers all of them and is not a
+      single-site box. Do not invent a reduced box; say that
+      one would have to be defined. `alphafold_mean_plddt` is AlphaFold's confidence at those
       residues (`alphafold_residues_compared` of n_residues); AlphaFold has no
       ligand, and its residue at the variant position is in
       alphafold.variant_position. `pocket_not_computed` lists ligand instances
@@ -323,6 +339,14 @@ async def prepare_structures(
       does not match UniProt: say so before using chain_checks.
     - Name chains by auth_asym_id (what PyMOL shows) and say when it differs from
       label_asym_id. Target chains come from RCSB's UniProt mapping.
+    - Identify ligands only by `name`, `synonyms` (wwPDB-curated drug or code
+      names), `formula_weight` and the entry `title` of THIS result. If none
+      names the compound, say it is unnamed; do not identify it from memory or
+      from the examples in this text.
+      A comp_id is not a ChEMBL ID: no link to get_ligands is made.
+    - Every failed download is in `failed_downloads` (the manifest has the
+      same list); transient errors were retried first, "(after N attempts)".
+      Name each missing file.
     - Say which chain(s) each ligand touches (`neighbor_target_auth_chains`): a
       ligand can be bound to one chain only. An empty list with
       touches_other_chains true means it sits on a partner protein only: do not

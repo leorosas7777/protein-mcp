@@ -244,9 +244,16 @@ def clean_structure(cif: Path, out_dir: Path, record: dict, mutation_filter, can
                 continue
             target, other = _pocket(model, atoms, target_subchains, uniprot_of, ns)
             box = _box(atoms)
+            by_chain = {}
+            for row in target:
+                by_chain[row["auth_asym_id"]] = by_chain.get(row["auth_asym_id"], 0) + 1
             pockets.append({
                 "comp_id": inst["comp_id"], "label_asym_id": label, "auth_asym_id": inst.get("auth_asym_id"),
                 "heavy_atoms": heavy, "cutoff": POCKET_CUTOFF,
+                # 5JSM 6NB (two vemurafenib units joined by a linker, 40 Å between farthest heavy atoms): one sits in
+                # the ATP sites of chains A (24 residues) and B (23), so its box covers both sites
+                "residues_by_chain": dict(sorted(by_chain.items())),
+                "spans_target_chains": len(by_chain) > 1,
                 "residues": target, "partner_residues": other,
                 "box": box, "large_box": max(box["size"]) > LARGE_BOX_SIDE,
             })

@@ -190,7 +190,7 @@ async def tnf():
 
 
 async def prep():
-    """Phase 2 step 1: prepare_structures on BRAF V600E (defects found in the 8.2 validation)."""
+    """Phase 2 steps 1-2: prepare_structures on BRAF V600E (defects found in the 8.2 validation and Desktop tests)."""
     st = await server.get_structures("P15056", mutation="V600E")
     have = {s["pdb_id"] for s in (st.get("experimental") or {}).get("structures") or []}
     wanted = ["3OG7", "5JSM", "7ZR0"]
@@ -247,6 +247,17 @@ async def prep():
     check("REGRESSION", "3OG7: receptor has chains only, no ligand or water", het == set(), het)
     check("EXTERNAL", "AlphaFold is wild type (VAL) at 600",
           ((rep.get("alphafold") or {}).get("variant_position") or {}).get("residue") == "VAL", rep.get("alphafold"))
+
+    # step 2.1 (Desktop test 2026-10-26): ligand names, bivalent ligand, failures in the manifest
+    vem = next((x for x in c3.get("ligand_instances") or [] if x["comp_id"] == "032"), {})
+    check("EXTERNAL", "3OG7: RCSB (wwPDB) names 032 Vemurafenib / PLX4032, no DrugBank synonyms",
+          vem.get("synonyms") == ["Vemurafenib", "PLX4032"], vem)
+    c5 = next((s for s in rep["structures"] if s["pdb_id"] == "5JSM"), {})
+    p5 = [(p.get("residues_by_chain"), p.get("spans_target_chains")) for p in c5.get("pockets") or []]
+    check("REGRESSION", "5JSM: each linked-vemurafenib 6NB pocket spans two chains (24 + 23 residues)",
+          p5 == [({"A": 24, "B": 23}, True), ({"C": 24, "D": 23}, True)] and "VEM-3-VEM" in (c5.get("title") or ""), p5)
+    check("ANTI-HALLUCINATION", "manifest lists the same failed downloads as the reply",
+          m.get("failed_downloads") == rep.get("failed_downloads"), m.get("failed_downloads"))
 
     ks = await server.get_structures("P01116", mutation="G12C")
     nuc = [s["pdb_id"] for s in (ks.get("experimental") or {}).get("structures") or [] if "GDP" in s.get("nucleotides", [])][:1]

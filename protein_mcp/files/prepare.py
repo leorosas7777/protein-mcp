@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 
 from protein_mcp import dossier
-from protein_mcp.common import log, parse_accession, utc_now
+from protein_mcp.common import log, parse_accession, short, utc_now
 from protein_mcp.files import clean
 from protein_mcp.files.download import check_fasta, check_mmcif, check_sdf, download
 from protein_mcp.sources import rcsb
@@ -39,7 +39,10 @@ DECISIONS = [
     "alignment; residues of other polymer chains are listed apart. No pocket for nucleotides and "
     "cofactors (kept in the receptor), for ligands with fewer than 10 heavy atoms, or without a "
     "target-chain neighbour in RCSB: each is listed in pocket_not_computed. Box: ligand bounding box "
-    "+ 5 Å per side, same frame as the mmCIF; sides above 30 Å are flagged.",
+    "+ 5 Å per side, same frame as the mmCIF; sides above 30 Å are flagged. A ligand instance with "
+    "pocket residues in more than one target chain is flagged spans_target_chains (e.g. a bivalent "
+    "compound bridging two sites): its pocket and box cover every chain it touches and are NOT split "
+    "into one box per site; residues_by_chain gives the count per chain.",
     "Chain metrics: missing_uniprot_ranges are residues of the sample sequence not modelled inside "
     "the modelled span; a missing range next to a pocket residue is flagged. variant_check reads "
     "the residue actually modelled at the variant position in each target chain and compares it "
@@ -84,8 +87,11 @@ def _file_record(dl: dict, base: Path) -> dict:
     """Provenance of one download, with the path relative to prep/."""
     if not dl.get("ok"):
         return {"ok": False, "url": dl.get("url"), "error": dl.get("error")}
-    return {"ok": True, "path": _rel(dl["path"], base), "url": dl["url"], "bytes": dl["bytes"],
-            "sha256": dl["sha256"], "retrieved_at": dl["retrieved_at"]}
+    out = {"ok": True, "path": _rel(dl["path"], base), "url": dl["url"], "bytes": dl["bytes"],
+           "sha256": dl["sha256"], "retrieved_at": dl["retrieved_at"]}
+    if dl.get("attempts"):
+        out["attempts"] = dl["attempts"]
+    return out
 
 
 async def _run(jobs: dict, client) -> dict:
@@ -295,6 +301,9 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "sequence": fasta,
         "structures": structures,
         "alphafold": alphafold,
+        # the same list the chat gets: a failure is also in its own file record, but a reader of
+        # the manifest must not have to scan every ligand instance to find one (6V34 QOP C)
+        "failed_downloads": failed,
         "warnings": warnings,
         "decisions": DECISIONS,
         "pending": PENDING,
@@ -343,14 +352,17 @@ def compact_structure(r: dict) -> dict:
     ligands = None
     if r.get("nonpolymer_instances") is not None:
         ligands = [{
-            "comp_id": x["comp_id"], "category": x["category"], "label_asym_id": x["label_asym_id"],
-            "auth_asym_id": x["auth_asym_id"],
+            "comp_id": x["comp_id"], "category": x["category"],
+            "name": short(x.get("name"), 100), "synonyms": x.get("synonyms") or [],
+            "formula_weight": x.get("formula_weight"),
+            "label_asym_id": x["label_asym_id"], "auth_asym_id": x["auth_asym_id"],
             "neighbor_target_auth_chains": sorted({v["auth_asym_id"] or k for k, v in x["neighbor_target_chains"].items()}),
             "touches_other_chains": bool(x["neighbor_other_chains"]),
             "sdf": (x["sdf"] or {}).get("path"),
         } for x in r["nonpolymer_instances"] if x["category"] != "additive"]
     out = {
         "pdb_id": r["pdb_id"],
+        "title": r.get("title"),        # 5JSM: "... Chemically Linked Vemurafenib Inhibitor VEM-3-VEM"
         "resolution_angstrom": r.get("resolution_angstrom"),
         "file": r["file"].get("path"),
         "download_ok": r["file"]["ok"],
@@ -402,7 +414,9 @@ def _compact_pocket(p: dict) -> dict:
         names.append(f"{x['auth_asym_id']}:{code}{number}")
     out = {
         "comp_id": p["comp_id"], "label_asym_id": p["label_asym_id"], "auth_asym_id": p["auth_asym_id"],
+        "heavy_atoms": p["heavy_atoms"],
         "n_residues": len(p["residues"]),
+        "residues_by_chain": p.get("residues_by_chain"),
         "residues": " ".join(names),
         "partner_residues": len(p["partner_residues"]),
         "box_center": p["box"]["center"], "box_size": p["box"]["size"],
@@ -410,6 +424,8 @@ def _compact_pocket(p: dict) -> dict:
     }
     if p.get("large_box"):
         out["large_box"] = True
+    if p.get("spans_target_chains"):
+        out["spans_target_chains"] = True
     if p.get("alphafold_plddt"):
         out["alphafold_mean_plddt"] = p["alphafold_plddt"]["mean_plddt"]
         out["alphafold_residues_compared"] = p["alphafold_plddt"]["residues_compared"]   # of n_residues

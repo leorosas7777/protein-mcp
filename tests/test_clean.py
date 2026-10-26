@@ -1,8 +1,10 @@
 """Offline test for protein_mcp/files/clean.py (receptor, chain metrics, pocket, box, AlphaFold pLDDT).
 Fixtures are REAL files (2026-10-22), gzipped: 3OG7 (BRAF V600E + vemurafenib; chain A has
 597-614 unmodelled, chain B has GLU 600), 8TVK (KRAS G12C + GDP + Mg, no drug) and the
-AlphaFold model AF-P15056-F1 v6, 8C7Y (two TXV, crystal-symmetry contacts), UniProt FASTA of
-P15056 and P01116, plus RCSB chain replies for the manifest records.
+AlphaFold model AF-P15056-F1 v6, 8C7Y (two TXV, crystal-symmetry contacts), 5JSM (two 6NB, a
+bivalent vemurafenib dimer spanning two chains; added 2026-10-26), UniProt FASTA of P15056 and
+P01116, plus RCSB chain replies for the manifest records (re-fetched 2026-10-26 with ligand
+names; same parsed chains and neighbours as the 2026-10-22 replies).
 Expected values were read from the real files with gemmi during the 2026-10-22 validation.
 Run: uv run python tests/test_clean.py
 """
@@ -92,6 +94,29 @@ def test_8c7y_symmetry(out: Path):
     assert all(x.get("reason") for x in r["pocket_not_computed"])                 # every omission says why
 
 
+def test_5jsm_bivalent(out: Path):
+    """6NB = two vemurafenib units joined by a linker (RCSB title: VEM-3-VEM), 74 heavy atoms,
+    40 Å between farthest heavy atoms: each instance fills the ATP sites of two chains. Desktop test 2026-10-26: Claude
+    could not tell why the box was 49 Å; now the pocket says it spans two chains."""
+    rec = records("rcsb_chains_3OG7_5JSM_7ZR0.json", "P15056")["5JSM"]
+    r = clean.clean_structure(FIX / "5JSM.cif.gz", out, rec, "V600E", BRAF)
+    assert r["ok"], r
+    by_label = {p["label_asym_id"]: p for p in r["pockets"]}
+    j, s = by_label["J"], by_label["R"]
+    assert j["heavy_atoms"] == 74 and j["residues_by_chain"] == {"A": 24, "B": 23} and j["spans_target_chains"]
+    assert s["residues_by_chain"] == {"C": 24, "D": 23} and s["spans_target_chains"]
+    assert j["large_box"] and j["box"]["size"] == [19.7, 48.88, 18.87]
+    for chain in ("A", "B"):                                  # K483, hinge and DFG in BOTH chains
+        got = {x["uniprot"] for x in j["residues"] if x["auth_asym_id"] == chain}
+        assert {483, 529, 530, 531, 532, 594, 595, 596} <= got, chain
+    assert {x["comp_id"] for x in r["pocket_not_computed"]} == {"BEN", "EOH"}       # < 10 heavy atoms
+    assert all(v["status"] == "variant" for v in (c["variant_check"] for c in r["metrics"]["chains"]))
+    # a single-chain pocket is not flagged
+    p3 = clean.clean_structure(FIX / "3OG7.cif.gz", out, records("rcsb_chains_3OG7_5JSM_7ZR0.json", "P15056")["3OG7"],
+                               "V600E", BRAF)["pockets"][0]
+    assert p3["residues_by_chain"] == {"A": 22} and not p3["spans_target_chains"]
+
+
 def test_8tvk(out: Path):
     rec = records("rcsb_chains_8TVK.json", "P01116")["8TVK"]
     r = clean.clean_structure(FIX / "8TVK.cif.gz", out, rec, "G12C", KRAS)
@@ -134,6 +159,7 @@ def main():
     out = Path(tempfile.mkdtemp())
     pockets = test_3og7(out)
     test_8c7y_symmetry(out)
+    test_5jsm_bivalent(out)
     test_8tvk(out)
     test_alphafold(pockets)
     test_failure(out)

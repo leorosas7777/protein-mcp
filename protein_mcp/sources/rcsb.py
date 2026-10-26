@@ -80,6 +80,10 @@ query ($ids: [String!]!) {
       }
     }
     nonpolymer_entities {
+      nonpolymer_comp {
+        chem_comp { name formula_weight }
+        rcsb_chem_comp_synonyms { name type provenance_source }
+      }
       nonpolymer_entity_instances {
         rcsb_nonpolymer_entity_instance_container_identifiers { asym_id auth_asym_id auth_seq_id comp_id }
         rcsb_target_neighbors { target_asym_id distance }
@@ -144,6 +148,17 @@ def _parse_chains(e: dict, accession: str) -> dict:
             row["uniprot_ids"] = ids.get("uniprot_ids") or []
             others.append(row)
     for ent in e.get("nonpolymer_entities") or []:
+        comp = (ent or {}).get("nonpolymer_comp") or {}
+        chem = comp.get("chem_comp") or {}
+        # Only wwPDB-curated synonyms ("Vemurafenib", "PLX4032" for 032); DrugBank ones are left out
+        # (DrugBank is not a source of this project). 6NB and TXV have none: the entry title helps there.
+        synonyms = []
+        for syn in comp.get("rcsb_chem_comp_synonyms") or []:
+            syn = syn or {}
+            name = syn.get("name")
+            if (syn.get("type") == "Synonym" and syn.get("provenance_source") == "PDB Reference Data"
+                    and name and name not in synonyms):
+                synonyms.append(name)
         for inst in (ent or {}).get("nonpolymer_entity_instances") or []:
             ids = inst.get("rcsb_nonpolymer_entity_instance_container_identifiers") or {}
             if not ids.get("asym_id") or not ids.get("comp_id"):
@@ -156,6 +171,9 @@ def _parse_chains(e: dict, accession: str) -> dict:
             instances.append({
                 "comp_id": ids["comp_id"],
                 "category": component_category(ids["comp_id"]),
+                "name": chem.get("name"),
+                "synonyms": synonyms,
+                "formula_weight": chem.get("formula_weight"),
                 "label_asym_id": ids["asym_id"],
                 "auth_asym_id": ids.get("auth_asym_id"),
                 "auth_seq_id": ids.get("auth_seq_id"),
