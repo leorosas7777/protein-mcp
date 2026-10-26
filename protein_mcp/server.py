@@ -11,7 +11,8 @@ Tools:
     associations and tractability (full result saved to the dossier on disk).
   - build_report: dossier on disk -> PDF + Markdown data report.
   - prepare_structures (Phase 2): structures dossier file -> original files on disk
-    (mmCIF, AlphaFold, FASTA, ligand poses) + prep/manifest.json.
+    (mmCIF, AlphaFold, FASTA, ligand poses), cleaned receptors, chain checks,
+    pocket and box per ligand + prep/manifest.json.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -272,7 +273,7 @@ async def build_report(uniprot_id: str) -> dict:
 async def prepare_structures(
     uniprot_id: str, mutation: str = "", pdb_ids: list[str] | None = None, include_alphafold: bool = True
 ) -> dict:
-    """Download the structures chosen by get_structures and write the preparation manifest (Phase 2, step 1).
+    """Download the structures chosen by get_structures, clean them, find each ligand's pocket and box, and write the preparation manifest (Phase 2, steps 1-2).
 
     Args:
         uniprot_id: UniProt accession, e.g. "P15056".
@@ -286,8 +287,15 @@ async def prepare_structures(
     Downloads into dossiers/<acc>/prep/: raw/<PDB>.cif (original mmCIF), the
     AlphaFold mmCIF, raw/<acc>.fasta (UniProt canonical sequence) and
     ligands/<PDB>_<comp>_<label chain>.sdf (crystal pose of every non-additive
-    ligand instance). Writes prep/manifest.json (provenance with SHA-256,
-    chains, ligand instances, construct mutations, decisions, pending steps).
+    ligand instance). Then, with gemmi: clean/<PDB>_receptor.pdb (target chains
+    only, first model and altloc, no hydrogens, waters, additives or ligands;
+    nucleotides, cofactors and Mg/Mn/Zn/Fe/Co/Ni/Cu touching the target are
+    kept), per-chain metrics (modelled and missing UniProt ranges, the residue
+    actually modelled at the variant position), and for every ligand instance
+    with >= 10 heavy atoms on a target chain: pocket residues within 5 Å and a
+    box (ligand + 5 Å per side, mmCIF frame), plus AlphaFold pLDDT at the same
+    residues. Writes prep/manifest.json (provenance with SHA-256, chains, ligand
+    instances, construct mutations, all of the above, decisions, pending steps).
     Running it again replaces the manifest (`replaced_manifest_from`). If the RCSB
     chain query or every structure download fails, it returns ok false and keeps
     the previous manifest.
@@ -296,9 +304,23 @@ async def prepare_structures(
     - Say "N of M" from `selection`, and list `failed_downloads` and `warnings`
       if any (e.g. RCSB or AlphaFold failed when the dossier was made: then the
       structures are unknown, not absent).
-    - The files are ORIGINAL downloads: nothing is cleaned, protonated, completed
-      or mutated. Pocket, box and cleaned PDB come in a later step: never
-      describe them as done.
+    - raw/ files are the ORIGINAL downloads; the receptor is only stripped as
+      above. Nothing is protonated, completed (missing loops stay missing) or
+      mutated: never say the structure is ready to simulate.
+    - Per chain, report `chain_checks.variant`: "variant", "wild type" (the
+      UniProt canonical residue), "other residue", "not modelled" or "ambiguous
+      (microheterogeneity)" (two residues modelled at that position). A structure titled with the variant can have it
+      unmodelled in the chain that holds the ligand (3OG7 chain A): say so.
+    - For each pocket, give its chain, n_residues, box and any
+      `adjacent_missing_ranges` (the pocket may be incomplete there). Flag
+      `large_box`. `alphafold_mean_plddt` is AlphaFold's confidence at those
+      residues (`alphafold_residues_compared` of n_residues); AlphaFold has no
+      ligand, and its residue at the variant position is in
+      alphafold.variant_position. `pocket_not_computed` lists ligand instances
+      without a pocket and why (too small: often additives). Pockets use the
+      asymmetric unit only (no crystal-symmetry contacts).
+    - If `warnings` has a "Variant check" line, the filter's wild-type letter
+      does not match UniProt: say so before using chain_checks.
     - Name chains by auth_asym_id (what PyMOL shows) and say when it differs from
       label_asym_id. Target chains come from RCSB's UniProt mapping.
     - Say which chain(s) each ligand touches (`neighbor_target_auth_chains`): a

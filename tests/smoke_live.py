@@ -233,6 +233,31 @@ async def prep():
     unbacked = [u for u in urls if u not in src and not any(i in u for i in by_id) and "P15056" not in u]
     check("ANTI-HALLUCINATION", "every manifest URL comes from the dossier or a returned ID", not unbacked, unbacked[:5])
 
+    # step 2: cleaning, chain checks, pocket (gemmi)
+    c3 = next((s for s in rep["structures"] if s["pdb_id"] == "3OG7"), {})
+    checks = [(c["auth_asym_id"], c.get("variant")) for c in c3.get("chain_checks") or []]
+    check("REGRESSION", "3OG7: V600E not modelled in chain A (ligand chain), GLU 600 in chain B",
+          checks == [("A", "not modelled"), ("B", "variant")], checks)
+    pk = (c3.get("pockets") or [{}])[0]
+    check("REGRESSION", "3OG7: vemurafenib pocket = 22 residues incl. K483 and DFG, next to missing 597-614",
+          pk.get("n_residues") == 22 and all(f"A:{r}" in pk.get("residues", "") for r in ("K483", "D594", "F595", "G596"))
+          and {"auth_asym_id": "A", "missing_uniprot_range": [597, 614]} in pk.get("adjacent_missing_ranges", []), pk)
+    rec = base / (c3.get("receptor") or "missing")
+    het = {line[17:20].strip() for line in rec.read_text().splitlines() if line.startswith("HETATM")} if rec.is_file() else None
+    check("REGRESSION", "3OG7: receptor has chains only, no ligand or water", het == set(), het)
+    check("EXTERNAL", "AlphaFold is wild type (VAL) at 600",
+          ((rep.get("alphafold") or {}).get("variant_position") or {}).get("residue") == "VAL", rep.get("alphafold"))
+
+    ks = await server.get_structures("P01116", mutation="G12C")
+    nuc = [s["pdb_id"] for s in (ks.get("experimental") or {}).get("structures") or [] if "GDP" in s.get("nucleotides", [])][:1]
+    kr = await server.prepare_structures("P01116", mutation="G12C", pdb_ids=nuc, include_alphafold=False) if nuc else {}
+    kst = (kr.get("structures") or [{}])[0]
+    krec = Path(kr["prep_dir"]) / kst["receptor"] if kst.get("receptor") else None
+    khet = {line[17:20].strip() for line in krec.read_text().splitlines() if line.startswith("HETATM")} if krec else None
+    check("REGRESSION", f"KRAS G12C {nuc}: receptor keeps GDP and its Mg2+, CYS 12 modelled",
+          khet is not None and {"GDP", "MG"} <= khet and [c.get("variant") for c in kst.get("chain_checks", [])][:1] == ["variant"],
+          {"het": khet, "checks": kst.get("chain_checks"), "error": kr.get("error")})
+
 
 GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep}
 SLOW = {"egfr"}

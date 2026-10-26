@@ -1,0 +1,148 @@
+{
+ "data": {
+  "entries": [
+   {
+    "rcsb_id": "8TVK",
+    "polymer_entities": [
+     {
+      "rcsb_polymer_entity": {
+       "pdbx_description": "Isoform 2B of GTPase KRas"
+      },
+      "entity_poly": {
+       "rcsb_sample_sequence_length": 169
+      },
+      "rcsb_polymer_entity_container_identifiers": {
+       "entity_id": "1",
+       "uniprot_ids": [
+        "P01116"
+       ]
+      },
+      "polymer_entity_instances": [
+       {
+        "rcsb_polymer_entity_instance_container_identifiers": {
+         "asym_id": "A",
+         "auth_asym_id": "A"
+        }
+       }
+      ],
+      "rcsb_polymer_entity_align": [
+       {
+        "reference_database_name": "UniProt",
+        "reference_database_accession": "P01116",
+        "aligned_regions": [
+         {
+          "entity_beg_seq_id": 1,
+          "ref_beg_seq_id": 1,
+          "length": 169
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "nonpolymer_entities": [
+     {
+      "nonpolymer_entity_instances": [
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "B",
+         "auth_asym_id": "A",
+         "auth_seq_id": "201",
+         "comp_id": "GDP"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 1.83
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.177
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.78
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.793
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.837
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.837
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.937
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.976
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.031
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.093
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.188
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.42
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.65
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.759
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.963
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.641
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "nonpolymer_entity_instances": [
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "C",
+         "auth_asym_id": "A",
+         "auth_seq_id": "202",
+         "comp_id": "MG"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.103
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.149
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

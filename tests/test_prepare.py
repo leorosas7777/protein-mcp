@@ -6,6 +6,7 @@ BRAF V600E one, cut to 3OG7, 5JSM and 7ZR0.
 Run: uv run python tests/test_prepare.py
 """
 import asyncio
+import gzip
 import json
 import tempfile
 from pathlib import Path
@@ -20,7 +21,9 @@ FIX = Path(__file__).parent / "fixtures" / "prep"
 CHAINS = json.loads((FIX / "rcsb_chains_3OG7_5JSM_7ZR0.json").read_text(encoding="utf-8"))
 SDF = (FIX / "modelserver_3OG7_C.sdf").read_bytes()
 EMPTY_SDF = (FIX / "modelserver_3OG7_ZZ_empty.sdf").read_bytes()
-FASTA = b">sp|P15056|BRAF_HUMAN Serine/threonine-protein kinase B-raf OS=Homo sapiens\nMAALSGGGGG\nAEPGQ\n"
+REAL_CIF = {"3OG7": gzip.decompress((FIX / "3OG7.cif.gz").read_bytes())}     # 5JSM is a stub: cleaning fails
+REAL_AF = gzip.decompress((FIX / "AF-P15056-F1-model_v6.cif.gz").read_bytes())
+FASTA = (FIX / "uniprot_P15056.fasta").read_bytes()                            # real UniProt reply
 
 # get_structures result for BRAF V600E (real values, cut to three entries)
 STRUCTURES = {
@@ -38,7 +41,7 @@ STRUCTURES = {
                    {"pdb_id": "7ZR0", "resolution_angstrom": 3.4, "mutations": [], "mutations_from_title": ["V600E"],
                     "mutations_unparsed": [], "links": {}},
                ]},
-               "alphafold": {"ok": True, "entry_id": "AF-P15056-F1", "mean_plddt": 66.38,
+               "alphafold": {"ok": True, "entry_id": "AF-P15056-F1", "mean_plddt": 66.38, "is_canonical_sequence": True,
                              "links": {"cif": "https://alphafold.ebi.ac.uk/files/AF-P15056-F1-model_v6.cif"}}},
 }
 
@@ -51,9 +54,9 @@ def handler(request: httpx.Request) -> httpx.Response:
         pdb_id = url.rsplit("/", 1)[1].removesuffix(".cif")
         if pdb_id == "7ZR0":                        # simulated failure
             return httpx.Response(404, text="<!DOCTYPE html><html></html>")
-        return httpx.Response(200, content=f"data_{pdb_id}\n# \n_entry.id   {pdb_id}\n".encode())
+        return httpx.Response(200, content=REAL_CIF.get(pdb_id) or f"data_{pdb_id}\n# \n_entry.id   {pdb_id}\n".encode())
     if url.startswith("https://alphafold.ebi.ac.uk/files/"):
-        return httpx.Response(200, content=b"data_AF-P15056-F1\n#\n")
+        return httpx.Response(200, content=REAL_AF)
     if url.endswith("/P15056.fasta"):
         return httpx.Response(200, content=FASTA)
     if url.startswith("https://models.rcsb.org/v1/"):
@@ -131,7 +134,7 @@ def test_prepare():
     base = dossier.DOSSIER_DIR / "P15056" / "prep"
     m = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
     assert m["source_dossier"]["file"] == "structures_v600e.json" and m["user_choice"] is None and m["pending"]
-    assert m["sequence"]["header"].startswith(">sp|P15056|") and m["sequence"]["length"] == 15
+    assert m["sequence"]["header"].startswith(">sp|P15056|") and m["sequence"]["length"] == 766
 
     by_id = {s["pdb_id"]: s for s in m["structures"]}
     assert by_id["3OG7"]["file"]["ok"] and (base / by_id["3OG7"]["file"]["path"]).is_file()
@@ -150,7 +153,18 @@ def test_prepare():
     assert cz["download_error"] == "HTTP 404" and cz["sample_uniprot_ranges"] == ["1-766"]
     c3 = next(s for s in reply["structures"] if s["pdb_id"] == "3OG7")
     assert len(c3["declared_mutations"]) == 13 and "V600E" not in c3["declared_mutations"]
-    assert cz["declared_mutations"] == [] and reply["warnings"] == []
+    assert cz["declared_mutations"] == [] and "receptor" not in cz                 # not downloaded, not cleaned
+    # step 2 (cleaning) on the real 3OG7; the 5JSM stub fails and is reported, not hidden
+    assert len(reply["warnings"]) == 1 and reply["warnings"][0].startswith("5JSM: cleaning failed: the file has no model"), reply["warnings"]
+    assert next(s for s in reply["structures"] if s["pdb_id"] == "5JSM")["clean_error"].startswith("cleaning failed")
+    assert c3["receptor"] == "clean/3OG7_receptor.pdb" and (base / c3["receptor"]).is_file()
+    assert [(c["auth_asym_id"], c["variant"]) for c in c3["chain_checks"]] == [("A", "not modelled"), ("B", "variant")]
+    (pk,) = c3["pockets"]
+    assert pk["n_residues"] == 22 and "A:K483" in pk["residues"] and "A:G596" in pk["residues"]
+    assert pk["adjacent_missing_ranges"] == [{"auth_asym_id": "A", "missing_uniprot_range": [597, 614]}]
+    assert pk["alphafold_mean_plddt"] == 86.44 and reply["alphafold"]["variant_position"]["residue"] == "VAL"
+    assert m["structures"][1]["prepared"]["pockets"][0]["residues"][0]["uniprot"] == 463   # full detail in the manifest
+    assert not any("step 2" in x for x in m["pending"])
     assert [l["neighbor_target_auth_chains"] for l in cz["ligand_instances"]] == [[], []]
     assert reply["alphafold"]["ok"] and m["alphafold"]["file"]["path"] == "raw/AF-P15056-F1-model_v6.cif"
 

@@ -1,9 +1,11 @@
 """prepare_structures: download the structures chosen by get_structures and write the
 manifest, the contract with Phase 3 (dossiers/<acc>/prep/manifest.json).
 
-Step 1 of Phase 2: original files only (mmCIF, AlphaFold mmCIF, UniProt FASTA, crystal
-ligand poses as SDF). Nothing is cleaned, protonated or completed here; the manifest
-says so in `pending`. Imports common, dossier, files.download and sources.{rcsb, uniprot}.
+Step 1 of Phase 2: original files (mmCIF, AlphaFold mmCIF, UniProt FASTA, crystal ligand
+poses as SDF). Step 2 (files.clean, gemmi): cleaned receptor, chain metrics, pocket and box per
+ligand instance, AlphaFold pLDDT at each pocket. Nothing is protonated, completed or mutated;
+the manifest says so in `pending`. Imports common, dossier, files.{download, clean} and
+sources.{rcsb, uniprot}.
 """
 import asyncio
 import json
@@ -14,6 +16,7 @@ import httpx
 
 from protein_mcp import dossier
 from protein_mcp.common import log, parse_accession, utc_now
+from protein_mcp.files import clean
 from protein_mcp.files.download import check_fasta, check_mmcif, check_sdf, download
 from protein_mcp.sources import rcsb
 from protein_mcp.sources.uniprot import UNIPROT_FASTA
@@ -24,8 +27,28 @@ _PDB_ID_RE = re.compile(r"[0-9][A-Z0-9]{3}")
 _AF_FILE_RE = re.compile(r"https://alphafold\.ebi\.ac\.uk/files/(AF-[A-Za-z0-9-]+-model_v\d+\.cif)")
 
 DECISIONS = [
-    "Original files are kept unmodified in raw/. Cleaning (target chains only, no waters or "
-    "additives), pocket and box are step 2; loop completion and protonation are Phase 3.",
+    "Original files are kept unmodified in raw/. Loop completion, protonation and charges are Phase 3.",
+    "Receptor (clean/<PDB>_receptor.pdb): target chains only (RCSB mapping), first model, first "
+    "alternate conformation, no hydrogens, no waters, no additives, no ligands; nucleotides, "
+    "cofactors and metal ions MG/MN/ZN/FE/CO/NI/CU that touch a target chain are KEPT (e.g. KRAS "
+    "GDP + Mg, 8TVK); NA, K, CL, CA, CD are removed. Coordinates are unchanged. PDB "
+    "format unless chain names or atom count do not fit, then mmCIF.",
+    "Pocket: target-chain residues with any atom within 5 Å of the ligand instance (gemmi, first "
+    "alternate conformation of the ligand), in the asymmetric unit only: crystal-symmetry copies are "
+    "excluded (they put residues ~47 Å away in 8C7Y). UniProt numbers come from label_seq_id + RCSB "
+    "alignment; residues of other polymer chains are listed apart. No pocket for nucleotides and "
+    "cofactors (kept in the receptor), for ligands with fewer than 10 heavy atoms, or without a "
+    "target-chain neighbour in RCSB: each is listed in pocket_not_computed. Box: ligand bounding box "
+    "+ 5 Å per side, same frame as the mmCIF; sides above 30 Å are flagged.",
+    "Chain metrics: missing_uniprot_ranges are residues of the sample sequence not modelled inside "
+    "the modelled span; a missing range next to a pocket residue is flagged. variant_check reads "
+    "the residue actually modelled at the variant position in each target chain and compares it "
+    "with the UniProt canonical letter (not the letter typed in the filter): the variant can be "
+    "named in the title and still be unmodelled in the chain that holds the ligand (3OG7 A). Two "
+    "residues at one position (microheterogeneity) give status 'ambiguous'.",
+    "AlphaFold pLDDT (B-factor column, equal to _ma_qa_metric_local) is read at the same UniProt "
+    "numbers as each experimental pocket, only for the canonical-sequence model; residues without "
+    "a UniProt number are not compared (alphafold_residues_compared vs n_residues).",
     "Target chains come from RCSB's chain-to-UniProt mapping, not from the mmCIF _struct_ref, "
     "which is unreliable (3OG7 cites UniProt Q5IBP5; antibody chains often cite no UniProt).",
     "Chains are given as label_asym_id (mmCIF) and auth_asym_id (author, used by PyMOL and the "
@@ -33,7 +56,7 @@ DECISIONS = [
     "Ligand poses are the crystal coordinates of each instance (RCSB ModelServer, by "
     "label_asym_id). A ligand can sit on one chain only (3OG7: chain A) or touch several.",
     "neighbor_*_chains come from RCSB rcsb_target_neighbors with the closest distance per "
-    "chain; RCSB does not document the distance cutoff. The pocket is computed in step 2.",
+    "chain; RCSB does not document the distance cutoff.",
     "construct.mutations are the depositor's declared mutations of the target entity; they can "
     "include solubility/engineering mutations besides the variant (3OG7 declares 13). Any declared "
     "mutation means the structure is not the native sequence; an empty list does NOT prove it is "
@@ -44,7 +67,6 @@ DECISIONS = [
     "nonpolymer_instances.",
 ]
 PENDING = [
-    "step 2: cleaned PDB of the target chains, structure metrics, pocket and box",
     "step 3: PyMOL session (.pml)",
     "step 4: user's structure choice (select_structure)",
 ]
@@ -197,17 +219,54 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
                 "error": "Every structure download failed; the previous manifest (if any) was kept.",
                 "failed_downloads": failed, "warnings": warnings}
 
+    fasta = _file_record(downloads["fasta"], base)
+    canonical = ""
+    if fasta["ok"]:
+        text = (base / fasta["path"]).read_text(encoding="ascii", errors="replace").splitlines()
+        fasta["header"] = text[0] if text else None
+        canonical = "".join(line.strip() for line in text[1:])
+        fasta["length"] = len(canonical)
+
+    to_clean = [r for r in structures if r["file"]["ok"] and r.get("target_entities")]
+    cleaned = await asyncio.to_thread(
+        lambda: [clean.clean_structure(base / r["file"]["path"], base / "clean", r, exp.get("mutation_filter"),
+                                       canonical)
+                 for r in to_clean])
+    for r in structures:
+        r["prepared"] = None
+    for r, c in zip(to_clean, cleaned):
+        if c["ok"]:
+            c["receptor"]["path"] = _rel(c["receptor"]["path"], base)
+        else:
+            warnings.append(f"{r['pdb_id']}: {c['error']}")
+        r["prepared"] = c
+
     alphafold = None
     if af_match:
         alphafold = {key: af.get(key) for key in (
             "entry_id", "isoform", "is_canonical_sequence", "selection_reason", "mean_plddt",
             "confidence_band", "residues", "model_version", "created")}
         alphafold["file"] = _file_record(downloads["alphafold"], base)
-    fasta = _file_record(downloads["fasta"], base)
-    if fasta["ok"]:
-        text = (base / fasta["path"]).read_text(encoding="ascii", errors="replace").splitlines()
-        fasta["header"] = text[0] if text else None
-        fasta["length"] = sum(len(line.strip()) for line in text[1:])
+        pockets = {r["pdb_id"]: r["prepared"]["pockets"] for r in structures if (r["prepared"] or {}).get("ok")}
+        alphafold["pocket_plddt"] = None
+        if alphafold["file"]["ok"] and af.get("is_canonical_sequence") is not True:
+            warnings.append("AlphaFold pLDDT not compared with the pockets: the model is not the canonical sequence.")
+        elif alphafold["file"]["ok"]:
+            m = await asyncio.to_thread(clean.alphafold_metrics, base / alphafold["file"]["path"], pockets,
+                                        exp.get("mutation_filter"), canonical)
+            if not m["ok"]:
+                warnings.append(m["error"])
+            alphafold["pocket_plddt"] = m.get("pockets")
+            alphafold["variant_position"] = m.get("variant_position")
+            by_key = {(x["pdb_id"], x["label_asym_id"]): x for x in m.get("pockets") or []}
+            for pdb_id, plist in pockets.items():
+                for pk in plist:
+                    hit = by_key.get((pdb_id, pk["label_asym_id"]))
+                    if hit:
+                        pk["alphafold_plddt"] = {k: hit[k] for k in ("mean_plddt", "residues_below_70", "residues_compared")}
+    variant = clean.parse_variant(exp.get("mutation_filter"), canonical)
+    if variant and variant[3]:
+        warnings.append(f"Variant check: {variant[3]}.")
 
     manifest_path = base / "manifest.json"
     previous = None
@@ -262,12 +321,16 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "sequence": {k: fasta.get(k) for k in ("ok", "path", "header", "length", "error") if k in fasta},
         "structures": [compact_structure(r) for r in structures],
         "alphafold": ({"entry_id": alphafold["entry_id"], "file": alphafold["file"].get("path"),
-                       "ok": alphafold["file"]["ok"], "mean_plddt": alphafold["mean_plddt"]}
+                       "ok": alphafold["file"]["ok"], "mean_plddt": alphafold["mean_plddt"],
+                       "variant_position": alphafold.get("variant_position")}
                       if alphafold else None),
         "failed_downloads": failed,
         "warnings": warnings,
         "notes": [
-            "Files are the ORIGINAL downloads: nothing was cleaned, protonated or completed.",
+            "raw/ holds the ORIGINAL downloads; clean/ holds receptors with other chains, waters, additives "
+            "and ligands removed. Nothing was protonated, completed or mutated.",
+            f"Pocket = target residues within {clean.POCKET_CUTOFF} Å of the ligand; box = ligand + "
+            f"{clean.BOX_PADDING} Å per side, in the mmCIF frame.",
             "Chains: label_asym_id/auth_asym_id from RCSB; ligand neighbours from RCSB rcsb_target_neighbors.",
             "Full provenance (URL, size, SHA-256, time) and decisions are in the manifest.",
         ],
@@ -305,8 +368,49 @@ def compact_structure(r: dict) -> dict:
             o.get("description") for o in r["other_polymer_entities"]],
         "ligand_instances": ligands,
     }
+    prep = r.get("prepared")
+    if prep and prep.get("ok"):
+        out["r_free"] = prep["metrics"]["r_free"]
+        out["receptor"] = prep["receptor"]["path"]
+        out["chain_checks"] = [{
+            "auth_asym_id": c["auth_asym_id"], "modelled_uniprot_range": c["modelled_uniprot_range"],
+            "missing_uniprot_ranges": c["missing_uniprot_ranges"],
+            **({"variant": c["variant_check"]["status"]} if "variant_check" in c else {}),
+            **({"variant_warning": c["variant_check"]["warning"]} if "warning" in c.get("variant_check", {}) else {}),
+        } for c in prep["metrics"]["chains"]]
+        out["pockets"] = [_compact_pocket(p) for p in prep["pockets"]]
+        if prep["pocket_not_computed"]:
+            out["pocket_not_computed"] = [f"{x['comp_id']} {x['label_asym_id']}: {x['reason']}"
+                                          for x in prep["pocket_not_computed"]]
+    elif prep:
+        out["clean_error"] = prep.get("error")
     if r.get("chains_error"):
         out["chains_error"] = r["chains_error"]
     if not r["file"]["ok"]:
         out["download_error"] = r["file"].get("error")
+    return out
+
+
+def _compact_pocket(p: dict) -> dict:
+    """Pocket for the chat: residues as 'chain:<one letter><UniProt number>' (auth number if unmapped)."""
+    if p.get("error"):
+        return {"comp_id": p["comp_id"], "label_asym_id": p["label_asym_id"], "error": p["error"]}
+    names = []
+    for x in p["residues"]:
+        code = clean._one_letter(x["resname"]) or x["resname"]
+        number = x["uniprot"] if x.get("uniprot") is not None else f"{x['auth_seq_id']}(auth)"
+        names.append(f"{x['auth_asym_id']}:{code}{number}")
+    out = {
+        "comp_id": p["comp_id"], "label_asym_id": p["label_asym_id"], "auth_asym_id": p["auth_asym_id"],
+        "n_residues": len(p["residues"]),
+        "residues": " ".join(names),
+        "partner_residues": len(p["partner_residues"]),
+        "box_center": p["box"]["center"], "box_size": p["box"]["size"],
+        "adjacent_missing_ranges": p["adjacent_missing_ranges"],
+    }
+    if p.get("large_box"):
+        out["large_box"] = True
+    if p.get("alphafold_plddt"):
+        out["alphafold_mean_plddt"] = p["alphafold_plddt"]["mean_plddt"]
+        out["alphafold_residues_compared"] = p["alphafold_plddt"]["residues_compared"]   # of n_residues
     return out

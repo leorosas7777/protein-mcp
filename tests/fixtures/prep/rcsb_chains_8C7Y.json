@@ -1,0 +1,746 @@
+{
+ "data": {
+  "entries": [
+   {
+    "rcsb_id": "8C7Y",
+    "polymer_entities": [
+     {
+      "rcsb_polymer_entity": {
+       "pdbx_description": "Serine/threonine-protein kinase B-raf"
+      },
+      "entity_poly": {
+       "rcsb_sample_sequence_length": 282
+      },
+      "rcsb_polymer_entity_container_identifiers": {
+       "entity_id": "1",
+       "uniprot_ids": [
+        "P15056"
+       ]
+      },
+      "polymer_entity_instances": [
+       {
+        "rcsb_polymer_entity_instance_container_identifiers": {
+         "asym_id": "B",
+         "auth_asym_id": "B"
+        }
+       },
+       {
+        "rcsb_polymer_entity_instance_container_identifiers": {
+         "asym_id": "A",
+         "auth_asym_id": "A"
+        }
+       }
+      ],
+      "rcsb_polymer_entity_align": [
+       {
+        "reference_database_name": "UniProt",
+        "reference_database_accession": "P15056",
+        "aligned_regions": [
+         {
+          "entity_beg_seq_id": 3,
+          "ref_beg_seq_id": 444,
+          "length": 278
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "nonpolymer_entities": [
+     {
+      "nonpolymer_entity_instances": [
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "C",
+         "auth_asym_id": "A",
+         "auth_seq_id": "801",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.636
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.204
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "D",
+         "auth_asym_id": "A",
+         "auth_seq_id": "802",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.716
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.735
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.895
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.12
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.398
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.681
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.792
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "E",
+         "auth_asym_id": "A",
+         "auth_seq_id": "803",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.811
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.45
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "F",
+         "auth_asym_id": "A",
+         "auth_seq_id": "804",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.758
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.654
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.737
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "G",
+         "auth_asym_id": "A",
+         "auth_seq_id": "805",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 4.93
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "H",
+         "auth_asym_id": "A",
+         "auth_seq_id": "806",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 3.435
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.561
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.89
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.918
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.957
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "J",
+         "auth_asym_id": "A",
+         "auth_seq_id": "808",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 3.183
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.557
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.872
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "K",
+         "auth_asym_id": "A",
+         "auth_seq_id": "809",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.764
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.378
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.478
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.533
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "L",
+         "auth_asym_id": "A",
+         "auth_seq_id": "810",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.833
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "M",
+         "auth_asym_id": "A",
+         "auth_seq_id": "811",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 3.402
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.678
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.88
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.135
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "O",
+         "auth_asym_id": "A",
+         "auth_seq_id": "813",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.79
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.422
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.537
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "Q",
+         "auth_asym_id": "A",
+         "auth_seq_id": "815",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 3.571
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.784
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.882
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "R",
+         "auth_asym_id": "A",
+         "auth_seq_id": "816",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.904
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.518
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.378
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "S",
+         "auth_asym_id": "A",
+         "auth_seq_id": "817",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 3.36
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.601
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.704
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.145
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "V",
+         "auth_asym_id": "B",
+         "auth_seq_id": "801",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "B",
+          "distance": 3.618
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.636
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.741
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.927
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 4.017
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "W",
+         "auth_asym_id": "B",
+         "auth_seq_id": "802",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "B",
+          "distance": 3.511
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.53
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.714
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.878
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "P",
+         "auth_asym_id": "A",
+         "auth_seq_id": "814",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.65
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.87
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.656
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.68
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.928
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "N",
+         "auth_asym_id": "A",
+         "auth_seq_id": "812",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.517
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.881
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.11
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.458
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.733
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "I",
+         "auth_asym_id": "A",
+         "auth_seq_id": "807",
+         "comp_id": "EDO"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.889
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.717
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.03
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.057
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "nonpolymer_entity_instances": [
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "T",
+         "auth_asym_id": "A",
+         "auth_seq_id": "818",
+         "comp_id": "NO3"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.832
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.909
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.267
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.296
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.426
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "nonpolymer_entity_instances": [
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "U",
+         "auth_asym_id": "A",
+         "auth_seq_id": "819",
+         "comp_id": "TXV"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "A",
+          "distance": 2.888
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.915
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.923
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 2.926
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.073
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.197
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.227
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.247
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.381
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.463
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.531
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.615
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.659
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.787
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.904
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.931
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 3.934
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.029
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.254
+         },
+         {
+          "target_asym_id": "A",
+          "distance": 4.268
+         }
+        ]
+       },
+       {
+        "rcsb_nonpolymer_entity_instance_container_identifiers": {
+         "asym_id": "X",
+         "auth_asym_id": "B",
+         "auth_seq_id": "803",
+         "comp_id": "TXV"
+        },
+        "rcsb_target_neighbors": [
+         {
+          "target_asym_id": "B",
+          "distance": 2.839
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 2.874
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 2.881
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 2.907
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.067
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.174
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.23
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.283
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.444
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.491
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.506
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.62
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.681
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.733
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.758
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.778
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.795
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.904
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.938
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 3.965
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 4.085
+         },
+         {
+          "target_asym_id": "B",
+          "distance": 4.433
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
