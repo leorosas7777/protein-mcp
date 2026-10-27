@@ -287,6 +287,10 @@ async def prep():
         check("REGRESSION", "7ZR0: ATP loaded but flagged as not on a target chain",
               [l["on_target_chain"] for l in vb.get("7ZR0", {}).get("ligands", []) if l["comp_id"] == "ATP"] == [False, False],
               vb.get("7ZR0", {}).get("ligands"))
+        check("REGRESSION", "7ZR0: each ATP names its HSP90-beta chain from RCSB (A and B; CDC37 is C)",
+              [l["partner_chains"] for l in vb.get("7ZR0", {}).get("ligands", []) if l["comp_id"] == "ATP"]
+              == [["A: Heat shock protein HSP 90-beta"], ["B: Heat shock protein HSP 90-beta"]],
+              vb.get("7ZR0", {}).get("ligands"))
         check("REGRESSION", "5JSM: the bivalent 6NB pocket selection covers chains A and B",
               b"pocket_5JSM_6NB_J', 'rec_5JSM and ((chain A and resi" in pml and b") or (chain B and resi" in pml, None)
 

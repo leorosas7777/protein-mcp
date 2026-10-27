@@ -144,6 +144,9 @@ def build_scene(manifest: dict, prep: Path, pdb_ids=None, include_alphafold=True
                                  "variant_position": None}
         with_pocket = {(p.get("comp_id"), p.get("label_asym_id")) for p in prepared.get("pockets") or []
                        if not p.get("error")}
+        # label_asym_id -> RCSB entity description of the non-target polymer chains (7ZR0: A, B = HSP90-beta)
+        partner_of = {c.get("label_asym_id"): e.get("description") for e in s.get("other_polymer_entities") or []
+                      for c in e.get("chains") or []}
         ops += [("load", [receptor.as_posix(), rec]), ("show", ["cartoon", rec]),
                 ("color", ["grey80", f"{rec} and elem C"]),
                 ("show", ["sticks", f"{rec} and organic"]), ("show", ["spheres", f"{rec} and inorganic"])]
@@ -164,7 +167,12 @@ def build_scene(manifest: dict, prep: Path, pdb_ids=None, include_alphafold=True
                                      "auth_asym_id": inst.get("auth_asym_id"),
                                      # False: RCSB lists no target-chain neighbour (7ZR0 ATP sits on HSP90)
                                      "on_target_chain": bool(inst.get("neighbor_target_chains")),
-                                     "has_pocket": (inst.get("comp_id"), inst.get("label_asym_id")) in with_pocket})
+                                     "has_pocket": (inst.get("comp_id"), inst.get("label_asym_id")) in with_pocket,
+                                     # partner (non-target) chains it touches, named only from the manifest
+                                     "partner_chains": [
+                                         f"{(v or {}).get('auth_asym_id') or k}: "
+                                         f"{partner_of.get(k) or 'no description in the manifest'}"
+                                         for k, v in sorted((inst.get("neighbor_other_chains") or {}).items())]})
             ops += [("load", [sdf.as_posix(), lig]), ("show", ["sticks", lig]),
                     ("color", ["yellow", f"{lig} and elem C"])]
 
@@ -244,8 +252,9 @@ def build_scene(manifest: dict, prep: Path, pdb_ids=None, include_alphafold=True
         ops.append(("orient", [focus]))
     ops.append(("deselect", []))
 
-    off = [f"{e['pdb_id']} {l['comp_id']} {l['object'].rsplit('_', 1)[-1]}" for e in structures
-           for l in e["ligands"] if not l["on_target_chain"]]
+    off = [f"{e['pdb_id']} {l['comp_id']} {l['object'].rsplit('_', 1)[-1]}"
+           + (f" (on {'; '.join(l['partner_chains'])})" if l["partner_chains"] else "")
+           for e in structures for l in e["ligands"] if not l["on_target_chain"]]
     if off:
         notes.append("Loaded but not on a target chain (RCSB lists no target neighbour; the partner chain is "
                      "not in the receptor, so they float next to it): " + ", ".join(off) + ".")

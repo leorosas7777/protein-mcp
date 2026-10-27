@@ -429,7 +429,9 @@ async def open_in_pymol(
       `residues_not_selectable` (then `n_residues_selected` < `n_residues`).
     - A ligand with `on_target_chain` false is drawn but touches no target
       chain (e.g. ATP on a partner protein that is not in the receptor): never
-      call it bound to the target. `has_pocket` false means the manifest has
+      call it bound to the target. Name the protein it sits on only from its
+      `partner_chains` ("auth chain: RCSB entity description"), never from the
+      entry title. `has_pocket` false means the manifest has
       no pocket for it (often a small additive-like compound).
     - The magenta residue (`variant_position`) is whatever is modelled at the
       variant position: give each chain's `observed` and `status` from

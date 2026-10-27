@@ -52,7 +52,8 @@ MANIFEST = {
         structure("7ZR0", "clean/7ZR0_receptor.pdb",
                   [{"auth_asym_id": "K", "variant_check": {"observed": None, "status": "not modelled"}}],
                   [{"comp_id": "ATP", "label_asym_id": "E", "auth_asym_id": "A", "neighbor_target_chains": {},
-                    "neighbor_other_chains": {"A": {}}, "sdf": {"ok": True, "path": "ligands/7ZR0_ATP_E.sdf"}}],
+                    "neighbor_other_chains": {"A": {"auth_asym_id": "A", "closest_angstrom": 2.33}},
+                    "sdf": {"ok": True, "path": "ligands/7ZR0_ATP_E.sdf"}}],
                   []),
         # made-up: negative number, insertion code, a chain name PyMOL cannot select, a pocket error,
         # a path outside prep/ and a ligand without SDF
@@ -73,6 +74,14 @@ MANIFEST = {
     ],
     "alphafold": {"entry_id": "AF-P15056-F1", "file": {"ok": True, "path": "raw/AF-P15056-F1-model_v6.cif"}},
 }
+# 7ZR0 partner chains as in the real manifest: HSP90-beta is A and B, CDC37 is C (the title lists
+# "HSP90-CDC37-BRAF"; Claude once read it as A = HSP90, B = CDC37 in the Desktop test)
+MANIFEST["structures"][2]["other_polymer_entities"] = [
+    {"chains": [{"label_asym_id": "A", "auth_asym_id": "A"}, {"label_asym_id": "B", "auth_asym_id": "B"}],
+     "description": "Heat shock protein HSP 90-beta", "uniprot_ids": ["P08238"]},
+    {"chains": [{"label_asym_id": "C", "auth_asym_id": "C"}], "description": "Hsp90 co-chaperone Cdc37",
+     "uniprot_ids": ["Q16543"]},
+]
 
 
 def make_prep(root: Path) -> Path:
@@ -104,7 +113,10 @@ def test_scene_and_pml(prep: Path):
     assert by["7ZR0"]["variant_position"] is None
     assert by["7ZR0"]["ligands"][0]["on_target_chain"] is False and by["3OG7"]["ligands"][0]["on_target_chain"]
     assert by["3OG7"]["ligands"][0]["has_pocket"] and not by["7ZR0"]["ligands"][0]["has_pocket"]
-    assert any(n.startswith("Loaded but not on a target chain") and "7ZR0 ATP E" in n for n in r["notes"])
+    assert by["7ZR0"]["ligands"][0]["partner_chains"] == ["A: Heat shock protein HSP 90-beta"]
+    assert by["3OG7"]["ligands"][0]["partner_chains"] == []
+    assert any(n.startswith("Loaded but not on a target chain")
+               and "7ZR0 ATP E (on A: Heat shock protein HSP 90-beta)" in n for n in r["notes"])
     assert [l["comp_id"] for l in by["9XYZ"]["ligands"]] == []          # outside prep/ and no SDF: not loaded
     assert by["9XYZ"]["ligands_not_loaded"] == [               # the additive EDO is left out on purpose
         {"comp_id": "LIG", "label_asym_id": "B", "reason": "SDF file not found in prep/"},
