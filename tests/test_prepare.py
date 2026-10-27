@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from protein_mcp import dossier
-from protein_mcp.files import clean, download, prepare
+from protein_mcp.files import clean, download, prepare, viewer
 from protein_mcp.sources import rcsb
 
 FIX = Path(__file__).parent / "fixtures" / "prep"
@@ -195,9 +195,21 @@ def test_prepare():
     assert pk["adjacent_missing_ranges"] == [{"auth_asym_id": "A", "missing_uniprot_range": [597, 614]}]
     assert pk["alphafold_mean_plddt"] == 86.44 and reply["alphafold"]["variant_position"]["residue"] == "VAL"
     assert m["structures"][1]["prepared"]["pockets"][0]["residues"][0]["uniprot"] == 463   # full detail in the manifest
-    assert not any("step 2" in x for x in m["pending"])
+    assert not any("step 2" in x or "step 3" in x for x in m["pending"])
     assert [l["neighbor_target_auth_chains"] for l in cz["ligand_instances"]] == [[], []]
     assert reply["alphafold"]["ok"] and m["alphafold"]["file"]["path"] == "raw/AF-P15056-F1-model_v6.cif"
+
+    # open_in_pymol on this manifest (step 3): only 3OG7 was cleaned (5JSM is a stub, 7ZR0 a 404)
+    view = asyncio.run(viewer.open_in_pymol("P15056", start=False))
+    assert view["ok"] and [s["pdb_id"] for s in view["structures"]] == ["3OG7"]
+    assert {s["pdb_id"] for s in view["skipped"]} == {"5JSM", "7ZR0"}
+    (v3,) = view["structures"]
+    assert v3["variant_position"]["chains"] == ["B"] and [c["status"] for c in v3["variant_position"]["by_chain"]] == [
+        "not modelled", "variant"]
+    assert [(p["selection"], p["n_residues"], p["box_object"]) for p in v3["pockets"]] == [
+        ("pocket_3OG7_032_C", 22, "box_3OG7_032_C")]
+    pml = Path(view["pml_path"]).read_text(encoding="ascii")
+    assert "chain A and resi 463+" in pml and "+596))" in pml and "AF-P15056-F1-model_v6.cif" in pml
 
     # a second run says what it replaced; IDs outside the dossier are never downloaded
     again = asyncio.run(prepare.prepare_structures("P15056", "V600E", ["1UWH"], include_alphafold=False))

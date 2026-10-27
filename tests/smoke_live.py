@@ -190,7 +190,7 @@ async def tnf():
 
 
 async def prep():
-    """Phase 2 steps 1-2: prepare_structures on BRAF V600E (defects found in the 8.2 validation and Desktop tests)."""
+    """Phase 2 steps 1-3: prepare_structures and open_in_pymol on BRAF V600E (defects found in the 8.2 validation and Desktop tests)."""
     st = await server.get_structures("P15056", mutation="V600E")
     have = {s["pdb_id"] for s in (st.get("experimental") or {}).get("structures") or []}
     wanted = ["3OG7", "5JSM", "7ZR0", "8C7Y"]
@@ -268,6 +268,27 @@ async def prep():
     check("ANTI-HALLUCINATION", "summary: 8C7Y chain A has no internal gap; 8C7Y is first by resolution and R-free",
           any(c.startswith("8C7Y:A ") for c in sm.get("chains_without_internal_gaps", [])) and (sm.get("by_resolution") or [""])[0].startswith("8C7Y")
           and (sm.get("by_r_free") or [""])[0].startswith("8C7Y"), {k: sm.get(k) for k in ("chains_without_internal_gaps", "by_resolution", "by_r_free")})
+
+    # step 3: PyMOL session from the manifest (file only: no window during the smoke test)
+    view = await server.open_in_pymol("P15056", start=False)
+    check("REGRESSION", "open_in_pymol writes the session", view.get("ok"), view.get("error"))
+    if view.get("ok"):
+        pml = Path(view["pml_path"]).read_bytes()
+        check("REGRESSION", "session.pml is pure ASCII (PyMOL reads it in cp1252)", pml.isascii(), pml[:80])
+        vb = {s["pdb_id"]: s for s in view["structures"]}
+        want = {(s["pdb_id"], p["comp_id"], p["label_asym_id"]): len(p["residues"])
+                for s in m["structures"] for p in (s.get("prepared") or {}).get("pockets") or [] if not p.get("error")}
+        got = {(pdb, p["comp_id"], p["label_asym_id"]): p["n_residues"]
+               for pdb, s in vb.items() for p in s["pockets"] if p["selection"]}
+        check("ANTI-HALLUCINATION", "one pocket selection per manifest pocket, same residue counts", got == want,
+              {"manifest": want, "session": got})
+        check("REGRESSION", "8C7Y: variant position shown only in chain A (B not modelled)",
+              (vb.get("8C7Y", {}).get("variant_position") or {}).get("chains") == ["A"], vb.get("8C7Y", {}).get("variant_position"))
+        check("REGRESSION", "7ZR0: ATP loaded but flagged as not on a target chain",
+              [l["on_target_chain"] for l in vb.get("7ZR0", {}).get("ligands", []) if l["comp_id"] == "ATP"] == [False, False],
+              vb.get("7ZR0", {}).get("ligands"))
+        check("REGRESSION", "5JSM: the bivalent 6NB pocket selection covers chains A and B",
+              b"pocket_5JSM_6NB_J', 'rec_5JSM and ((chain A and resi" in pml and b") or (chain B and resi" in pml, None)
 
     ks = await server.get_structures("P01116", mutation="G12C")
     nuc = [s["pdb_id"] for s in (ks.get("experimental") or {}).get("structures") or [] if "GDP" in s.get("nucleotides", [])][:1]

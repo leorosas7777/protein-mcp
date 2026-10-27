@@ -70,7 +70,6 @@ DECISIONS = [
     "nonpolymer_instances.",
 ]
 PENDING = [
-    "step 3: PyMOL session (.pml)",
     "step 4: user's structure choice (select_structure)",
 ]
 

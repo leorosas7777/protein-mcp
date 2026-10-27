@@ -19,9 +19,28 @@ Requisitos: Windows, [uv](https://docs.astral.sh/uv/), Claude Desktop y conexió
      }
    }
    ```
-3. Cierra Claude Desktop **desde la bandeja del sistema** (Quit, no solo la ventana) y ábrelo otra vez. En un chat nuevo deben aparecer 6 herramientas de `protein-research`.
+3. Cierra Claude Desktop **desde la bandeja del sistema** (Quit, no solo la ventana) y ábrelo otra vez. En un chat nuevo deben aparecer 8 herramientas de `protein-research`.
 
 Cada vez que cambie el código hay que repetir el paso 3.
+
+### PyMOL (opcional)
+
+`open_in_pymol` siempre escribe la sesión `dossiers\<accession>\prep\pymol\session.pml`. Solo abre PyMOL si lo encuentra: primero en la variable `PROTEIN_MCP_PYMOL`, luego como `pymol` en el PATH. Sin PyMOL te da la ruta del `.pml` para abrirlo con *File → Run Script...*.
+
+PyMOL open-source en un entorno aparte (probado en Windows 11 con Python 3.13, 2026-10-26; ~207 MB):
+
+```
+uv venv C:\pymol-env --python 3.13
+uv pip install --python C:\pymol-env\Scripts\python.exe pymol-open-source-whl PyQt5
+```
+
+La rueda no trae interfaz gráfica: sin `PyQt5` (o `PySide6`) PyMOL se cierra al arrancar y la herramienta lo avisa. Después añade al servidor en `claude_desktop_config.json`:
+
+```json
+"env": { "PROTEIN_MCP_PYMOL": "C:\\pymol-env\\Scripts\\python.exe" }
+```
+
+Si ya tienes PyMOL (Schrödinger o conda), apunta la variable a su `pymol.exe`. Ni el arranque desde Claude Desktop con esta variable ni un PyMOL de Schrödinger están probados todavía.
 
 ## 2. Flujo recomendado
 
@@ -30,6 +49,8 @@ Cada vez que cambie el código hay que repetir el paso 3.
 | 1. Identificar | "Busca la proteína PCSK9" | `resolve_protein` |
 | 2. Recoger datos | "Dame el perfil de la diana", "estructuras", "ligandos", "literatura" | `get_protein_profile`, `get_structures`, `get_ligands`, `search_literature` |
 | 3. Reporte | "Genera el reporte" | `build_report` |
+| 4. Preparar estructuras (opcional) | "Prepara las estructuras de BRAF V600E" | `prepare_structures` |
+| 5. Verlas (opcional) | "Ábrelas en PyMOL" | `open_in_pymol` |
 
 - Si hay varias proteínas posibles, Claude debe preguntarte cuál es. Confirma siempre el **accession** (p. ej. `Q8NBP7`): todo lo demás se guarda bajo ese código.
 - El reporte solo incluye lo que ya se recogió en el paso 2. Si falta algo, el PDF lo dice ("Missing sections") en vez de inventarlo.
@@ -72,7 +93,7 @@ Cada vez que cambie el código hay que repetir el paso 3.
 | Fármacos que son **anticuerpos** o proteínas (p. ej. evolocumab en PCSK9) | No tienen potencia IC50/Ki/Kd: no entran al ranking; salen en una tabla aparte con nombre, tipo y fase | Lee esa tabla antes de concluir que no hay fármacos |
 | Selectividad, toxicidad, ADME, datos negativos | No se recuperan | Fuera del alcance actual |
 | Ensayos clínicos (ClinicalTrials.gov) | No conectado | Pendiente |
-| Descargar PDB/FASTA, abrir PyMOL | Fase 2, no implementada | Usa los enlaces del reporte |
+| Cambiar la vista de PyMOL desde el chat ("colorea la cadena B") | Todavía no: la sesión se abre ya preparada | Menús y panel de objetos de PyMOL |
 | Docking, diseño de moléculas, predicciones | No es una herramienta de cálculo | — |
 | Nombres ambiguos ("insulin receptor") | La búsqueda por nombre devuelve ruido | Usa el símbolo del gen (INSR) |
 | Mutaciones en texto libre ("la mutación más común") | El filtro necesita notación tipo `G12C` o `G12` | Especifica la variante |

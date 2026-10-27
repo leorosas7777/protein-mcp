@@ -13,6 +13,8 @@ Tools:
   - prepare_structures (Phase 2): structures dossier file -> original files on disk
     (mmCIF, AlphaFold, FASTA, ligand poses), cleaned receptors, chain checks,
     pocket and box per ligand + prep/manifest.json.
+  - open_in_pymol (Phase 2): prep/manifest.json -> PyMOL session (.pml); starts
+    PyMOL only if it is found, otherwise returns the path of the .pml.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -35,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import prepare  # noqa: E402
+from protein_mcp.files import prepare, viewer  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -386,6 +388,60 @@ async def prepare_structures(
       construct, not the residues resolved in the model (7ZR0: 1-766 sampled).
     """
     return await prepare.prepare_structures(uniprot_id, mutation, pdb_ids, include_alphafold)
+
+
+@mcp.tool()
+async def open_in_pymol(
+    uniprot_id: str, pdb_ids: list[str] | None = None, include_alphafold: bool = True, start: bool = True
+) -> dict:
+    """Show the prepared structures in PyMOL: write a session file (.pml) from prep/manifest.json and start PyMOL if it is installed (Phase 2, step 3). Use it ONLY when the user asks to see or open the structures in PyMOL.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056". Run prepare_structures first.
+        pdb_ids: Optional subset of the structures in the manifest, e.g. ["3OG7"].
+            Empty = all of them. IDs not in the manifest are listed in
+            `pdb_ids_not_in_manifest`.
+        include_alphafold: Also load the AlphaFold model, coloured by pLDDT.
+        start: False = only write the .pml (when the user wants the file).
+
+    The session uses only files already in dossiers/<acc>/prep/ (no network):
+    each cleaned receptor, the crystal ligand poses (SDF), one selection per
+    pocket of the manifest, the box of each pocket (lines), the residue modelled
+    at the variant position, and the AlphaFold model superposed on the first
+    structure (in the session only). Only the first structure is shown; the
+    others are hidden in the object panel. The file is
+    prep/pymol/session.pml and is replaced on every call.
+
+    Rules for using the result:
+    - If `pymol.launched` is true, say PyMOL was started (the server cannot see
+      the window). List every `pymol.session_errors` line (a file that failed
+      to load); if `session_loaded` is false, say loading was still running at
+      the check and errors after it are only in `pymol.log_path`. If launched
+      is false, give `pml_path` and `how_to_open`, plus `pymol.error` and
+      `pymol.hint` if present (e.g. PyMOL without Qt).
+    - Explain what the user will see with `legend` and the names in
+      `structures` (group, receptor, ligands, pockets, variant_position) and
+      `alphafold`; say which structure is shown first (`enabled`). Mention
+      `skipped`, `pdb_ids_not_in_manifest` and `notes` (frames: structures are
+      not superposed with each other).
+    - Name what is NOT shown: per structure `ligands_not_loaded` (failed or
+      missing SDF), `pockets_not_shown` and, per pocket,
+      `residues_not_selectable` (then `n_residues_selected` < `n_residues`).
+    - A ligand with `on_target_chain` false is drawn but touches no target
+      chain (e.g. ATP on a partner protein that is not in the receptor): never
+      call it bound to the target. `has_pocket` false means the manifest has
+      no pocket for it (often a small additive-like compound).
+    - The magenta residue (`variant_position`) is whatever is modelled at the
+      variant position: give each chain's `observed` and `status` from
+      `by_chain` ("variant", "wild type", ...); do not call it the mutation
+      unless the status is "variant".
+    - The view shows the manifest's data; it measures nothing new. Numbers
+      (pocket residues, pLDDT, variant status) come from prepare_structures,
+      not from this tool.
+    - Changing the view from the chat is not available yet: if asked, say so
+      and describe how to do it in the PyMOL menus or object panel.
+    """
+    return await viewer.open_in_pymol(uniprot_id, pdb_ids, include_alphafold, start)
 
 
 
