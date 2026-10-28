@@ -4,8 +4,9 @@ manifest, the contract with Phase 3 (dossiers/<acc>/prep/manifest.json).
 Step 1 of Phase 2: original files (mmCIF, AlphaFold mmCIF, UniProt FASTA, crystal ligand
 poses as SDF). Step 2 (files.clean, gemmi): cleaned receptor, chain metrics, pocket and box per
 ligand instance, AlphaFold pLDDT at each pocket. Nothing is protonated, completed or mutated;
-the manifest says so in `pending`. Imports common, dossier, files.{download, clean} and
-sources.{rcsb, uniprot}.
+the manifest says so in `pending`. Imports common, dossier, files.{download, clean, choice} and
+sources.{rcsb, uniprot}. A user_choice of the previous manifest is kept only if it is still valid
+(files.choice.carry_over).
 """
 import asyncio
 import json
@@ -16,7 +17,7 @@ import httpx
 
 from protein_mcp import dossier
 from protein_mcp.common import log, parse_accession, short, utc_now
-from protein_mcp.files import clean
+from protein_mcp.files import choice, clean
 from protein_mcp.files.download import check_fasta, check_mmcif, check_sdf, download
 from protein_mcp.sources import rcsb
 from protein_mcp.sources.uniprot import UNIPROT_FASTA
@@ -69,9 +70,7 @@ DECISIONS = [
     "Glycans (RCSB branched entities, e.g. NAG chains) are not queried and are absent from "
     "nonpolymer_instances.",
 ]
-PENDING = [
-    "step 4: user's structure choice (select_structure)",
-]
+PENDING = [choice.STEP4_PENDING]
 
 
 def prep_dir(accession: str) -> Path:
@@ -275,13 +274,15 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         warnings.append(f"Variant check: {variant[3]}.")
 
     manifest_path = base / "manifest.json"
-    previous = None
+    previous, old_manifest = None, None
     try:
-        previous = json.loads(manifest_path.read_text(encoding="utf-8")).get("source_dossier")
+        old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        previous = old_manifest.get("source_dossier")
     except FileNotFoundError:
         pass
     except (OSError, ValueError, AttributeError):
-        previous = {"file": "unreadable previous manifest"}
+        old_manifest, previous = None, {"file": "unreadable previous manifest"}
+        warnings.append("The previous manifest could not be read: a structure choice recorded in it (if any) is lost.")
 
     selection = (f"{len(chosen)} of {len(dossier_ids)} experimental structures in {name}.json"
                  + (f" (requested: {', '.join(str(p) for p in pdb_ids)})" if pdb_ids else "")
@@ -307,14 +308,14 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "failed_downloads": failed,
         "warnings": warnings,
         "decisions": DECISIONS,
-        "pending": PENDING,
+        "pending": list(PENDING),
         "user_choice": None,
+        "user_choice_history": [],
     }
+    # the user's choice survives only if structure, chains, pocket and file are still in this manifest
+    choice_status = choice.carry_over(old_manifest, manifest)
     try:
-        base.mkdir(parents=True, exist_ok=True)
-        part = manifest_path.with_name("manifest.json.part")
-        part.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
-        part.replace(manifest_path)
+        choice.write_manifest(manifest_path, manifest)
     except OSError as exc:
         log.exception("Could not write manifest %s", manifest_path)
         return {"ok": False, "error": f"Files downloaded to {base} but the manifest could not be written: {exc!r}"}
@@ -329,6 +330,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "summary": summary,
         "pdb_ids_not_in_dossier": not_in_dossier,
         "replaced_manifest_from": previous,
+        "user_choice": choice_status,
         "sequence": {k: fasta.get(k) for k in ("ok", "path", "header", "length", "error") if k in fasta},
         "structures": [compact_structure(r) for r in structures],
         "alphafold": ({"entry_id": alphafold["entry_id"], "file": alphafold["file"].get("path"),

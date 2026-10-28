@@ -19,7 +19,7 @@ Requisitos: Windows, [uv](https://docs.astral.sh/uv/), Claude Desktop y conexió
      }
    }
    ```
-3. Cierra Claude Desktop **desde la bandeja del sistema** (Quit, no solo la ventana) y ábrelo otra vez. En un chat nuevo deben aparecer 8 herramientas de `protein-research`.
+3. Cierra Claude Desktop **desde la bandeja del sistema** (Quit, no solo la ventana) y ábrelo otra vez. En un chat nuevo deben aparecer 9 herramientas de `protein-research`.
 
 Cada vez que cambie el código hay que repetir el paso 3.
 
@@ -51,6 +51,7 @@ Si ya tienes PyMOL (Schrödinger o conda), apunta la variable a su `pymol.exe`. 
 | 3. Reporte | "Genera el reporte" | `build_report` |
 | 4. Preparar estructuras (opcional) | "Prepara las estructuras de BRAF V600E" | `prepare_structures` |
 | 5. Verlas (opcional) | "Ábrelas en PyMOL" | `open_in_pymol` |
+| 6. Elegir (opcional) | "Elijo 8C7Y, bolsillo TXV U, porque ..." | `select_structure` (queda en el manifiesto y en la sección 6 del reporte) |
 
 - Si hay varias proteínas posibles, Claude debe preguntarte cuál es. Confirma siempre el **accession** (p. ej. `Q8NBP7`): todo lo demás se guarda bajo ese código.
 - El reporte solo incluye lo que ya se recogió en el paso 2. Si falta algo, el PDF lo dice ("Missing sections") en vez de inventarlo.

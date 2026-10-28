@@ -15,6 +15,8 @@ Tools:
     pocket and box per ligand + prep/manifest.json.
   - open_in_pymol (Phase 2): prep/manifest.json -> PyMOL session (.pml); starts
     PyMOL only if it is found, otherwise returns the path of the .pml.
+  - select_structure (Phase 2): records the user's structure, chain(s) and pocket
+    in prep/manifest.json, checked against the manifest.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -37,7 +39,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import prepare, viewer  # noqa: E402
+from protein_mcp.files import choice, prepare, viewer  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -259,11 +261,15 @@ async def build_report(uniprot_id: str) -> dict:
     (get_protein_profile, get_structures, get_ligands, search_literature; every
     call with different parameters adds its own file). Run the ones the user
     wants first. Sections without a file are listed in `missing` and left empty
-    in the report, never filled from the conversation.
+    in the report, never filled from the conversation. If prepare_structures
+    was run, section 6 "Structure preparation" shows prep/manifest.json:
+    structures, chains, pockets and boxes, and the structure chosen with
+    select_structure (or that none was chosen).
 
     Rules for using the result:
     - Give the user `pdf_path` (and `markdown_path`). If `missing` is not empty,
       say which sections are absent and offer to run those tools and rebuild.
+    - `preparation` names the manifest used (None = no preparation section).
     - The report holds data and links only, no interpretation. If you add an
       interpretation in the chat, base it only on tool results and cite them.
     - If it fails because the PDF is open in a viewer, ask the user to close it.
@@ -302,7 +308,10 @@ async def prepare_structures(
     Running it again replaces the manifest (`replaced_manifest_from`), also with a
     subset of pdb_ids: then the manifest holds only that subset. If the RCSB
     chain query or every structure download fails, it returns ok false and keeps
-    the previous manifest.
+    the previous manifest. A structure choice made with select_structure is kept
+    only if its structure, chains and pocket are still in the new manifest with
+    the same file: `user_choice` says "kept" (with `changed_fields`) or
+    "dropped" (with the reason; tell the user it must be chosen again).
 
     Rules for using the result:
     - Say "N of M" from `selection`, and list `failed_downloads` and `warnings`
@@ -444,6 +453,49 @@ async def open_in_pymol(
       and describe how to do it in the PyMOL menus or object panel.
     """
     return await viewer.open_in_pymol(uniprot_id, pdb_ids, include_alphafold, start)
+
+
+@mcp.tool()
+async def select_structure(
+    uniprot_id: str, structure: str, reason: str, pocket: str = "", chains: list[str] | None = None
+) -> dict:
+    """Record the USER's choice of structure (and pocket) for the next phase in prep/manifest.json (Phase 2, step 4). Call it ONLY when the user has explicitly chosen; never to record your own recommendation without the user confirming it.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056". Run prepare_structures first.
+        structure: A PDB ID of the manifest, e.g. "3OG7", or "AlphaFold".
+        reason: The user's own reason, in their words (quote them). If the user
+            gave none, ask for it; do not write one yourself.
+        pocket: Optional ligand pocket as "<comp_id> <label_asym_id>", e.g.
+            "032 C", exactly as in prepare_structures (`pockets`, or the summary
+            lines "8C7Y TXV U: ..."). "032" alone works if it is unique in that
+            structure. AlphaFold has no pocket.
+        chains: Optional target chains by auth_asym_id (what PyMOL shows), e.g.
+            ["A"]. With a pocket, the default is the pocket's chains; without a
+            pocket, required if the structure has several target chains.
+
+    Everything is checked against the manifest: a structure, chain or pocket
+    that is not there, or a structure without a cleaned receptor, is rejected
+    with `options` (what can be chosen) and nothing is written. The choice
+    stores a copy of the manifest data (receptor file, chains with modelled
+    ranges and variant status, pocket residues per chain, box, SDF, construct
+    mutations), the reason and the time. Choosing again replaces it; earlier
+    choices stay in the manifest's user_choice_history.
+
+    Rules for using the result:
+    - The choice is checked before the reason: if only the reason is missing,
+      `valid_choice` names the choice; ask the user for their reason.
+    - If ok is false, say why and offer the `options`; do not retry with a
+      structure, pocket or chain the user did not name (e.g. "has 2 target
+      chains": ask which one, do not pick it).
+    - Confirm with `recorded` and list every `user_choice.warnings` line (e.g.
+      no pocket = no box; a pocket spanning several chains keeps its full box;
+      a missing SDF).
+    - Say that nothing was recomputed and the receptor is not protonated or
+      completed: it is a recorded choice, not a ready-to-simulate system.
+    - If `replaced_choice` is set, name the choice it replaced.
+    """
+    return await asyncio.to_thread(choice.select_structure, uniprot_id, structure, pocket, chains, reason)
 
 
 

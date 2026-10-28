@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from protein_mcp import dossier
-from protein_mcp.files import clean, download, prepare, viewer
+from protein_mcp.files import choice, clean, download, prepare, viewer
 from protein_mcp.sources import rcsb
 
 FIX = Path(__file__).parent / "fixtures" / "prep"
@@ -214,8 +214,21 @@ def test_prepare():
     # a second run says what it replaced; IDs outside the dossier are never downloaded
     again = asyncio.run(prepare.prepare_structures("P15056", "V600E", ["1UWH"], include_alphafold=False))
     assert not again["ok"] and again["pdb_ids_not_in_dossier"] == ["1UWH"]
+    assert reply["user_choice"] is None
+    assert choice.select_structure("P15056", "3OG7", "032 C", reason="pose de vemurafenib")["ok"]
     reply2 = asyncio.run(run_prepare())
     assert reply2["replaced_manifest_from"]["file"] == "structures_v600e.json"
+    # step 4: the choice survives a rebuild with the same files, and is dropped (kept in history) without 3OG7
+    assert reply2["user_choice"] == {"kept": "3OG7 chain A, pocket 032 C", "changed_fields": []}, reply2["user_choice"]
+    kept = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+    assert kept["user_choice"]["reason"] == "pose de vemurafenib" and choice.STEP4_PENDING not in kept["pending"]
+    sub = asyncio.run(run_prepare(handler, ["5JSM"]))
+    assert sub["user_choice"]["dropped"] == "3OG7 chain A, pocket 032 C" and "not in the manifest" in sub["user_choice"]["reason"]
+    dropped = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+    assert dropped["user_choice"] is None and dropped["user_choice_history"][0]["reason"] == "pose de vemurafenib"
+    reply2 = asyncio.run(run_prepare())
+    assert reply2["user_choice"] is None and len(json.loads((base / "manifest.json").read_text(encoding="utf-8"))["user_choice_history"]) == 1
+    assert choice.select_structure("P15056", "3OG7", "032 C", reason="otra vez")["ok"]
 
     # network down / every structure file failing: ok false, the good manifest is kept
     good = (base / "manifest.json").read_text(encoding="utf-8")
@@ -224,6 +237,7 @@ def test_prepare():
     failed = asyncio.run(run_prepare(cif_down))
     assert not failed["ok"] and "Every structure download failed" in failed["error"] and failed["failed_downloads"]
     assert (base / "manifest.json").read_text(encoding="utf-8") == good
+    assert json.loads(good)["user_choice"]["reason"] == "otra vez"       # a failed rerun keeps the choice too
 
     # RCSB failed when the dossier was made (get_structures still saved it because AlphaFold worked)
     broken = json.loads(json.dumps(STRUCTURES))

@@ -190,7 +190,7 @@ async def tnf():
 
 
 async def prep():
-    """Phase 2 steps 1-3: prepare_structures and open_in_pymol on BRAF V600E (defects found in the 8.2 validation and Desktop tests)."""
+    """Phase 2 steps 1-4: prepare_structures, open_in_pymol and select_structure on BRAF V600E (defects found in the 8.2 validation and Desktop tests)."""
     st = await server.get_structures("P15056", mutation="V600E")
     have = {s["pdb_id"] for s in (st.get("experimental") or {}).get("structures") or []}
     wanted = ["3OG7", "5JSM", "7ZR0", "8C7Y"]
@@ -293,6 +293,32 @@ async def prep():
               vb.get("7ZR0", {}).get("ligands"))
         check("REGRESSION", "5JSM: the bivalent 6NB pocket selection covers chains A and B",
               b"pocket_5JSM_6NB_J', 'rec_5JSM and ((chain A and resi" in pml and b") or (chain B and resi" in pml, None)
+
+    # step 4: the user's choice, checked against the manifest, kept across a rebuild, shown in the report
+    bad = await server.select_structure("P15056", "8C7Y", reason="smoke", pocket="TXV")
+    check("ANTI-HALLUCINATION", "select_structure: an ambiguous pocket (8C7Y has TXV U and X) is rejected, nothing written",
+          not bad.get("ok") and "matches 2 pockets" in bad.get("error", "")
+          and json.loads(Path(rep["manifest_path"]).read_text(encoding="utf-8"))["user_choice"] is None, bad.get("error"))
+    sel = await server.select_structure("P15056", "8C7Y", reason="V600E modelled in the pocket chain", pocket="TXV U")
+    uc = sel.get("user_choice") or {}
+    pk8 = next((p for p in by_id["8C7Y"]["prepared"]["pockets"] if p["label_asym_id"] == "U"), {})
+    check("ANTI-HALLUCINATION", "select_structure copies 8C7Y TXV U from the manifest (chain A variant, same box)",
+          sel.get("ok") and [c["auth_asym_id"] for c in uc.get("chains", [])] == ["A"]
+          and uc["chains"][0].get("variant_status") == "variant" and (uc.get("pocket") or {}).get("box") == pk8.get("box")
+          and (base / uc["pocket"]["sdf"]).is_file() and (base / uc["receptor"]).is_file(), sel.get("error") or uc)
+    again = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=wanted)
+    check("REGRESSION", "prepare_structures again with the same entries keeps the choice",
+          (again.get("user_choice") or {}).get("kept") == "8C7Y chain A, pocket TXV U", again.get("user_choice"))
+    rb = await server.build_report("P15056")
+    md = Path(rb["markdown_path"]).read_text(encoding="utf-8") if rb.get("ok") else ""
+    sec6 = md.split("## 6. Structure preparation")[-1].split("## 7. Methods")[0] if "## 6. Structure preparation" in md else ""
+    check("ANTI-HALLUCINATION", "report section 6 shows the choice and only manifest links",
+          "- Choice: 8C7Y chain A, pocket TXV U" in sec6
+          and all(u in Path(rep["manifest_path"]).read_text(encoding="utf-8")
+                  for u in re.findall(r"\]\((https?://[^)\s]+)\)", sec6)), rb.get("error") or sec6[:300])
+    drop = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=["3OG7"], include_alphafold=False)
+    check("REGRESSION", "prepare_structures without 8C7Y drops the choice into the history, with the reason",
+          (drop.get("user_choice") or {}).get("dropped") == "8C7Y chain A, pocket TXV U", drop.get("user_choice"))
 
     ks = await server.get_structures("P01116", mutation="G12C")
     nuc = [s["pdb_id"] for s in (ks.get("experimental") or {}).get("structures") or [] if "GDP" in s.get("nucleotides", [])][:1]

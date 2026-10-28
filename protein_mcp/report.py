@@ -7,7 +7,8 @@ and links come from the saved source records, empty fields say "no record",
 and the only fixed text describes how the data were selected. The analyst's
 interpretation is added by Claude in the chat, not in this document.
 
-Imports only common (and reportlab): it never calls the source APIs.
+Imports dossier, common, files.choice (manifest path and choice label) and reportlab: it never
+calls the source APIs. Section 6 reads prep/manifest.json (Phase 2) when it exists.
 """
 import json
 import os
@@ -25,6 +26,7 @@ from reportlab.platypus import (ListFlowable, ListItem, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
 from protein_mcp import dossier
+from protein_mcp.files import choice
 from protein_mcp.common import log, parse_accession, utc_now
 
 NO_RECORD = "no record"
@@ -208,7 +210,7 @@ def load_dossier(accession: str) -> dict:
 
 
 # ------------------------------------------------------------ sections
-def _coverage(doc, acc, entries):
+def _coverage(doc, acc, entries, manifest=None):
     doc.h(2, "Contents of the dossier")
     rows = []
     for tool, label in SECTIONS:
@@ -220,6 +222,8 @@ def _coverage(doc, acc, entries):
     if missing:
         doc.p("Missing sections (left empty instead of filled from memory):")
         doc.bullets(missing)
+    if manifest and not manifest.get("unreadable"):
+        doc.p(f"Structure preparation: prep/manifest.json, created {manifest.get('created_at')} (section 6).", small=True)
 
 
 def _uniprot(doc, d):
@@ -537,8 +541,160 @@ def _literature(doc, items):
         doc.table(["#", "Title / authors", "Journal (year)", "Type", "Cited by"], rows, (0.04, 0.54, 0.20, 0.14, 0.08))
 
 
-def _methods(doc, entries):
-    doc.h(2, "6. Methods and limitations")
+def load_manifest(accession: str):
+    """prep/manifest.json written by prepare_structures (Phase 2), {"unreadable": error} or None."""
+    path = choice.manifest_path(accession)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        log.warning("Unreadable preparation manifest %s", path)
+        return {"unreadable": str(exc)}
+    return data if isinstance(data, dict) and data.get("generated_by") == "prepare_structures" else None
+
+
+def _ranges(ranges):
+    return ", ".join(f"{a}-{b}" if a != b else f"{a}" for a, b in ranges)
+
+
+def _chain_line(c):
+    """One target chain: modelled UniProt range, internal gaps, residue at the variant position."""
+    rng = c.get("modelled_uniprot_range")
+    name = c["auth_asym_id"] + (f" (label {c['label_asym_id']})"
+                                if c.get("label_asym_id") not in (None, c["auth_asym_id"]) else "")
+    line = f"{name}: modelled {rng[0]}-{rng[1]}" if rng else f"{name}: modelled range {NO_RECORD}"
+    missing = c.get("missing_uniprot_ranges") or []
+    # without a UniProt alignment there is no modelled range, so no gap statement either
+    line += f"; missing {_ranges(missing)}" if missing else "; no internal gap" if rng else "; gaps: no record"
+    # manifest chains carry variant_check; a recorded choice carries variant_status/variant_observed
+    vc = c.get("variant_check") or ({"status": c["variant_status"], "observed": c.get("variant_observed")}
+                                     if c.get("variant_status") else None)
+    if vc:
+        line += f"; variant position: {vc.get('status')}" + (f" ({vc['observed']})" if vc.get("observed") else "")
+    return line
+
+
+def _box(box):
+    return (" × ".join(_num(x) or "?" for x in box.get("size") or []) + " Å, centre ("
+            + ", ".join(_num(x) or "?" for x in box.get("center") or []) + ")")
+
+
+def _pocket_row(pdb_id, pk, lig):
+    ligand = Lines([f"{pk['comp_id']} {pk['label_asym_id']} (auth {pk.get('auth_asym_id')})"]
+                   + ([", ".join(lig["synonyms"])] if lig.get("synonyms") else
+                      [_clip(lig["name"], 60)] if lig.get("name") else []))
+    if pk.get("error"):
+        return [pdb_id, ligand, f"error: {pk['error']}", None, None, None]
+    n = len(pk.get("residues") or [])
+    flags = ((["spans several target chains"] if pk.get("spans_target_chains") else [])
+             + (["large box (side > 30 Å)"] if pk.get("large_box") else [])
+             + [f"missing {_ranges([a['missing_uniprot_range']])} next to the pocket (chain {a['auth_asym_id']})"
+                for a in pk.get("adjacent_missing_ranges") or []])
+    af = pk.get("alphafold_plddt") or {}
+    return [pdb_id, ligand,
+            Lines([f"{n} residues"] + [f"chain {c}: {k}" for c, k in (pk.get("residues_by_chain") or {}).items()]),
+            _box(pk.get("box") or {}),
+            Lines(flags) if flags else "none",
+            # residues_compared counts distinct UniProt positions; n counts residues over all chains (5JSM: 24 vs 47)
+            f"{_num(af['mean_plddt'])} (at {af.get('residues_compared')} UniProt positions)"
+            if af.get("mean_plddt") is not None else NO_RECORD]
+
+
+def _preparation(doc, m, entries):
+    doc.h(2, "6. Structure preparation (Phase 2)")
+    if m.get("unreadable"):
+        doc.p(f"prep/manifest.json could not be read ({m['unreadable']}).")
+        return
+    src = m.get("source_dossier") or {}
+    doc.p(f"Manifest prep/manifest.json created {m.get('created_at')} by prepare_structures from {src.get('file')} "
+          f"(retrieved {src.get('retrieved_at')}). Variant filter: {m.get('mutation_filter') or 'none'}. "
+          f"{m.get('selection') or ''}", small=True)
+    now = next((d for d in entries.get("get_structures") or [] if d["file"] == src.get("file")), None)
+    if not now:
+        doc.p(f"Note: {src.get('file')} is not in the dossier any more; this section shows the manifest only.")
+    elif now.get("retrieved_at") != src.get("retrieved_at"):
+        doc.p(f"Note: {src.get('file')} in the dossier was retrieved {now.get('retrieved_at')}; the manifest was built "
+              f"from the copy retrieved {src.get('retrieved_at')}. Sections 3 and 6 may show different selections.")
+
+    rows, pocket_rows, n_instances, n_pockets, n_prepared = [], [], 0, 0, 0
+    for s in m.get("structures") or []:
+        prep = s.get("prepared") or {}
+        instances = s.get("nonpolymer_instances") or []
+        # only category "ligand" gets a pocket (clean.py); nucleotides/cofactors stay in the receptor
+        if prep.get("ok"):
+            n_prepared += 1
+            n_instances += sum(1 for i in instances if i.get("category") == "ligand")
+            receptor = prep["receptor"]["path"]
+            chains = Lines(_chain_line(c) for c in prep["metrics"]["chains"])
+            r_free = _num(prep["metrics"].get("r_free")) or "not reported"
+        else:
+            receptor = "not prepared: " + str(prep.get("error") or (s.get("file") or {}).get("error") or NO_RECORD)
+            chains = r_free = "not checked"
+        res = s.get("resolution_angstrom")
+        rows.append([Link(s.get("pdb_id"), (s.get("links") or {}).get("rcsb")),
+                     f"{_num(res)} Å" if res is not None else NO_RECORD, r_free, receptor, chains,
+                     _mutation_cell(s.get("construct") or {})])
+        by_label = {i.get("label_asym_id"): i for i in instances}
+        for pk in prep.get("pockets") or []:
+            pocket_rows.append(_pocket_row(s["pdb_id"], pk, by_label.get(pk.get("label_asym_id")) or {}))
+            n_pockets += not pk.get("error")
+    doc.h(3, "Structures in the manifest")
+    doc.table(["PDB", "Resolution", "R-free", "Receptor file", "Target chains (UniProt numbering)", "Mutations"],
+              rows, (0.07, 0.08, 0.07, 0.17, 0.41, 0.20))
+    doc.h(3, "Ligand pockets")
+    doc.p(f"{n_pockets} pockets computed of {n_instances} ligand instances in the {n_prepared} of "
+          f"{len(m.get('structures') or [])} entries that were prepared (nucleotides, cofactors and additives are "
+          "not counted as ligands; unprepared entries have no pockets). Pocket = target residues within 5 Å of the "
+          "ligand instance; box = ligand + 5 Å per side, mmCIF frame.", small=True)
+    doc.table(["PDB", "Ligand instance", "Pocket residues", "Box (size, centre)", "Flags", "AlphaFold mean pLDDT"],
+              pocket_rows, (0.07, 0.22, 0.14, 0.25, 0.18, 0.14))
+    without = (m.get("summary") or {}).get("ligands_without_pocket") or []
+    if without:
+        doc.p("Ligand instances without a pocket:", small=True)
+        doc.bullets(without)
+    af = m.get("alphafold")
+    if af:
+        f, vp = af.get("file") or {}, af.get("variant_position") or {}
+        doc.p(Link(af.get("entry_id"), f.get("url")),
+              f": file {f.get('path')}" if f.get("ok") else f": not downloaded ({f.get('error')})",
+              f"; residue at UniProt {vp['uniprot_position']}: {vp.get('residue')} (pLDDT {_num(vp.get('plddt'))})"
+              if vp.get("uniprot_position") else "", small=True)
+
+    doc.h(3, "Structure chosen by the user")
+    uc, history = m.get("user_choice"), m.get("user_choice_history") or []
+    if not uc:
+        doc.p("No structure chosen (select_structure not called" + (", or the last choice was dropped" if history else "") + ").")
+    else:
+        pk = uc.get("pocket") or {}
+        items = [f"Choice: {choice.label(uc)}" + (f" ({', '.join(pk['synonyms'])})" if pk.get("synonyms") else ""),
+                 f"Recorded {uc.get('chosen_at')} by {uc.get('recorded_by')}"
+                 + (f"; revalidated against the manifest of {uc['revalidated_at']}" if uc.get("revalidated_at") else ""),
+                 f'Reason recorded by select_structure: "{uc.get("reason")}"']
+        if uc.get("kind") == "experimental":
+            mut = _mutation_cell(uc.get("construct") or {})
+            items += ([f"Receptor: {uc.get('receptor')}"] + [f"Chain {_chain_line(c)}" for c in uc.get("chains") or []]
+                      + ["Construct mutations: " + ("; ".join(mut) if isinstance(mut, Lines) else mut)])
+        else:
+            items.append(f"AlphaFold file: {uc.get('file')}")
+        if pk:
+            items += [f"Pocket: {pk.get('n_residues')} residues; box {_box(pk.get('box') or {})}",
+                      f"Ligand pose (SDF): {pk.get('sdf') or 'not available'}"]
+        if uc.get("changed_fields"):
+            items.append("Changed when the manifest was rebuilt: " + ", ".join(uc["changed_fields"]))
+        doc.bullets(items + [f"Warning: {w}" for w in uc.get("warnings") or []])
+    if history:
+        doc.p(f"{len(history)} earlier choice(s) in user_choice_history: " + "; ".join(
+            choice.label(h) + (f" (dropped: {h['dropped_reason']})" if h.get("dropped_reason") else " (replaced)")
+            for h in history), small=True)
+    problems = list(m.get("failed_downloads") or []) + list(m.get("warnings") or [])
+    if problems:
+        doc.p("Failed downloads and warnings recorded in the manifest:", small=True)
+        doc.bullets(problems)
+
+
+def _methods(doc, entries, manifest=None):
+    doc.h(2, "7. Methods and limitations")
     doc.p("This document is generated deterministically from the dossier files listed at the top. It contains "
           "no interpretation: values are quoted from the source records, every link is built from an identifier "
           f"returned by the source, and fields without data are shown as '{NO_RECORD}'. Selections are partial "
@@ -553,6 +709,10 @@ def _methods(doc, entries):
     if notes:
         doc.p("Selection rules and caveats stated by the tools that produced the data:")
         doc.bullets(notes)
+    if manifest and not manifest.get("unreadable"):
+        doc.p("Structure preparation rules (prep/manifest.json, decisions):")
+        doc.bullets(list(manifest.get("decisions") or []))
+        doc.p("Not done yet (pending): " + ("; ".join(manifest.get("pending") or []) or "nothing listed") + ".")
 
 
 # ------------------------------------------------------------ rendering
@@ -651,7 +811,7 @@ def render_pdf(doc: Doc, path: Path, title: str, footer: str):
 
 
 # ------------------------------------------------------------ public API
-def build_document(accession: str, entries: dict, generated: str) -> Doc:
+def build_document(accession: str, entries: dict, generated: str, manifest=None) -> Doc:
     prof = _first(entries, "get_protein_profile")
     lit = _first(entries, "search_literature")
     up = prof["result"]["uniprot"] if prof else (lit["result"].get("protein") if lit else {}) or {}
@@ -663,7 +823,7 @@ def build_document(accession: str, entries: dict, generated: str) -> Doc:
           f" · organism: {up.get('organism') or NO_RECORD} · generated {generated}", small=True)
     doc.p("Data report built only from source records saved in the dossier. Interpretation is not part of this "
           "document.", small=True)
-    _coverage(doc, accession, entries)
+    _coverage(doc, accession, entries, manifest)
     if prof:
         _uniprot(doc, prof)
         _open_targets(doc, prof)
@@ -673,7 +833,9 @@ def build_document(accession: str, entries: dict, generated: str) -> Doc:
         _ligands(doc, entries["get_ligands"])
     if entries.get("search_literature"):
         _literature(doc, entries["search_literature"])
-    _methods(doc, entries)
+    if manifest:
+        _preparation(doc, manifest, entries)
+    _methods(doc, entries, manifest)
     return doc
 
 
@@ -682,12 +844,13 @@ def build_report(uniprot_id: str) -> dict:
     if err:
         return err
     entries = load_dossier(accession)
+    manifest = load_manifest(accession)
     if not entries:
         return {"ok": False, "uniprot_id": accession,
                 "error": f"No dossier for {accession}. Run get_protein_profile, get_structures, get_ligands "
                          "and/or search_literature first: each one saves its result to the dossier."}
     generated = utc_now()
-    doc = build_document(accession, entries, generated)
+    doc = build_document(accession, entries, generated, manifest)
     folder = dossier.DOSSIER_DIR / accession
     md_path, pdf_path = folder / f"report_{accession}.md", folder / f"report_{accession}.pdf"
     gene = next((d["result"]["uniprot"].get("gene") for d in entries.get("get_protein_profile") or []), None)
@@ -710,5 +873,7 @@ def build_report(uniprot_id: str) -> dict:
         "generated": generated,
         "included": {tool: [d["file"] for d in entries[tool]] for tool, _ in SECTIONS if entries.get(tool)},
         "missing": missing,
+        "preparation": ("prep/manifest.json" if manifest and not manifest.get("unreadable")
+                        else "prep/manifest.json unreadable" if manifest else None),
         **({"font_warning": font_note} if font_note else {}),
     }
