@@ -145,7 +145,10 @@ def test_scene_and_pml(prep: Path):
     assert "_do('group', 's_3OG7', 'rec_3OG7 lig_3OG7_032_C box_3OG7_032_C')" in text
     assert "_do('align', 'af_P15056', 'rec_3OG7')" in text
     assert "_do('disable', 's_5JSM')" in text and "_do('disable', 's_3OG7')" not in text
-    assert "_do('orient', 'pocket_3OG7_032_C')" in text and lines[-3] == "_do('deselect')"
+    # the scene ends with deselect; then the chat-control receiver (step 4b), then the loaded marker
+    ops_end = max(i for i, l in enumerate(lines) if l.startswith("_do("))
+    assert "_do('orient', 'pocket_3OG7_032_C')" in text and lines[ops_end] == "_do('deselect')"
+    assert "    _pmcp_receiver(" in "\n".join(lines[ops_end:])
     assert lines[-2] == "print(' protein-mcp: session loaded')"
     assert "pocket_9XYZ_LIG_D" not in text and "outside.sdf" not in text
     # the 3OG7 box: 12 edges, corners at center +- size/2
@@ -189,7 +192,9 @@ def test_find_and_launch(prep: Path):
         assert not f["found"] and "not a file" in f["error"]
         os.environ[viewer.PYMOL_ENV] = f'"{sys.executable}"'        # quoted, as pasted from Explorer
         f = viewer.find_pymol()
-        assert f["found"] and f["command"] == [sys.executable, "-m", "pymol"]
+        windowless = Path(sys.executable).with_name("pythonw.exe")     # used when it exists (step 4b)
+        exe = str(windowless) if Path(sys.executable).name.lower() == "python.exe" and windowless.is_file() else sys.executable
+        assert f["found"] and f["command"] == [exe, "-m", "pymol"], f
     finally:
         os.environ["PATH"] = path_before
         os.environ.pop(viewer.PYMOL_ENV, None)

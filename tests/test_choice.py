@@ -246,4 +246,5 @@ def main():
     print("ALL OK")
 
 
-main()
+if __name__ == "__main__":      # test_control imports build_manifest
+    main()

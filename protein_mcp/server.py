@@ -17,6 +17,8 @@ Tools:
     PyMOL only if it is found, otherwise returns the path of the .pml.
   - select_structure (Phase 2): records the user's structure, chain(s) and pocket
     in prep/manifest.json, checked against the manifest.
+  - pymol_view (Phase 2): changes the view of the PyMOL window opened with
+    open_in_pymol (fixed actions only, never PyMOL text from the chat).
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -39,7 +41,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import choice, prepare, viewer  # noqa: E402
+from protein_mcp.files import choice, control, prepare, viewer  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -449,8 +451,10 @@ async def open_in_pymol(
     - The view shows the manifest's data; it measures nothing new. Numbers
       (pocket residues, pLDDT, variant status) come from prepare_structures,
       not from this tool.
-    - Changing the view from the chat is not available yet: if asked, say so
-      and describe how to do it in the PyMOL menus or object panel.
+    - The session file also starts the chat control: while this window is open,
+      use pymol_view to change the view (`control.session_id`). If
+      `pymol.control_listening` is false after a launch, say the chat control
+      may not be available.
     """
     return await viewer.open_in_pymol(uniprot_id, pdb_ids, include_alphafold, start)
 
@@ -496,6 +500,67 @@ async def select_structure(
     - If `replaced_choice` is set, name the choice it replaced.
     """
     return await asyncio.to_thread(choice.select_structure, uniprot_id, structure, pocket, chains, reason)
+
+
+@mcp.tool()
+async def pymol_view(
+    uniprot_id: str, action: str, structure: str = "", pocket: str = "", chain: str = "",
+    residues: str = "", color: str = "", target: str = ""
+) -> dict:
+    """Change the view of the PyMOL window opened with open_in_pymol, from the chat (Phase 2, step 4b). Use it when the user asks to show, hide, colour or focus something in the open PyMOL window.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+        action: One of:
+            "status" (what is loaded and shown),
+            "show_structure" (show `structure`, hide the others),
+            "focus_pocket" (show `structure` and zoom on `pocket`, with its box),
+            "color_chain" (colour `chain` of `structure` with `color`),
+            "show_residues" (sticks + `color`, default green, and zoom on
+                `residues` of `structure`/`chain`),
+            "hide" / "show" (`target`: "ligands", "boxes" or "alphafold"; for
+                ligands and boxes, only of `structure` if given),
+            "reset" (draw the open_in_pymol scene again).
+        structure: A PDB ID loaded in the session, or "AlphaFold".
+        pocket: "<comp_id> <label_asym_id>", e.g. "032 C" or "TXV U" ("032"
+            alone if unique), as in prepare_structures.
+        chain: Target chain by auth_asym_id (what PyMOL shows), e.g. "B".
+            Needed when the structure has several target chains.
+        residues: UniProt numbers, e.g. "594-596, 600". They are translated to
+            the structure's own numbering; residues not modelled in that chain
+            are listed in `not_modelled`, never guessed. On "AlphaFold" only
+            for a single canonical model covering the whole sequence (F1).
+        color: red, green, blue, yellow, orange, magenta, cyan, white, grey,
+            pink, purple, salmon, wheat or slate.
+        target: For hide/show: "ligands", "boxes" or "alphafold".
+
+    Only these actions exist: the server builds every PyMOL command from the
+    manifest and the session, and never runs PyMOL text from the chat. It does
+    not compute anything about the structure, and changes are not saved
+    (reopening the session restores the open_in_pymol scene).
+
+    Rules for using the result:
+    - The server cannot see the window: say the command was sent and PyMOL
+      accepted it (`applied` of `sent`), not what the picture looks like. List
+      every `failed` line.
+    - For status, report per structure `shown`, `ligands_hidden` and
+      `boxes_hidden`, and `alphafold.shown`.
+    - If ok is false with `pymol_open` false, PyMOL is closed or still loading
+      (the error says which is likely): offer to try again in a few seconds or
+      to open it again with open_in_pymol (that restores the initial view). If
+      the error says the commands were sent without an answer, do not say
+      PyMOL is closed: they may have been applied; ask the user. Otherwise say
+      the error and offer the `options`; do not retry with a structure,
+      chain, pocket, residue or colour the user did not name.
+    - For show_residues, give `residues` (UniProt number: residue, author
+      number) and name every `not_modelled` number: those are absent from the
+      model, not hidden. Mention `ambiguous` (two residues at one position).
+    - If the user asks for something not in the actions (a label, a surface,
+      measuring a distance, a new file), say it is not available from the chat
+      and how to do it in the PyMOL menus.
+    """
+    return await asyncio.to_thread(control.pymol_view, uniprot_id, action, structure, pocket, chain,
+                                   residues, color, target)
 
 
 

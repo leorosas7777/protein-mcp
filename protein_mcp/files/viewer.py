@@ -2,8 +2,9 @@
 is found (Phase 2, step 3). Without PyMOL the tool returns the path of the .pml.
 
 The scene is a list of operations (function name + arguments), each a `cmd.<function>` call
-from OPS, rendered by render_pml. That list is also the base of the planned chat control of a
-live session: only listed functions with data arguments, never PyMOL text from the chat.
+from OPS, rendered by render_pml. The .pml also starts a small receiver (step 4b) that lets
+files.control (pymol_view) send LIVE_OPS to the open window: only listed functions with data
+arguments, never PyMOL text from the chat. The scene is saved as pymol/scene_<session>.json.
 
 PyMOL defects found on Windows (2026-10-26, ESTADO_PROYECTO.md section 8.2): it reads a .pml in
 the local code page (cp1252), its `load` command cannot open paths with non-ASCII characters,
@@ -17,6 +18,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,6 +35,18 @@ OPS = frozenset({
     "load", "load_cgo", "hide", "show", "color", "set_color", "select", "group", "enable",
     "disable", "align", "orient", "deselect", "bg_color",
 })
+
+# Functions the chat control (files.control, step 4b) may call in a RUNNING session; the receiver
+# started by the .pml rejects anything else. Validated in PyMOL 3.2 on 2026-10-28: cmd.load runs
+# .pml/.py/.pym files and cmd.label evaluates its expression as Python, so neither is here
+# (selections are not Python: "__import__('os')" is an invalid selection). set_color evaluates a
+# text RGB with PyMOL's safe_list_eval (the reviewer reported a sandbox escape, not reproduced
+# here) and align takes a matrix file: neither is needed live (reset keeps the session's colours
+# and AlphaFold stays where it was aligned), so both are out too.
+LIVE_OPS = frozenset((OPS - {"load", "load_cgo", "set_color", "align"})
+                     | {"zoom", "center", "get_names", "count_atoms"})
+CONTROL_FILE = "control.json"
+_LISTENING = "protein-mcp: control listening"
 
 # CGO codes (pymol.cgo BEGIN, LINES, VERTEX, END, COLOR), read from PyMOL 3.2 on 2026-10-26.
 _CGO_BEGIN, _CGO_LINES, _CGO_VERTEX, _CGO_END, _CGO_COLOR = 2.0, 1.0, 4.0, 3.0, 6.0
@@ -280,15 +294,75 @@ _RUNNER = [
 _FAILED = "protein-mcp: cmd."
 _LOADED = "protein-mcp: session loaded"
 
+# Receiver for the chat control (step 4b), run inside PyMOL after the scene. Standard library only:
+# one socket on 127.0.0.1 (ephemeral port), a random token, one JSON request per connection
+# {"token", "ops": [[function, args]]}; only LIVE_OPS with text/number arguments (lists of numbers
+# are also accepted, none of LIVE_OPS needs one). Port, token and session id go to pymol/control.json. Validated
+# 2026-10-28 (ESTADO_PROYECTO.md 8.2): cmd calls from these threads work and the window keeps
+# redrawing; the receiver dies with PyMOL. The token is created here, at run time: never in the .pml.
+_RECEIVER = r'''
+import json as _json, os as _os, secrets as _secrets, socket as _socket, threading as _threading
+def _pmcp_receiver(control, session, live):
+    token = _secrets.token_hex(16)
+    srv = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    def scalar(a):
+        return isinstance(a, (str, int, float)) and not isinstance(a, bool)
+    def handle(conn):
+        with conn:
+            f = conn.makefile("rwb")
+            def reply(obj):
+                obj["session"] = session
+                f.write((_json.dumps(obj) + "\n").encode()); f.flush()
+            try:
+                req = _json.loads(f.readline(1000000))
+            except Exception as exc:
+                return reply({"ok": False, "error": "bad request: %s" % exc})
+            if not isinstance(req, dict) or not _secrets.compare_digest(str(req.get("token")), token):
+                return reply({"ok": False, "error": "bad token"})
+            results = []
+            for op in req.get("ops") or []:
+                fn, args = (op + [None, None])[:2] if isinstance(op, list) else (None, None)
+                if fn not in live or not isinstance(args, list) or not all(
+                        scalar(a) or (isinstance(a, list) and a and all(scalar(x) and not isinstance(x, str) for x in a))
+                        for a in args):
+                    results.append({"fn": fn, "ok": False, "error": "not allowed"})
+                    continue
+                try:
+                    r = getattr(cmd, fn)(*args)
+                    results.append({"fn": fn, "ok": True,
+                                    "result": r if isinstance(r, (str, int, float, list, type(None))) else repr(r)})
+                except Exception as exc:
+                    results.append({"fn": fn, "ok": False, "error": str(exc).strip()})
+            reply({"ok": True, "results": results})
+    def serve():
+        while True:
+            conn, _ = srv.accept()
+            _threading.Thread(target=handle, args=(conn,), daemon=True).start()
+    _threading.Thread(target=serve, daemon=True).start()
+    with open(control + ".part", "w") as out:
+        _json.dump({"port": srv.getsockname()[1], "token": token, "session": session, "pid": _os.getpid()}, out)
+    _os.replace(control + ".part", control)
+    print(" protein-mcp: control listening")
+'''
 
-def render_pml(ops, header) -> str:
-    """ASCII .pml: comment header + one python block with a _do(<function>, ...) call per operation."""
+
+def render_pml(ops, header, control=None) -> str:
+    """ASCII .pml: comment header + one python block with a _do(<function>, ...) call per operation.
+    control = (control.json path, session id) also starts the chat-control receiver."""
     lines = [f"# {line}".encode("ascii", "backslashreplace").decode() for line in header]
     lines += ["python", *_RUNNER]
     for fn, args in ops:
         if fn not in OPS:
             raise ValueError(f"PyMOL function not allowed: {fn!r}")
         lines.append(f"_do({', '.join(ascii(a) for a in [fn, *args])})")
+    if control:
+        lines += _RECEIVER.strip("\n").splitlines()
+        lines.append("try:")
+        lines.append(f"    _pmcp_receiver({ascii(str(control[0]))}, {ascii(control[1])}, {ascii(sorted(LIVE_OPS))})")
+        lines.append("except Exception as exc:")
+        lines.append("    print(' protein-mcp: control not started: %s' % exc)")
     lines += [f"print(' {_LOADED}')", "python end"]
     return "\n".join(lines) + "\n"
 
@@ -302,7 +376,14 @@ def find_pymol() -> dict:
         if not path.is_file():
             return {"found": False, "source": PYMOL_ENV,
                     "error": f"{PYMOL_ENV} points to {env}, which is not a file."}
-        command = [str(path), "-m", "pymol"] if path.name.lower().startswith("python") else [str(path)]
+        if path.name.lower().startswith("python"):
+            # python.exe (a venv launcher) opens an empty console window next to PyMOL; pythonw.exe of
+            # the same environment does not, and its output still goes to launch.log (2026-10-28)
+            windowless = path.with_name("pythonw.exe")
+            exe = windowless if path.name.lower() == "python.exe" and windowless.is_file() else path
+            command = [str(exe), "-m", "pymol"]
+        else:
+            command = [str(path)]
         return {"found": True, "source": PYMOL_ENV, "command": command}
     found = shutil.which("pymol")
     if found:
@@ -336,10 +417,12 @@ async def launch(command, pml: Path, log_path: Path) -> dict:
     code = proc.poll()
     lines = _log_lines(log_path)
     # the session's own messages start with "protein-mcp:"; PyMOL's echo of the .pml source does not
-    errors = [line.strip() for line in lines if line.strip().startswith(_FAILED)]
+    errors = [line.strip() for line in lines
+              if line.strip().startswith((_FAILED, "protein-mcp: control not started"))]
     if code is None:
         loaded = any(line.strip() == _LOADED for line in lines)
         out = {"launched": True, "pid": proc.pid, "session_loaded": loaded, "session_errors": errors,
+               "control_listening": any(line.strip() == _LISTENING for line in lines),
                "note": f"PyMOL is still running after {LAUNCH_CHECK_SECONDS:g} s; the server cannot see the "
                        "window itself."}
         if not loaded:
@@ -376,6 +459,16 @@ async def open_in_pymol(uniprot_id: str, pdb_ids=None, include_alphafold=True, s
 
     folder = prep / "pymol"
     pml = folder / "session.pml"
+    # what this session holds, for pymol_view (files.control): one file per session, so a later
+    # call that only writes a new .pml does not change what the open window is matched against
+    session = secrets.token_hex(8)
+    scene_file = folder / f"scene_{session}.json"
+    scene_record = {
+        "session_id": session, "created_at": utc_now(), "manifest_created_at": manifest.get("created_at"),
+        "structures": scene["structures"], "alphafold": scene["alphafold"],
+        # "reset" replays the scene without loading anything
+        "reset_ops": [[fn, args] for fn, args in scene["ops"] if fn in LIVE_OPS],
+    }
     header = [
         f"PyMOL session for {accession}, written by protein-mcp open_in_pymol at {utc_now()}.",
         f"Built from prep/manifest.json created {manifest.get('created_at')}.",
@@ -384,7 +477,9 @@ async def open_in_pymol(uniprot_id: str, pdb_ids=None, include_alphafold=True, s
     ]
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        pml.write_text(render_pml(scene["ops"], header), encoding="ascii", newline="\n")
+        scene_file.write_text(json.dumps(scene_record, ensure_ascii=False, indent=1), encoding="utf-8")
+        pml.write_text(render_pml(scene["ops"], header, (folder / CONTROL_FILE, session)),
+                       encoding="ascii", newline="\n")
     except OSError as exc:
         log.exception("Could not write %s", pml)
         return {"ok": False, "error": f"Could not write {pml}: {exc}"}
@@ -407,6 +502,9 @@ async def open_in_pymol(uniprot_id: str, pdb_ids=None, include_alphafold=True, s
         "structures": scene["structures"], "alphafold": scene["alphafold"], "skipped": scene["skipped"],
         "pdb_ids_not_in_manifest": scene["pdb_ids_not_in_manifest"], "legend": LEGEND, "notes": scene["notes"],
         "pymol": pymol,
+        "control": {"session_id": session,
+                    "note": "While this PyMOL window is open, pymol_view can change its view from the chat "
+                            "(started by the .pml, also when it is opened by hand with File > Run Script)."},
         "how_to_open": "In PyMOL: File > Run Script... and choose pml_path. To let the server start PyMOL, set "
                        f"{PYMOL_ENV} in claude_desktop_config.json (env) to pymol.exe or to a Python with "
                        "pymol and PyQt5 installed.",

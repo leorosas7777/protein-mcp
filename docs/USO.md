@@ -19,13 +19,15 @@ Requisitos: Windows, [uv](https://docs.astral.sh/uv/), Claude Desktop y conexió
      }
    }
    ```
-3. Cierra Claude Desktop **desde la bandeja del sistema** (Quit, no solo la ventana) y ábrelo otra vez. En un chat nuevo deben aparecer 9 herramientas de `protein-research`.
+3. Cierra Claude Desktop **desde la bandeja del sistema** (Quit, no solo la ventana) y ábrelo otra vez. En un chat nuevo deben aparecer 10 herramientas de `protein-research`.
 
 Cada vez que cambie el código hay que repetir el paso 3.
 
 ### PyMOL (opcional)
 
 `open_in_pymol` siempre escribe la sesión `dossiers\<accession>\prep\pymol\session.pml`. Solo abre PyMOL si lo encuentra: primero en la variable `PROTEIN_MCP_PYMOL`, luego como `pymol` en el PATH. Sin PyMOL te da la ruta del `.pml` para abrirlo con *File → Run Script...*.
+
+Mientras esa ventana de PyMOL esté abierta, puedes pedir cambios de vista en el chat (`pymol_view`): "muestra solo 3OG7", "enfoca el bolsillo 032", "colorea la cadena B de rojo", "muestra los residuos 594-596" (numeración UniProt), "oculta las cajas", "vuelve a la vista inicial", "¿qué está cargado?". Solo existen esas acciones: el chat nunca envía comandos de PyMOL. Etiquetas, superficies o medir distancias se hacen en los menús de PyMOL. Los cambios no se guardan: al reabrir la sesión vuelve la vista inicial. La sesión abre un puerto solo en tu equipo (127.0.0.1) con una clave aleatoria; se cierra al cerrar PyMOL.
 
 PyMOL open-source en un entorno aparte (probado en Windows 11 con Python 3.13, 2026-10-26; ~207 MB):
 
@@ -52,6 +54,7 @@ Si ya tienes PyMOL (Schrödinger o conda), apunta la variable a su `pymol.exe`. 
 | 4. Preparar estructuras (opcional) | "Prepara las estructuras de BRAF V600E" | `prepare_structures` |
 | 5. Verlas (opcional) | "Ábrelas en PyMOL" | `open_in_pymol` |
 | 6. Elegir (opcional) | "Elijo 8C7Y, bolsillo TXV U, porque ..." | `select_structure` (queda en el manifiesto y en la sección 6 del reporte) |
+| 7. Cambiar la vista (opcional, con PyMOL abierto) | "Colorea la cadena B de rojo", "muestra los residuos 594-596" | `pymol_view` |
 
 - Si hay varias proteínas posibles, Claude debe preguntarte cuál es. Confirma siempre el **accession** (p. ej. `Q8NBP7`): todo lo demás se guarda bajo ese código.
 - El reporte solo incluye lo que ya se recogió en el paso 2. Si falta algo, el PDF lo dice ("Missing sections") en vez de inventarlo.

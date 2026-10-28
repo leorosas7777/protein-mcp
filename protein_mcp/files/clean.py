@@ -309,6 +309,39 @@ def _flag_gaps(pockets, chains):
                                         for c, lo, hi in sorted(flagged)]
 
 
+def residue_map(cif: Path, record=None, auth_chain: str = "") -> dict:
+    """UniProt number -> modelled residue ("GLU", auth_seq_id with insertion code) in ONE chain, for
+    the chat control of PyMOL (step 4b). Experimental: the target chain with this auth id, numbers
+    from label_seq_id + RCSB's alignment (as in _chain_metrics). record None = AlphaFold model:
+    its residue numbers are UniProt numbers (as in alphafold_metrics). Positions with two residues
+    (microheterogeneity) are listed apart. Never raises."""
+    try:
+        st = gemmi.read_structure(str(cif))
+        st.setup_entities()
+        model = st[0]
+        if record is None:
+            residues = {r.seqid.num: (r.name, str(r.seqid.num)) for r in model[0] if len(r)}
+            return {"ok": True, "residues": residues, "ambiguous": {}}
+        for ent in record.get("target_entities") or []:
+            for chain in ent.get("chains") or []:
+                if chain.get("auth_asym_id") != auth_chain:
+                    continue
+                residues, ambiguous = {}, {}
+                for r in (r for ch in model for r in ch if r.subchain == chain["label_asym_id"]):
+                    u = _uniprot_pos(r.label_seq, ent.get("uniprot_alignment"))
+                    if u is None:
+                        continue
+                    if u in residues:
+                        ambiguous.setdefault(u, [residues[u][0]]).append(r.name)
+                    else:
+                        residues[u] = (r.name, f"{r.seqid.num}{r.seqid.icode.strip()}")
+                return {"ok": True, "residues": residues, "ambiguous": ambiguous}
+        return {"ok": False, "error": f"chain {auth_chain} is not a target chain of {record.get('pdb_id')}"}
+    except (RuntimeError, ValueError, OSError, IndexError) as exc:
+        log.exception("Residue map failed for %s", cif)
+        return {"ok": False, "error": f"could not read {cif.name}: {exc!r}"}
+
+
 def alphafold_metrics(cif: Path, pockets_by_pdb: dict, variant_filter, canonical: str = "") -> dict:
     """pLDDT (B-factor column, equal to _ma_qa_metric_local) of the AlphaFold model at each
     experimental pocket (same UniProt numbers) and at the variant position. Only valid for the

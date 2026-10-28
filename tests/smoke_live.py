@@ -13,6 +13,7 @@ Run:  uv run python tests/smoke_live.py              (all, ~2-3 min)
       uv run python tests/smoke_live.py --skip-slow  (without EGFR, ~1 min)
       uv run python tests/smoke_live.py kras pcsk9   (only these groups)
 Groups: kras pcsk9 egfr notfound tnf prep (Phase 2 downloads, BRAF V600E).
+      pymol: chat control of a real PyMOL window; only when named and PROTEIN_MCP_PYMOL is set.
 Exit code 1 if any check fails.
 """
 import asyncio
@@ -331,14 +332,69 @@ async def prep():
           {"het": khet, "checks": kst.get("chain_checks"), "error": kr.get("error")})
 
 
-GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep}
+async def pymol():
+    """Step 4b: chat control of a REAL PyMOL window (needs PROTEIN_MCP_PYMOL; opens and closes a window)."""
+    import os
+    import subprocess
+    if not os.environ.get("PROTEIN_MCP_PYMOL"):
+        check("INFO", "pymol group skipped: PROTEIN_MCP_PYMOL is not set", True)
+        return
+    await server.get_structures("P15056", mutation="V600E")
+    rep = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=["3OG7", "8C7Y"])
+    check("REGRESSION", "prepare_structures 3OG7 + 8C7Y", rep.get("ok"), rep.get("error"))
+    view = await server.open_in_pymol("P15056")
+    ctl_path = Path(rep["prep_dir"]) / "pymol" / "control.json"
+    for _ in range(60):                            # loading can take longer than the 5 s launch check
+        if ctl_path.is_file() and json.loads(ctl_path.read_text()).get("session") == view["control"]["session_id"]:
+            break
+        await asyncio.sleep(0.5)
+    check("REGRESSION", "PyMOL started and its receiver wrote control.json for this session",
+          view.get("pymol", {}).get("launched") and ctl_path.is_file(), view.get("pymol"))
+    if not ctl_path.is_file():
+        return
+    pid = json.loads(ctl_path.read_text())["pid"]
+    try:
+        st = await server.pymol_view("P15056", "status")
+        shown = {s["pdb_id"]: s["shown"] for s in st.get("structures") or []}
+        check("REGRESSION", "status: the first structure (8C7Y) shown, 3OG7 hidden, AlphaFold hidden",
+              st.get("ok") and shown == {"8C7Y": True, "3OG7": False} and st["alphafold"]["shown"] is False, st)
+        sw = await server.pymol_view("P15056", "show_structure", structure="3OG7")
+        st = await server.pymol_view("P15056", "status")
+        check("REGRESSION", "show_structure 3OG7 is applied by PyMOL (status: 3OG7 shown, 8C7Y hidden)",
+              sw.get("ok") and {s["pdb_id"]: s["shown"] for s in st.get("structures", [])} == {"8C7Y": False, "3OG7": True}, st)
+        res = await server.pymol_view("P15056", "show_residues", structure="3OG7", chain="A", residues="594-596, 600")
+        check("ANTI-HALLUCINATION", "3OG7 chain A: 594-596 shown (ASP PHE GLY), 600 reported as not modelled",
+              res.get("ok") and res.get("not_modelled") == [600] and len(res.get("residues", [])) == 3, res)
+        col = await server.pymol_view("P15056", "color_chain", structure="3OG7", chain="B", color="red")
+        foc = await server.pymol_view("P15056", "focus_pocket", structure="3OG7", pocket="032")
+        hid = await server.pymol_view("P15056", "hide", target="boxes")
+        rst = await server.pymol_view("P15056", "reset")
+        check("REGRESSION", "color_chain, focus_pocket, hide boxes and reset: every command applied",
+              all(r.get("ok") and r["applied"] == r["sent"] for r in (col, foc, hid, rst)),
+              [r.get("error") or r.get("failed") for r in (col, foc, hid, rst)])
+        bad = await server.pymol_view("P15056", "color_chain", structure="3OG7", chain="Z", color="red")
+        check("ANTI-HALLUCINATION", "a chain that is not in 3OG7 is refused before anything is sent",
+              not bad.get("ok") and bad.get("options") == {"chains": ["A", "B"]}, bad)
+        from protein_mcp.files import control as ctl
+        raw = ctl.send(json.loads(ctl_path.read_text()), [["load", ["x.pml"]], ["label", ["all", "1"]]])
+        check("ANTI-HALLUCINATION", "the real receiver refuses cmd.load and cmd.label (they run code)",
+              [r["ok"] for r in raw.get("results", [])] == [False, False], raw)
+    finally:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    await asyncio.sleep(1)
+    gone = await server.pymol_view("P15056", "status")
+    check("REGRESSION", "after PyMOL is closed, pymol_view says it is not open", gone.get("pymol_open") is False, gone)
+
+
+GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep, "pymol": pymol}
 SLOW = {"egfr"}
+WINDOW = {"pymol"}     # opens a PyMOL window: only when named on the command line
 
 
 async def main(argv):
     global GROUP
-    chosen = [a for a in argv if a in GROUPS] or [g for g in GROUPS
-                                                  if not ("--skip-slow" in argv and g in SLOW)]
+    chosen = [a for a in argv if a in GROUPS] or [g for g in GROUPS if g not in WINDOW
+                                                  and not ("--skip-slow" in argv and g in SLOW)]
     dossier.DOSSIER_DIR = Path(tempfile.mkdtemp(prefix="smoke_"))
     for g in chosen:
         GROUP = g
