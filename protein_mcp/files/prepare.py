@@ -17,7 +17,7 @@ import httpx
 
 from protein_mcp import dossier
 from protein_mcp.common import log, parse_accession, short, utc_now
-from protein_mcp.files import choice, clean
+from protein_mcp.files import choice, clean, interfaces
 from protein_mcp.files.download import check_fasta, check_mmcif, check_sdf, download
 from protein_mcp.sources import rcsb
 from protein_mcp.sources.uniprot import UNIPROT_FASTA
@@ -314,6 +314,10 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
     }
     # the user's choice survives only if structure, chains, pocket and file are still in this manifest
     choice_status = choice.carry_over(old_manifest, manifest)
+    # analyze_interfaces results survive per structure only if its raw file is the same (step 5)
+    interfaces_status = interfaces.carry_over(old_manifest, manifest)
+    if interfaces_status["dropped"]:
+        warnings.append("Interface analyses dropped (run analyze_interfaces again): " + "; ".join(interfaces_status["dropped"]))
     try:
         choice.write_manifest(manifest_path, manifest)
     except OSError as exc:
@@ -331,6 +335,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "pdb_ids_not_in_dossier": not_in_dossier,
         "replaced_manifest_from": previous,
         "user_choice": choice_status,
+        "interfaces": interfaces_status if (interfaces_status["kept"] or interfaces_status["dropped"]) else None,
         "sequence": {k: fasta.get(k) for k in ("ok", "path", "header", "length", "error") if k in fasta},
         "structures": [compact_structure(r) for r in structures],
         "alphafold": ({"entry_id": alphafold["entry_id"], "file": alphafold["file"].get("path"),

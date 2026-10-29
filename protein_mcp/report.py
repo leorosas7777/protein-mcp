@@ -601,6 +601,56 @@ def _pocket_row(pdb_id, pk, lig):
             if af.get("mean_plddt") is not None else NO_RECORD]
 
 
+def _interfaces(doc, m):
+    """Step 5 (analyze_interfaces): partners, assemblies, PISA and contacts, as stored in the manifest."""
+    done = [s for s in m.get("structures") or [] if s.get("interfaces")]
+    doc.h(3, "Protein-protein interfaces")
+    if not done:
+        doc.p("Not analysed (analyze_interfaces not run on this manifest).")
+        return
+    doc.p(f"{len(done)} of {len(m.get('structures') or [])} structures analysed. Contacts: target residues with a heavy "
+          "atom within 5 Å of another polymer chain, including crystal-symmetry copies (code 1_555 = deposited "
+          "coordinates). Geometry only: no contact is classed as biological here. RCSB's assembly and PDBe PISA's "
+          "opinion are quoted as given; they can disagree.", small=True)
+    for s in done:
+        b = s["interfaces"]
+        doc.p(f"{s['pdb_id']} (analysed {b.get('computed_at')}; space group {b.get('spacegroup') or NO_RECORD})", small=False)
+        items = [f"{q['role']} entity {q['entity_id']}: {q['description']}; chains {', '.join(c['auth'] for c in q['chains'])}; "
+                 f"UniProt {', '.join(q['uniprot_ids'] or []) or 'none'}; {q['length'] or NO_RECORD} residues"
+                 + "".join(f"; {f}" for f in q["flags"][1:]) for q in b.get("sequences") or []]
+        if b.get("rcsb_assemblies") is None:
+            items.append(f"RCSB assembly: {NO_RECORD}")
+        for a in b.get("rcsb_assemblies") or []:
+            items.append(f"RCSB assembly {a['id']}: {a['defined_by']}" + (f" ({a['method']})" if a.get("method") else "")
+                         + f", polymer chains {', '.join(a['polymer_chains'])}, operators {', '.join(a['operators'])}"
+                         + ("; same as the asymmetric unit" if a.get("equals_asymmetric_unit") else ""))
+        p = b.get("pisa") or {}
+        if p.get("multimer_sets") is not None:
+            items += [f"PISA multimer set {x['set']} (one alternative; its assemblies coexist): "
+                      + " + ".join(f"{a['composition']}: {a['verdict']}" for a in x["assemblies"])
+                      for x in p["multimer_sets"]]
+        for key in ("interfaces_error", "multimers_error"):
+            if p.get(key):
+                items.append(f"PISA {key.split('_')[0]}: not available ({p[key]})")
+        doc.bullets(items)
+        rows = []
+        for c in b.get("contacts") or []:
+            pi = c.get("pisa_interface")
+            nums = ", ".join(str(r["uniprot"]) if r["uniprot"] is not None else f"{r['auth_seq_id']}(auth)"
+                             for r in c["target_residues"])
+            rows.append([f"{c['target_chain']}", f"{c['partner_chain']} ({c['partner_role']})",
+                         Lines([c["symmetry"]["code"], c["symmetry"]["operator"] or NO_RECORD,
+                                "asymmetric unit" if c["in_asymmetric_unit"] else "symmetry copy"]),
+                         f"{c['n_target_residues']}: {nums}",
+                         f"#{pi['id']}, css {_num(pi['css']) or NO_RECORD}, "
+                         f"{_num(round(pi['area'])) if pi.get('area') is not None else NO_RECORD} Å², {pi['target_residues_in_pisa']}"
+                         if pi else "none at this chain pair and operator" if c.get("pisa_checked") else "PISA not available"])
+        if b.get("contacts_error"):
+            doc.p(f"Contacts not computed: {b['contacts_error']}", small=True)
+        doc.table(["Target chain", "Partner chain", "Symmetry", "Target residues (UniProt)", "PISA interface"],
+                  rows, (0.09, 0.14, 0.16, 0.43, 0.18))
+
+
 def _preparation(doc, m, entries):
     doc.h(2, "6. Structure preparation (Phase 2)")
     if m.get("unreadable"):
@@ -660,6 +710,8 @@ def _preparation(doc, m, entries):
               f": file {f.get('path')}" if f.get("ok") else f": not downloaded ({f.get('error')})",
               f"; residue at UniProt {vp['uniprot_position']}: {vp.get('residue')} (pLDDT {_num(vp.get('plddt'))})"
               if vp.get("uniprot_position") else "", small=True)
+
+    _interfaces(doc, m)
 
     doc.h(3, "Structure chosen by the user")
     uc, history = m.get("user_choice"), m.get("user_choice_history") or []

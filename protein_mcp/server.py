@@ -19,6 +19,8 @@ Tools:
     in prep/manifest.json, checked against the manifest.
   - pymol_view (Phase 2): changes the view of the PyMOL window opened with
     open_in_pymol (fixed actions only, never PyMOL text from the chat).
+  - analyze_interfaces (Phase 2): partner chains, construct sequences, RCSB
+    assemblies, PDBe PISA interfaces and protein-protein contacts.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -41,7 +43,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import choice, control, prepare, viewer  # noqa: E402
+from protein_mcp.files import choice, control, interfaces, prepare, viewer  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -314,6 +316,8 @@ async def prepare_structures(
     only if its structure, chains and pocket are still in the new manifest with
     the same file: `user_choice` says "kept" (with `changed_fields`) or
     "dropped" (with the reason; tell the user it must be chosen again).
+    Results of analyze_interfaces are kept per structure on the same rule
+    (`interfaces`: kept / dropped).
 
     Rules for using the result:
     - Say "N of M" from `selection`, and list `failed_downloads` and `warnings`
@@ -561,6 +565,56 @@ async def pymol_view(
     """
     return await asyncio.to_thread(control.pymol_view, uniprot_id, action, structure, pocket, chain,
                                    residues, color, target)
+
+
+@mcp.tool()
+async def analyze_interfaces(uniprot_id: str, pdb_ids: list[str] | None = None) -> dict:
+    """Partner chains, their sequences, the assemblies and the protein-protein contacts of the prepared structures (Phase 2, step 5). Use it for targets of biologics (antibodies, receptors, peptides) or when the user asks what touches the target protein. Run prepare_structures first.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P01375".
+        pdb_ids: Optional subset of the structures in the manifest, e.g. ["3WD5"].
+
+    For each structure (from its raw mmCIF and two sources) it writes an
+    `interfaces` block in prep/manifest.json:
+    - sequences: every polymer entity (target and partners) with description,
+      UniProt (if any), chains and the CONSTRUCT sequence with flags (runs of
+      6+ histidines, often a tag but not stated by RCSB; non-standard
+      residues X; other tags are not detected);
+    - rcsb_assemblies: RCSB's biological assembly, who defined it (author or
+      software) and whether it is just the asymmetric unit;
+    - pisa: PDBe PISA's interfaces (area, css) and multimer sets with PISA's
+      verdict; each PISA service can fail alone: that is said and the rest
+      goes on;
+    - contacts: target residues within 5 Å of another polymer chain, also of
+      crystal-symmetry copies, per partner chain and symmetry operator, in
+      UniProt numbering, with the matching PISA interface if any.
+    Nothing is built or predicted: no oligomer, no epitope, no antibody label.
+
+    Rules for using the result:
+    - Say "N of M" from `selection`; list `skipped`, `warnings` and `pisa_errors`.
+    - A contact line ends with its PISA interface (same chain pair and
+      operator), "PISA lists no interface for this chain pair and operator",
+      or "PISA not available" (then nothing is known from PISA about it).
+    - `pisa_multimer_sets`: each set divides all chains of the crystal into
+      assemblies that coexist (joined by "+"); the sets are PISA's
+      alternative solutions. Do not mix assemblies of different sets.
+    - Never call a contact or assembly "biological" or "crystal packing" on
+      your own. Quote the sources: RCSB's assembly with its `defined_by`, PISA's
+      verdict for each multimer and the css of each interface. If they
+      disagree (e.g. RCSB's assembly is the asymmetric unit while PISA calls a
+      trimer of the target stable), say both. A contact at a symmetry copy
+      ("symmetry copy", code other than 1_555) exists in the crystal; whether
+      it exists in solution is not measured here.
+    - Name partners only from `partners` (RCSB entity description); do not
+      call a chain an antibody, Fab or receptor unless its description says
+      so. Partner sequences are crystallised constructs: mention tags and X
+      residues before using them for a complex prediction.
+    - Give contact residues with their UniProt numbers as returned; "(auth)"
+      means no UniProt number. A partner chain can touch the target in its own
+      copy and in a neighbouring copy: report each line separately.
+    """
+    return await interfaces.analyze_interfaces(uniprot_id, pdb_ids)
 
 
 

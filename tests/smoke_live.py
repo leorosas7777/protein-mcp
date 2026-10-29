@@ -12,7 +12,7 @@ Dossiers go to a temp folder; dossiers/ is never touched.
 Run:  uv run python tests/smoke_live.py              (all, ~2-3 min)
       uv run python tests/smoke_live.py --skip-slow  (without EGFR, ~1 min)
       uv run python tests/smoke_live.py kras pcsk9   (only these groups)
-Groups: kras pcsk9 egfr notfound tnf prep (Phase 2 downloads, BRAF V600E).
+Groups: kras pcsk9 egfr notfound tnf prep (Phase 2 downloads, BRAF V600E) interfaces (PCSK9, RCSB + PISA).
       pymol: chat control of a real PyMOL window; only when named and PROTEIN_MCP_PYMOL is set.
 Exit code 1 if any check fails.
 """
@@ -332,6 +332,57 @@ async def prep():
           {"het": khet, "checks": kst.get("chain_checks"), "error": kr.get("error")})
 
 
+async def interfaces():
+    """Step 5: analyze_interfaces on PCSK9 (real RCSB + PDBe PISA). 2W2N: PCSK9 prodomain + catalytic
+    domain + LDLR EGF-A with His tags; 3H42: PCSK9 + Fab. Values checked on 2026-10-28 (8.2)."""
+    st = await server.get_structures("Q8NBP7")
+    have = {s["pdb_id"] for s in (st.get("experimental") or {}).get("structures") or []}
+    wanted = [p for p in ("2W2N", "3H42") if p in have]
+    check("EXTERNAL", "PCSK9 structures include 2W2N and 3H42 (needed by this group)", len(wanted) == 2, sorted(have))
+    if not wanted:
+        return
+    rep = await server.prepare_structures("Q8NBP7", pdb_ids=wanted, include_alphafold=False)
+    check("REGRESSION", "prepare_structures 2W2N + 3H42", rep.get("ok"), rep.get("error"))
+    r = await server.analyze_interfaces("Q8NBP7")
+    check("REGRESSION", "analyze_interfaces works", r.get("ok"), r.get("error") or r.get("skipped"))
+    if not r.get("ok"):
+        return
+    check("EXTERNAL", "PDBe PISA answered for every structure", not any("PISA not available" in w for w in r["warnings"]),
+          r["warnings"])
+    m = json.loads(Path(r["manifest_path"]).read_text(encoding="utf-8"))
+    blocks = {s["pdb_id"]: s.get("interfaces") or {} for s in m["structures"]}
+    if "2W2N" in blocks:
+        b = blocks["2W2N"]
+        by = {(c["target_chain"], c["partner_chain"], c["symmetry"]["code"]): c for c in b.get("contacts") or []}
+        ae = by.get(("A", "E", "1_555")) or {}
+        check("REGRESSION", "2W2N: PCSK9 A touches LDLR E in the asymmetric unit (16 residues, PISA css < 0.1)",
+              ae.get("n_target_residues") == 16 and (ae.get("pisa_interface") or {}).get("css", 1) < 0.1, ae)
+        check("REGRESSION", "2W2N: RCSB assembly is the asymmetric unit; LDLR construct flagged with its run of histidines",
+              (b.get("rcsb_assemblies") or [{}])[0].get("equals_asymmetric_unit") is True
+              and any("consecutive histidines" in f for s in b.get("sequences") or [] if s["entity_id"] == "2" for f in s["flags"]),
+              b.get("rcsb_assemblies"))
+    if "3H42" in blocks:
+        b = blocks["3H42"]
+        part = {c["partner_chain"] for c in b.get("contacts") or [] if c["partner_role"] == "partner" and c["in_asymmetric_unit"]}
+        names = {s["description"] for s in b.get("sequences") or [] if s["role"] == "partner"}
+        check("ANTI-HALLUCINATION", "3H42: Fab chains named only from RCSB descriptions; they touch PCSK9 in the asymmetric unit",
+              part and all("Fab" in n for n in names), {"partners": names, "touching": part})
+    every = [c for b in blocks.values() for c in b.get("contacts") or []]
+    pisa_ids = {(pdb, i["id"]) for pdb, b in blocks.items() for i in (b.get("pisa") or {}).get("interfaces") or []}
+    check("ANTI-HALLUCINATION", "every cited PISA interface exists in PISA's own list",
+          all((pdb, c["pisa_interface"]["id"]) in pisa_ids for pdb, b in blocks.items() for c in b.get("contacts") or []
+              if c.get("pisa_interface")), None)
+    check("REGRESSION", "no contact is labelled biological or crystal packing", not any(
+        k in json.dumps(every).lower() for k in ("biological", "packing")), None)
+    again = await server.prepare_structures("Q8NBP7", pdb_ids=wanted, include_alphafold=False)
+    check("REGRESSION", "prepare_structures again keeps the interface analyses (same files)",
+          sorted((again.get("interfaces") or {}).get("kept") or []) == sorted(wanted), again.get("interfaces"))
+    rb = await server.build_report("Q8NBP7")
+    md = Path(rb["markdown_path"]).read_text(encoding="utf-8") if rb.get("ok") else ""
+    check("REGRESSION", "report section 6 has the protein-protein interfaces", "### Protein-protein interfaces" in md
+          and "structures analysed" in md, rb.get("error"))
+
+
 async def pymol():
     """Step 4b: chat control of a REAL PyMOL window (needs PROTEIN_MCP_PYMOL; opens and closes a window)."""
     import os
@@ -386,7 +437,8 @@ async def pymol():
     check("REGRESSION", "after PyMOL is closed, pymol_view says it is not open", gone.get("pymol_open") is False, gone)
 
 
-GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep, "pymol": pymol}
+GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep,
+          "interfaces": interfaces, "pymol": pymol}
 SLOW = {"egfr"}
 WINDOW = {"pymol"}     # opens a PyMOL window: only when named on the command line
 

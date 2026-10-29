@@ -205,6 +205,75 @@ async def fetch_chains(client, pdb_ids: list, accession: str) -> dict:
                                     for e in raw if isinstance(e, dict) and e.get("rcsb_id")}}
 
 
+# Phase 2 step 5 (analyze_interfaces). Validated 2026-10-28 on 3WD5, 3H42, 2W2N, 6MV5, 6XIC: every
+# assembly there uses only operator "1" (= the asymmetric unit), even 3WD5 whose TNF is a trimer by
+# crystal symmetry; entity sequences are those of the crystallised construct (tags, "X").
+_ASSEMBLY_QUERY = """
+query ($ids: [String!]!) {
+  entries(entry_ids: $ids) {
+    rcsb_id
+    assemblies {
+      rcsb_id
+      pdbx_struct_assembly { details method_details oligomeric_count oligomeric_details }
+      pdbx_struct_assembly_gen { asym_id_list oper_expression }
+    }
+    polymer_entities {
+      rcsb_polymer_entity_container_identifiers { entity_id }
+      entity_poly { pdbx_seq_one_letter_code_can rcsb_entity_polymer_type }
+      polymer_entity_instances { rcsb_polymer_entity_instance_container_identifiers { asym_id auth_asym_id } }
+    }
+  }
+}
+"""
+
+
+def _parse_assemblies(e: dict) -> dict:
+    """{assemblies: [...], sequences: {entity_id: {sequence, polymer_type}}} for one entry. Assembly
+    chains are the POLYMER chains (auth ids); asym_id_list also names ligands and waters."""
+    auth_of, sequences = {}, {}
+    for ent in e.get("polymer_entities") or []:
+        ids = (ent or {}).get("rcsb_polymer_entity_container_identifiers") or {}
+        poly = (ent or {}).get("entity_poly") or {}
+        for inst in ent.get("polymer_entity_instances") or []:
+            c = (inst or {}).get("rcsb_polymer_entity_instance_container_identifiers") or {}
+            if c.get("asym_id"):
+                auth_of[c["asym_id"]] = c.get("auth_asym_id")
+        if ids.get("entity_id"):
+            sequences[ids["entity_id"]] = {"sequence": poly.get("pdbx_seq_one_letter_code_can"),
+                                           "polymer_type": poly.get("rcsb_entity_polymer_type")}
+    assemblies = []
+    for a in e.get("assemblies") or []:
+        info = (a or {}).get("pdbx_struct_assembly") or {}
+        gens = [g for g in (a or {}).get("pdbx_struct_assembly_gen") or [] if g]
+        chains = sorted({auth_of[x] for g in gens for x in g.get("asym_id_list") or [] if x in auth_of and auth_of[x]})
+        operators = [g.get("oper_expression") for g in gens]
+        assemblies.append({
+            "id": a.get("rcsb_id"),
+            "defined_by": info.get("details"), "method": info.get("method_details"),
+            "oligomeric_count": info.get("oligomeric_count"), "oligomeric_details": info.get("oligomeric_details"),
+            "polymer_chains": chains, "operators": operators,
+            # only the identity operator on every polymer chain: the assembly IS the asymmetric unit
+            "equals_asymmetric_unit": all(op == "1" for op in operators) and set(chains) == {v for v in auth_of.values() if v},
+        })
+    return {"assemblies": assemblies, "sequences": sequences}
+
+
+async def fetch_assemblies(client, pdb_ids: list) -> dict:
+    """{ok, entries: {pdb_id: {assemblies, sequences}}} in ONE request; absent entries are absent."""
+    try:
+        resp = await client.post(RCSB_GRAPHQL, json={"query": _ASSEMBLY_QUERY, "variables": {"ids": pdb_ids}})
+        resp.raise_for_status()
+        gdata = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.error("RCSB assembly query failed: %s", exc)
+        return {"ok": False, "error": f"RCSB assembly request failed: {exc}"}
+    raw = ((gdata or {}).get("data") or {}).get("entries") if isinstance(gdata, dict) else None
+    if raw is None:
+        return {"ok": False, "error": "Unexpected RCSB GraphQL response format.",
+                "graphql_errors": str((gdata or {}).get("errors"))[:300] if isinstance(gdata, dict) else None}
+    return {"ok": True, "entries": {e["rcsb_id"]: _parse_assemblies(e) for e in raw if isinstance(e, dict) and e.get("rcsb_id")}}
+
+
 def _pdb_search_payload(accession: str, rows: int, mutation: str = "") -> dict:
     nodes = [
         {"type": "terminal", "service": "text", "parameters": {
