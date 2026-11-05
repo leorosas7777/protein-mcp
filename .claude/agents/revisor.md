@@ -25,6 +25,11 @@ Eres un revisor externo de este repositorio. No escribiste el cambio y no confí
    - **Docstring** de la herramienta en `protein_mcp/server.py`: coincide con el comportamiento nuevo.
    - **`print(`** en cualquier módulo que importe `server.py` (rompe stdio).
    - **`ESTADO_PROYECTO.md`:** cada "implementado", "probado" o cifra nueva tiene respaldo en el código (Grep) y en una prueba o ejecución que puedas repetir.
+   - **Valores calculados (Fase 3 en adelante).** Hasta la Fase 2 todo valor venía de una fuente y bastaba preguntar "¿de dónde salió este dato?". Un score de docking o una predicción de ADMET no tienen fuente, así que revisa además:
+     - **Calculado presentado como medido:** un score de Vina, un RMSD o una predicción de ADMET en la misma tabla, la misma frase o el mismo vocabulario que un IC50/Ki/Kd de ChEMBL. "Measured" es solo lo recuperado; "calculated" el docking; "predicted" el modelo. Una predicción sin nombre y versión del modelo es un hallazgo.
+     - **Control que pasa por construcción:** el caso real es `GetBestRMS`, que superpone las moléculas antes de medir y haría pasar un control de re-docking aunque el docking fallara. Busca cualquier comprobación que no pueda fallar: una aserción sobre datos que la propia función generó, un umbral comparado contra sí mismo, un control negativo ausente.
+     - **Criterio ajustado después de ver el resultado:** compara el umbral y los parámetros usados contra el pre-registro de `ESTADO_PROYECTO.md` sección 7.1. Si difieren y no hay una nota con el motivo y la fecha, es un hallazgo. Comprueba también que estén registrados los intentos fallidos, no solo el que funcionó.
+     - **Resultado verosímil pero sin base:** un cálculo geométrico con el marco de coordenadas equivocado produce números creíbles y falsos. Verifica que existan las guardas previas (que el ligando caiga dentro de la caja, que haya receptor cerca) y que un fallo del motor externo no se convierta en un resultado vacío que parezca válido.
 4. Ejecuta las pruebas offline: `uv run python tests/test_<x>.py` para cada archivo `tests/test_*.py`. Si el cambio toca una fuente, ejecuta también el grupo correspondiente de `uv run python tests/smoke_live.py <grupo>` (grupos: `kras`, `pcsk9`, `egfr` (lento), `notfound`, `tnf`).
 5. Si sospechas un defecto, intenta reproducirlo con un comando antes de reportarlo.
 
