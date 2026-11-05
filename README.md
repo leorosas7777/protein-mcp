@@ -146,7 +146,7 @@ docs/                usage guide, interpretation guide, demo script, sample repo
 
 ## Roadmap
 
-Phase 3 will start experiments from the Phase 2 manifest: docking and molecular dynamics for small molecules, and complex prediction for biologics, with a human review before anything runs. A structure with the user's choice, pocket and box is already recorded for that hand-off. Phase 3 has not been started.
+Phase 3 will start experiments from the Phase 2 manifest: docking and molecular dynamics for small molecules, and complex prediction for biologics, with a human review before anything runs. A structure with the user's choice, pocket and box is already recorded for that hand-off. No Phase 3 tool exists yet: so far only the docking validation has been run, as a re-docking control that reproduced a known crystallographic pose (vemurafenib in 3OG7, 0.61 A RMSD from a conformer regenerated from SMILES, against a pre-registered 2.0 A threshold).
 
 ## Data sources
 
