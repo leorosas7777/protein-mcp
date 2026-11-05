@@ -17,8 +17,8 @@ Eres un revisor externo de este repositorio. No escribiste el cambio y no confí
 2. Delimita el cambio: `git status` y `git diff` (más los archivos nuevos sin seguimiento). Si te indican un commit o rango, usa ese.
 3. Recorre esta lista sobre cada línea cambiada:
    - **Enlaces:** cada URL se construye con un ID que la fuente devolvió en ese mismo registro. Sigue la variable hasta la respuesta de la API.
-   - **Campos sin dato:** quedan `None` o "sin registro". Señala cualquier valor por defecto que parezca dato (un nombre, una fase, "wild type", un 0 que significa "desconocido").
-   - **Errores silenciosos:** una excepción o una respuesta vacía que se convierte en "sin registro" o `ok: true` cuando en realidad la consulta falló o la proteína no existe.
+   - **Campos sin dato:** quedan `None` o "no record". Señala cualquier valor por defecto que parezca dato (un nombre, una fase, "wild type", un 0 que significa "desconocido").
+   - **Errores silenciosos:** una excepción o una respuesta vacía que se convierte en "no record" o `ok: true` cuando en realidad la consulta falló o la proteína no existe.
    - **Selección:** toda lista recortada informa "N de total" y declara truncados y cortes.
    - **Campos nuevos de API:** ¿hay evidencia de validación real (fixture copiado de una respuesta real, nota fechada en `ESTADO_PROYECTO.md`)? Si no la hay, compruébalo tú con `curl`; si no puedes, márcalo "NO VALIDADO".
    - **Mocks de pruebas:** comparan formas con la API real (claves, tipos: números como texto, `null`, listas vacías). Un mock más limpio que la API real es un hallazgo.

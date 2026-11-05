@@ -115,7 +115,7 @@ async def main():
 
     # Open Targets: null target (versioned ID / missing) -> found False, not an error
     r3, _ = await run(ot_body=OT_NULL)
-    assert r3["ok"] and r3["open_targets"]["found"] is False and "sin registro" in r3["open_targets"]["note"]
+    assert r3["ok"] and r3["open_targets"]["found"] is False and "no record" in r3["open_targets"]["note"]
 
     # several Ensembl genes (TNF has 7; Open Targets only indexes the primary-assembly one):
     # query in order until one has a target. Real xref shape, extra gene added.
@@ -134,7 +134,7 @@ async def main():
     # none of them has a target -> found False, every gene listed as queried
     r10, _ = await run(uniprot_entry=multi, ot_body={"by_gene": 1})
     ot10 = r10["open_targets"]
-    assert ot10["found"] is False and ot10.get("ensembl_gene_id") is None and "3 genes" in ot10["note"], ot10
+    assert ot10["found"] is False and ot10.get("ensembl_gene_id") is None and "3 Ensembl genes" in ot10["note"], ot10
     assert len(ot10["ensembl_genes_without_target"]) == 3
     # an error stops the loop: a failed query does not prove "no target"
     r11, calls11 = await run(uniprot_entry=multi, ot_body=OT_ERROR)

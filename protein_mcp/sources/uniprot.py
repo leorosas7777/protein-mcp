@@ -84,11 +84,67 @@ async def resolve(name: str, organism_id: int, max_results: int) -> dict:
     }
 
 
+def _inactive_error(accession: str, data: dict) -> str:
+    """Error text for an "Inactive" record. mergeDemergeTo is only named, never followed:
+    the user confirms which protein they mean."""
+    reason = data.get("inactiveReason") or {}
+    detail = "; ".join(x for x in (reason.get("inactiveReasonType"), reason.get("deletedReason")) if x)
+    text = f"UniProt accession {accession} is inactive ({detail or 'no reason given'})."
+    targets = reason.get("mergeDemergeTo") or []
+    if targets:
+        text += f" UniProt now points to: {', '.join(targets)}. Confirm with the user which one to use."
+    return text
+
+
+async def check_accession(accession: str, _client=None) -> dict:
+    """Does UniProt have this accession? For tools that do not read the UniProt entry
+    themselves, where an unknown accession would otherwise look like "no data".
+
+    Real answers (2026-11-04; the five in tests/fixtures/uniprot_accession_checks.json, plus
+    TrEMBL A0A024R161 checked live but not stored): existing 200 (P01116); nonexistent 404
+    (P0DZZ9); deleted 200 "Inactive" (Q0ZZZ9); merged 303 with an "Inactive" body and
+    mergeDemergeTo (P01118); malformed 400 (ABCDEF). Redirects are NOT followed, so a merged
+    accession is not confused with its new entry. Isoform ids (P01116-2) never reach this
+    function: parse_accession rejects the hyphen first.
+
+    Returns {"ok": True}, {"ok": False, "error": ...} when UniProt rejects the accession, or
+    {"ok": True, "warning": ...} when UniProt could not answer: an outage must not block the
+    other sources, and it proves nothing about the accession.
+    """
+    own = _client is None
+    client = _client or httpx.AsyncClient(timeout=20.0)
+    try:
+        resp = await client.get(UNIPROT_ENTRY.format(accession=accession),
+                                params={"format": "json", "fields": "accession"})
+        if resp.status_code == 404:
+            return {"ok": False, "error": f"UniProt accession {accession} not found."}
+        if resp.status_code == 400:
+            return {"ok": False, "error": f"'{accession}' is not a valid UniProt accession (UniProt rejected its format)."}
+        if resp.status_code in (200, 303):
+            data = resp.json()
+            if data.get("entryType") == "Inactive":
+                return {"ok": False, "error": _inactive_error(accession, data)}
+            if resp.status_code == 200:
+                return {"ok": True}
+        problem = f"HTTP {resp.status_code}"
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("UniProt accession check failed: %s", exc)
+        problem = repr(exc)
+    finally:
+        if own:
+            await client.aclose()
+    return {"ok": True, "warning": (
+        f"UniProt could not confirm that accession {accession} exists ({problem}): "
+        "an empty result here may mean the accession is wrong, not that there are no data.")}
+
+
 async def fetch_entry_json(client: httpx.AsyncClient, accession: str) -> dict:
     """Return {"ok": True, "json": raw entry} or {"ok": False, "error": ...}.
 
     A deleted entry answers HTTP 200 with entryType "Inactive" (verified with
-    Q0ZZZ9), not 404: it is reported as an error, never parsed as a protein.
+    Q0ZZZ9), not 404: it is reported as an error, never parsed as a protein. A merged
+    accession (P01118 -> P01116) arrives here as its new entry when the client follows
+    redirects: also an error, or P01116's data would be saved under P01118.
     """
     try:
         resp = await client.get(
@@ -102,9 +158,11 @@ async def fetch_entry_json(client: httpx.AsyncClient, accession: str) -> dict:
         log.error("UniProt entry request failed: %s", exc)
         return {"ok": False, "error": f"UniProt request failed: {exc}"}
     if data.get("entryType") == "Inactive":
-        reason = data.get("inactiveReason") or {}
-        detail = "; ".join(x for x in (reason.get("inactiveReasonType"), reason.get("deletedReason")) if x)
-        return {"ok": False, "error": f"UniProt accession {accession} is inactive ({detail or 'no reason given'})."}
+        return {"ok": False, "error": _inactive_error(accession, data)}
+    primary = data.get("primaryAccession")
+    if primary and primary != accession:
+        return {"ok": False, "error": (f"UniProt accession {accession} is a secondary accession of {primary}. "
+                                       "Confirm with the user and use the primary one.")}
     return {"ok": True, "json": data}
 
 

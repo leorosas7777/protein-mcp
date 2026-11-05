@@ -19,10 +19,10 @@ HUMAN = 9606
 
 async def _open_targets(client, prof: dict) -> dict:
     if prof["taxon_id"] != HUMAN:
-        return {"ok": True, "found": False, "note": "Open Targets covers human targets only: sin registro."}
+        return {"ok": True, "found": False, "note": "Open Targets covers human targets only: no record."}
     genes = prof["ensembl_gene_ids"]
     if not genes:
-        return {"ok": True, "found": False, "note": "UniProt lists no Ensembl gene: sin registro en Open Targets."}
+        return {"ok": True, "found": False, "note": "UniProt lists no Ensembl gene: no record in Open Targets."}
     # UniProt can list several genes (TNF: 7, six on alternate MHC haplotypes that Open
     # Targets does not index). Query them in order and stop at the first one with a target;
     # an error stops the loop, because a failed query does not prove "no target".
@@ -34,7 +34,7 @@ async def _open_targets(client, prof: dict) -> dict:
         without_target.append(ot["ensembl_gene_id"])
     else:
         return {**ot, "ensembl_gene_id": None, "ensembl_genes_without_target": without_target,
-                "note": f"sin registro en Open Targets para ninguno de los {len(genes)} genes Ensembl de UniProt."}
+                "note": f"no record in Open Targets for any of the {len(genes)} Ensembl genes listed by UniProt."}
     if without_target:
         ot["ensembl_genes_without_target"] = without_target
     if genes[i + 1:]:

@@ -92,7 +92,7 @@ async def fetch_target(client, ensembl_id: str, accession: str, pool: int = ASSO
     if target is None:
         return {
             "ok": True, "found": False, "ensembl_gene_id": gene_id, "data_version": version,
-            "note": "sin registro en Open Targets para este gen.",
+            "note": "no record in Open Targets for this gene.",
         }
 
     tractability = {}

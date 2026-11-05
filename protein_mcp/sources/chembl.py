@@ -460,7 +460,7 @@ async def get_ligands(uniprot_id, mutation="", max_ligands=MAX_LIGANDS,
         if not target:
             return {"ok": True, "uniprot_id": uid, "target": None,
                     "other_targets_ignored": ignored,
-                    "message": "No single-protein ChEMBL target for this accession: sin registro en ChEMBL."}
+                    "message": "No single-protein ChEMBL target for this accession: no record in ChEMBL."}
         tid = target["target_chembl_id"]
 
         act_params = {
@@ -587,7 +587,7 @@ async def get_ligands(uniprot_id, mutation="", max_ligands=MAX_LIGANDS,
             "Only compounds with a recorded mechanism or inside the top-N are checked for max_phase: other clinical-stage compounds may exist among the ligands not returned.",
             "Only exact '=' relations enter the statistics; censored values (>, <) are counted in activities.excluded.",
             "name is ChEMBL's preferred name and is None for most research compounds; no names are inferred.",
-            "Linking PDB ligands to ChEMBL (by InChIKey) is not done here: no match means 'sin registro', never a guess.",
+            "Linking PDB ligands to ChEMBL (by InChIKey) is not done here: no match means 'no record', never a guess.",
         ]
         if mech_ok:
             notes.insert(2, "Compounds with a recorded mechanism on this target but no qualifying IC50/Ki/Kd (typically antibodies and other proteins) are listed in mechanism_compounds_without_qualifying_activity with name, type and phase: they are drugs too.")

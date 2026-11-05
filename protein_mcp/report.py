@@ -12,6 +12,7 @@ calls the source APIs. Section 6 reads prep/manifest.json (Phase 2) when it exis
 """
 import json
 import os
+import re
 import unicodedata
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -31,6 +32,51 @@ from protein_mcp.common import log, parse_accession, utc_now
 
 NO_RECORD = "no record"
 LINK_COLOR = "#1a4fa0"
+# Fixed notes that the tools wrote in Spanish before 2026-11-04. Dossier files are not rewritten,
+# so they are translated on the way into the report. Only the WHOLE string is replaced, and only in
+# the fields that hold these notes (_LEGACY_PATHS): text retrieved from a source is never touched,
+# or a paper whose title contains "sin registro" would be quoted wrongly (found by the reviewer).
+LEGACY_NOTES = {
+    "Open Targets covers human targets only: sin registro.":
+        "Open Targets covers human targets only: no record.",
+    "UniProt lists no Ensembl gene: sin registro en Open Targets.":
+        "UniProt lists no Ensembl gene: no record in Open Targets.",
+    "sin registro en Open Targets para este gen.": "no record in Open Targets for this gene.",
+    "No single-protein ChEMBL target for this accession: sin registro en ChEMBL.":
+        "No single-protein ChEMBL target for this accession: no record in ChEMBL.",
+    "Linking PDB ligands to ChEMBL (by InChIKey) is not done here: no match means 'sin registro', never a guess.":
+        "Linking PDB ligands to ChEMBL (by InChIKey) is not done here: no match means 'no record', never a guess.",
+}
+_LEGACY_GENES_RE = re.compile(r"^sin registro en Open Targets para ninguno de los (\d+) genes Ensembl de UniProt\.$")
+# (container, key) pairs: where those notes live. Everything else in the record is left alone.
+_LEGACY_PATHS = (("result",), ("result", "open_targets"))
+
+
+def _translate_note(text):
+    if not isinstance(text, str):
+        return text
+    if text in LEGACY_NOTES:
+        return LEGACY_NOTES[text]
+    m = _LEGACY_GENES_RE.match(text)
+    if m:
+        return f"no record in Open Targets for any of the {m.group(1)} Ensembl genes listed by UniProt."
+    return text
+
+
+def translate_legacy_notes(data: dict) -> dict:
+    """Translate the fixed Spanish notes of an already-parsed dossier record, in place."""
+    for path in _LEGACY_PATHS:
+        node = data
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            continue
+        for key in ("note", "message"):
+            if key in node:
+                node[key] = _translate_note(node[key])
+        if isinstance(node.get("notes"), list):
+            node["notes"] = [_translate_note(n) for n in node["notes"]]
+    return data
 
 # Order of the data sections and the tool that feeds each one.
 SECTIONS = [
@@ -196,7 +242,7 @@ def load_dossier(accession: str) -> dict:
     entries = {}
     for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = translate_legacy_notes(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             log.warning("Skipping unreadable dossier file %s", path)
             continue
@@ -691,7 +737,7 @@ def _preparation(doc, m, entries):
             n_pockets += not pk.get("error")
     doc.h(3, "Structures in the manifest")
     doc.table(["PDB", "Resolution", "R-free", "Receptor file", "Target chains (UniProt numbering)", "Mutations"],
-              rows, (0.07, 0.08, 0.07, 0.17, 0.41, 0.20))
+              rows, (0.06, 0.10, 0.07, 0.20, 0.38, 0.19))
     doc.h(3, "Ligand pockets")
     doc.p(f"{n_pockets} pockets computed of {n_instances} ligand instances in the {n_prepared} of "
           f"{len(m.get('structures') or [])} entries that were prepared (nucleotides, cofactors and additives are "

@@ -67,6 +67,31 @@ def main():
         shutil.copy(f, folder / f.name)
     (folder / "notes.json").write_text('{"not": "a dossier file"}', encoding="utf-8")   # ignored
     r = report.build_report(ACC)
+    # the real ligands fixture was saved before 2026-11-04 with a Spanish note: the report is in English
+    assert "sin registro" in (folder / "ligands_g12c.json").read_text(encoding="utf-8")
+    assert "sin registro" not in Path(r["markdown_path"]).read_text(encoding="utf-8")
+    assert "no match means 'no record'" in Path(r["markdown_path"]).read_text(encoding="utf-8")
+
+    # ONLY the fixed notes are translated: text retrieved from a source keeps its own words, even
+    # when it contains the same phrase (Europe PMC really has such papers; found by the reviewer).
+    lit = folder / "literature_sin_registro.json"
+    lit.write_text(json.dumps({
+        "tool": "search_literature", "params": {"topic": "sin registro"}, "retrieved_at": "2026-10-20T00:00:00Z",
+        "result": {"ok": True, "uniprot_id": ACC, "total_hits": 1, "returned": 1,
+                   "papers": [{"title": "Pacientes sin registro de vacunacion",
+                               "abstract": "Estudio de casos sin registro previo.", "links": {}}],
+                   "notes": ["Linking PDB ligands to ChEMBL (by InChIKey) is not done here: "
+                             "no match means 'sin registro', never a guess."],
+                   "open_targets": {"note": "sin registro en Open Targets para este gen."}},
+    }), encoding="utf-8")
+    loaded = report.load_dossier(ACC)
+    paper = next(d for d in loaded["search_literature"] if d["file"] == lit.name)
+    assert paper["result"]["papers"][0]["title"] == "Pacientes sin registro de vacunacion"
+    assert paper["result"]["papers"][0]["abstract"] == "Estudio de casos sin registro previo."
+    assert paper["params"]["topic"] == "sin registro"          # a parameter nobody used must not appear
+    assert paper["result"]["notes"][0].endswith("no match means 'no record', never a guess.")
+    assert paper["result"]["open_targets"]["note"] == "no record in Open Targets for this gene."
+    lit.unlink()
     assert r["ok"] and r["missing"] == [] and r["pages"] >= 4, r
     assert r["included"]["get_ligands"] == ["ligands_g12c.json"]
     pdf = Path(r["pdf_path"]).read_bytes()
@@ -168,7 +193,7 @@ def main():
                   "other_ensembl_genes_not_queried": ["ENSG00000232810"]},
         "none": {"ok": True, "found": False, "ensembl_gene_id": None, "data_version": "26.09",
                  "ensembl_genes_without_target": ["ENSG00000204490"],
-                 "note": "sin registro en Open Targets para ninguno de los 1 genes Ensembl de UniProt."},
+                 "note": "sin registro en Open Targets para ninguno de los 1 genes Ensembl de UniProt."},   # as saved before 2026-11-04
         "error": {"ok": False, "error": "Open Targets request failed: timeout",
                   "ensembl_genes_without_target": ["ENSG00000204490"]},
     }
@@ -178,6 +203,7 @@ def main():
         sec2 = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8") \
             .split("## 2.")[1].split("## 3.")[0]
         assert "ENSG00000204490" in sec2, (case, sec2[:800])
+        assert "sin registro" not in sec2 and (case != "none" or "for any of the 1 Ensembl genes" in sec2), sec2[:800]
         assert case != "found" or ("not queried: ENSG00000232810" in sec2 and "[Noonan syndrome]" in sec2)
         assert case != "error" or "could not be queried" in sec2
     prof["result"]["open_targets"] = ot

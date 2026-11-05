@@ -6,7 +6,8 @@ Servidor MCP local (Python, `uv`, `mcp[cli]<2`/FastMCP) para Claude Desktop. El 
 
 ## Reglas que no se negocian
 - **Nunca `print()` a stdout** (rompe stdio del MCP). Usa `logging`.
-- **Anti-alucinación:** todo enlace se construye solo con IDs devueltos por la fuente; toda afirmación del reporte debe tener fuente recuperada; los campos sin dato quedan en `None` o "sin registro", nunca se rellenan ni se infieren nombres.
+- **Todo lo que produce el proyecto va en inglés** (decidido por el usuario 2026-11-04): salidas de las herramientas, reportes, docstrings, `README.md` y `docs/`, en cualquier fase. El español queda para el trabajo interno: este archivo, `ESTADO_PROYECTO.md`, `.claude/agents/` y la conversación.
+- **Anti-alucinación:** todo enlace se construye solo con IDs devueltos por la fuente; toda afirmación del reporte debe tener fuente recuperada; los campos sin dato quedan en `None` o "no record", nunca se rellenan ni se infieren nombres.
 - **Informa siempre la selección** ("N de total").
 - **Valida contra la API real antes de codificar** un campo nuevo. Un resumen de WebFetch no es evidencia. Los tests simulados deben copiar formas y defectos reales de las APIs.
 - **Antes de anotar algo como implementado en `ESTADO_PROYECTO.md`, verifícalo en el código y en una prueba real** (este documento ya describió como hechas funciones que no existían).

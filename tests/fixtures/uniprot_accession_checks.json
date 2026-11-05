@@ -1,0 +1,65 @@
+{
+ "P01116": {
+  "status": 200,
+  "location": null,
+  "json": {
+   "entryType": "UniProtKB reviewed (Swiss-Prot)",
+   "primaryAccession": "P01116",
+   "extraAttributes": {
+    "uniParcId": "UPI0000133132"
+   }
+  }
+ },
+ "P0DZZ9": {
+  "status": 404,
+  "location": null,
+  "json": {
+   "url": "http://rest.uniprot.org/uniprotkb/P0DZZ9",
+   "messages": [
+    "Resource not found"
+   ]
+  }
+ },
+ "Q0ZZZ9": {
+  "status": 200,
+  "location": null,
+  "json": {
+   "entryType": "Inactive",
+   "primaryAccession": "Q0ZZZ9",
+   "inactiveReason": {
+    "inactiveReasonType": "DELETED",
+    "deletedReason": "Not part of a reference proteome"
+   },
+   "extraAttributes": {
+    "uniParcId": "UPI0000DA73D1"
+   }
+  }
+ },
+ "P01118": {
+  "status": 303,
+  "location": "/uniprotkb/P01116?from=P01118",
+  "json": {
+   "entryType": "Inactive",
+   "primaryAccession": "P01118",
+   "inactiveReason": {
+    "inactiveReasonType": "MERGED",
+    "mergeDemergeTo": [
+     "P01116"
+    ]
+   },
+   "extraAttributes": {
+    "uniParcId": "UPI0000001252"
+   }
+  }
+ },
+ "ABCDEF": {
+  "status": 400,
+  "location": null,
+  "json": {
+   "url": "http://rest.uniprot.org/uniprotkb/ABCDEF",
+   "messages": [
+    "The 'accession' value has invalid format. It should be a valid UniProtKB accession"
+   ]
+  }
+ }
+}

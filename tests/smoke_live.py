@@ -176,14 +176,28 @@ async def notfound():
     check("REGRESSION", "inactive accession (HTTP 200 Inactive) -> error",
           pr.get("ok") is False, pr)
     mouse = await server.get_protein_profile("P32883")
-    check("ANTI-HALLUCINATION", "mouse Kras: Open Targets says 'sin registro' (human only)",
-          (mouse.get("open_targets") or {}).get("found") is False, mouse.get("open_targets"))
+    check("ANTI-HALLUCINATION", "mouse Kras: Open Targets says 'no record' (human only)",
+          (mouse.get("open_targets") or {}).get("found") is False and "no record" in mouse["open_targets"].get("note", ""),
+          mouse.get("open_targets"))
+    for tool in (server.get_ligands, server.get_structures):
+        for acc, text in (("P0DZZ9", "not found"), ("Q0ZZZ9", "inactive"), ("P01118", "P01116"), ("ABCDEF", "not a valid")):
+            got = await tool(acc)
+            check("REGRESSION", f"{tool.__name__}({acc}) -> error naming '{text}', no dossier",
+                  got.get("ok") is False and text in (got.get("error") or "")
+                  and not (dossier.DOSSIER_DIR / acc).exists(), got)
+    merged = await server.get_protein_profile("P01118")
+    check("REGRESSION", "merged P01118: get_protein_profile refuses it instead of saving KRAS under P01118",
+          merged.get("ok") is False and "P01116" in (merged.get("error") or "")
+          and not (dossier.DOSSIER_DIR / "P01118").exists(), merged)
+    merged = await server.search_literature("P01118")
+    check("REGRESSION", "merged P01118: search_literature refuses it too",
+          merged.get("ok") is False and "P01116" in (merged.get("error") or ""), merged)
 
 
 async def tnf():
     pr = await server.get_protein_profile("P01375")
     ot = pr.get("open_targets") or {}
-    check("REGRESSION", "TNF: 7 Ensembl genes in UniProt, Open Targets found on a later one (not 'sin registro')",
+    check("REGRESSION", "TNF: 7 Ensembl genes in UniProt, Open Targets found on a later one (not 'no record')",
           ot.get("found") is True and ot.get("symbol") == "TNF" and ot.get("uniprot_crosscheck") is True,
           {k: ot.get(k) for k in ("found", "ensembl_gene_id", "ensembl_genes_without_target")})
     check("EXTERNAL", "TNF: at least one gene was skipped before the one with a target",

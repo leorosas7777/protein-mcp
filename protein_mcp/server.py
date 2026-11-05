@@ -51,6 +51,14 @@ from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
 mcp = FastMCP("protein-research")
 
 
+def _add_accession_warning(result: dict, check: dict) -> dict:
+    """UniProt could not answer: keep the result and say so, in the chat and in the report's notes."""
+    if check.get("warning"):
+        result["accession_warning"] = check["warning"]
+        result["notes"] = list(result.get("notes") or []) + [check["warning"]]
+    return result
+
+
 @mcp.tool()
 async def resolve_protein(
     name: str, organism_id: int = 9606, max_results: int = 5
@@ -142,11 +150,19 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
       `is_canonical_sequence`, `other_models`): always say which one was chosen.
     - AlphaFold gives one static prediction with no ligands, nucleotides or ions;
       do not use it to describe inhibitor-bound conformations.
+    - The accession is checked in UniProt first: nonexistent, deleted or merged
+      accessions return ok=false and save nothing. If merged, ask the user before
+      using the accession named in the error. If `accession_warning` is present,
+      UniProt could not answer: say the accession is unconfirmed and do not read
+      an empty result as "no structures".
     The same result is also saved to `dossier_path` for build_report.
     """
     accession, err = parse_accession(uniprot_id)
     if err:
         return err
+    check = await uniprot.check_accession(accession)
+    if not check["ok"]:
+        return {**check, "uniprot_id": accession}
     limit = max_models if max_models > 0 else MAX_PDB_MODELS
     limit = max(1, min(limit, 25))
     mutation = (mutation or "").strip()
@@ -173,6 +189,7 @@ async def get_structures(uniprot_id: str, max_models: int = 0, mutation: str = "
             "All links are built from IDs/URLs returned by RCSB and AlphaFold DB.",
         ],
     }
+    _add_accession_warning(result, check)
     return attach_dossier(result, accession, dossier_name("structures", mutation), "get_structures",
                           {"max_models": limit, "mutation": mutation})
 
@@ -207,10 +224,21 @@ async def get_ligands(uniprot_id: str, mutation: str = "", max_ligands: int = 15
     unless activities.mechanism_compounds_download is "complete", that drug
     statistics may be partial.
     name is None for most research compounds: never invent names.
-    Cite potency with its `source` link. If target is None, say "sin registro en ChEMBL".
+    Cite potency with its `source` link. If target is None, say "no record in ChEMBL".
+    The accession is checked in UniProt first: nonexistent, deleted or merged
+    accessions return ok=false and save nothing. If merged, ask the user before
+    using the accession named in the error. If `accession_warning` is present,
+    UniProt could not answer: say the accession is unconfirmed and do not read an
+    empty result as "no ligands".
     """
-    result = await chembl.get_ligands(uniprot_id, mutation, max_ligands)
-    accession, _ = parse_accession(uniprot_id)
+    accession, err = parse_accession(uniprot_id)
+    if err:
+        return err
+    check = await uniprot.check_accession(accession)
+    if not check["ok"]:
+        return {**check, "uniprot_id": accession}
+    result = await chembl.get_ligands(accession, mutation, max_ligands)
+    _add_accession_warning(result, check)
     return attach_dossier(result, accession, dossier_name("ligands", mutation), "get_ligands",
                           {"mutation": mutation, "max_ligands": max_ligands}, compact=chembl.compact)
 
@@ -244,7 +272,7 @@ async def get_protein_profile(uniprot_id: str, max_diseases: int = 10) -> dict:
     - When UniProt lists several Ensembl genes (e.g. alternate haplotypes), they
       are queried in order until one has an Open Targets target; the others are
       in ensembl_genes_without_target / other_ensembl_genes_not_queried.
-    - If open_targets.found is false, say "sin registro en Open Targets". If
+    - If open_targets.found is false, say "no record in Open Targets". If
       uniprot_crosscheck is false, warn that Open Targets maps the gene to
       another protein.
     """
