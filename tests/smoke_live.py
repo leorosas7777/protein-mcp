@@ -14,6 +14,9 @@ Run:  uv run python tests/smoke_live.py              (all, ~2-3 min)
       uv run python tests/smoke_live.py kras pcsk9   (only these groups)
 Groups: kras pcsk9 egfr notfound tnf prep (Phase 2 downloads, BRAF V600E) interfaces (PCSK9, RCSB + PISA).
       pymol: chat control of a real PyMOL window; only when named and PROTEIN_MCP_PYMOL is set.
+      dock: dock_ligand + dock_status with real Meeko and Vina (BRAF V600E); only when named and
+            PROTEIN_MCP_VINA is set. It uses every core and launches detached processes, and its
+            duration has not been measured yet (four Vina runs of 1-2 min each, plus downloads).
 Exit code 1 if any check fails.
 """
 import asyncio
@@ -451,10 +454,126 @@ async def pymol():
     check("REGRESSION", "after PyMOL is closed, pymol_view says it is not open", gone.get("pymol_open") is False, gone)
 
 
+async def _await_dock(accession: str, structure: str, timeout=900.0):
+    """Poll dock_status the way the chat does, until the run is no longer live.
+    Returns (status, run, seen_running)."""
+    deadline = time.monotonic() + timeout
+    st, run, seen = {}, {}, False
+    while time.monotonic() < deadline:
+        await asyncio.sleep(5)
+        st = await server.dock_status(accession, structure=structure)
+        run = (st.get("runs") or [{}])[0] if st.get("ok") else {}
+        if run.get("state") in ("queued", "running"):
+            seen = True
+            continue
+        return st, run, seen
+    return st, run, seen
+
+
+async def dock():
+    """Phase 3 steps 2 and 2.1: dock_ligand launches and dock_status reads the result, with REAL
+    Meeko and Vina on BRAF V600E (needs PROTEIN_MCP_VINA; duration not measured yet)."""
+    import hashlib
+    import os
+    import subprocess
+    from protein_mcp.files import dock as dock_mod
+    if not os.environ.get("PROTEIN_MCP_VINA"):
+        check("INFO", "dock group skipped: PROTEIN_MCP_VINA is not set", True)
+        return
+    await server.get_structures("P15056", mutation="V600E")
+    rep = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=["3OG7", "5JSM", "8C7Y"])
+    check("REGRESSION", "prepare_structures 3OG7 + 5JSM + 8C7Y", rep.get("ok"), rep.get("error"))
+    if not rep.get("ok"):
+        return
+    t0 = time.monotonic()
+    big = await server.dock_ligand("P15056", structure="5JSM", pocket="6NB J")
+    check("REGRESSION", "5JSM 6NB J (large_box, spans chains; did not finish in 26.7 min in step 1) refused before Vina",
+          not big.get("ok") and "large_box" in big.get("error", "") and time.monotonic() - t0 < 30, big)
+
+    # step 2.1: the chat call only launches. The transport cuts a request at 60 s (Desktop,
+    # measured 2026-11-05), so the launching call has to answer well inside that.
+    t0 = time.monotonic()
+    started = await server.dock_ligand("P15056", structure="3OG7", pocket="032 C")
+    launch_seconds = round(time.monotonic() - t0, 1)
+    check("EXTERNAL", f"dock_ligand launches and answers in {launch_seconds} s (transport cuts at 60 s)",
+          started.get("ok") and started.get("launched") and launch_seconds < 30, started.get("error") or launch_seconds)
+    if started.get("ok"):
+        check("REGRESSION", f"the run is detached ({started['run'].get('launch_flags')}) and its worker reports its own pid",
+              started["run"]["state"] in ("queued", "running"), started["run"])
+        busy = await server.dock_ligand("P15056", structure="3OG7", pocket="032 C", conformer="crystal")
+        check("REGRESSION", "a second request while one Vina runs is refused, naming the live run",
+              not busy.get("ok") and "already in progress" in busy.get("error", "")
+              and not busy.get("launched"), busy)
+        live = await server.dock_status("P15056", structure="3OG7")
+        lr = live["runs"][0] if live.get("ok") else {}
+        check("ANTI-HALLUCINATION", "while it runs, dock_status reports a state and no result",
+              lr.get("state") in ("queued", "running") and "redocking" not in lr, lr)
+    st, r, seen = await _await_dock("P15056", "3OG7")
+    check("REGRESSION", "3OG7 032 C regenerated: the background run finishes with a result",
+          r.get("state") == "finished" and "redocking" in r, r.get("error") or r.get("state"))
+    check("REGRESSION", "the run was seen running before it finished, and the lock is free afterwards",
+          seen and not dock_mod.lock_path("P15056").exists(), seen)
+    if r.get("state") == "finished":
+        rd = r["redocking"]
+        check("EXTERNAL", f"pre-registered control: top pose RMSD {rd['top_pose_rmsd_angstrom']} Å <= 2.0 Å "
+              f"(step 1: 0.6116 from ChEMBL SMILES; Vina {r['vina']['wall_seconds']} s)",
+              rd["is_preregistered_control"] and rd["within_criterion"] and rd["top_pose_rmsd_angstrom"] <= 2.0, rd)
+        check("INFO", f"Vina used {r['vina'].get('cpu_seconds')} s of CPU in {r['vina']['wall_seconds']} s of wall "
+              f"time = {r['vina'].get('cpu_per_wall_second')} s of CPU per second on "
+              f"{r['vina'].get('logical_cpus')} logical CPUs", True)
+        check("REGRESSION", "3OG7: Meeko deletes no residue (passes at once in step 1); 9 poses; 7 torsions",
+              r["receptor_preparation"]["deleted_residues"] == [] and r["poses_returned"].startswith("9 of")
+              and r["ligand"]["rotatable_torsions"] == 7, r["receptor_preparation"])
+        check("ANTI-HALLUCINATION", "scores are labelled calculated, never affinity",
+              all("(calculated)" in p and "affinity" not in p for p in r["poses"]) and "not a measured" in r["notes"][0], r["poses"][:2])
+        prep_dir = Path(rep["prep_dir"])
+        m = json.loads(Path(rep["manifest_path"]).read_text(encoding="utf-8"))
+        run = next(s for s in m["structures"] if s["pdb_id"] == "3OG7")["docking"]["032 C"]["runs"]["032_regenerated"]
+        check("REGRESSION", "every docking file in the manifest exists with its SHA-256; RMSD negative control = 5 Å",
+              all(hashlib.sha256((prep_dir / f["path"]).read_bytes()).hexdigest() == f["sha256"] for f in run["files"].values())
+              and run["redocking"]["rmsd_negative_control"]["crystal_moved_5A_angstrom"] == 5.0, run["files"])
+    launched = await server.dock_ligand("P15056", structure="8C7Y", pocket="TXV U", exhaustiveness=8)
+    check("REGRESSION", "a new run is allowed once the previous one ended", launched.get("ok"), launched.get("error"))
+    _, e, _ = await _await_dock("P15056", "8C7Y")
+    check("REGRESSION", "8C7Y TXV U: Meeko deletes A:607, A:608, A:609 (no template, outside the box) and names them",
+          e.get("state") == "finished"
+          and [d.split(" ")[0] for d in e["receptor_preparation"]["deleted_residues"]] == ["A:607", "A:608", "A:609"]
+          and e["redocking"]["is_preregistered_control"] is False,       # exhaustiveness 8 is not the pre-registered run
+          e.get("error") or e.get("receptor_preparation"))
+
+    # stopping a live run: with REAL Vina, so this also checks that the process really dies
+    live = await server.dock_ligand("P15056", structure="3OG7", pocket="032 C", conformer="crystal")
+    check("REGRESSION", "a crystal-conformer run launches", live.get("ok"), live.get("error"))
+    if live.get("ok"):
+        vina_pid = None
+        for _ in range(40):                       # wait until Vina itself is running
+            await asyncio.sleep(2)
+            s = await server.dock_status("P15056", structure="3OG7", conformer="crystal")
+            vina_pid = (s.get("runs") or [{}])[0].get("vina_pid") if s.get("ok") else None
+            if vina_pid:
+                break
+        out = await server.dock_status("P15056", structure="3OG7", conformer="crystal", stop=True)
+        check("REGRESSION", "dock_status(stop=True) stops the run and says nothing was written",
+              out.get("stopped") and out["run"]["state"] == "stopped"
+              and "Stopped on request" in (out["run"].get("error") or ""), out)
+        await asyncio.sleep(1)
+        alive = subprocess.run(["tasklist", "/FI", f"PID eq {vina_pid}", "/NH"],
+                               capture_output=True, text=True).stdout if vina_pid else ""
+        check("REGRESSION", f"the real Vina process ({vina_pid}) is gone after the stop and the lock is free",
+              str(vina_pid) not in alive and not dock_mod.lock_path("P15056").exists(), alive.strip()[:200])
+        m = json.loads(Path(rep["manifest_path"]).read_text(encoding="utf-8"))
+        runs = next(s for s in m["structures"] if s["pdb_id"] == "3OG7")["docking"]["032 C"]["runs"]
+        check("ANTI-HALLUCINATION", "the stopped run left no block in the manifest",
+              "032_crystal" not in runs, list(runs))
+
+
 GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep,
-          "interfaces": interfaces, "pymol": pymol}
-SLOW = {"egfr"}
-WINDOW = {"pymol"}     # opens a PyMOL window: only when named on the command line
+          "interfaces": interfaces, "pymol": pymol, "dock": dock}
+SLOW = {"egfr", "dock"}
+# only when named on the command line, because they reach outside this process: pymol opens a
+# window, and dock starts the real Vina on every core plus detached processes (on this 8 GB
+# machine such a run had to be aborted for memory)
+WINDOW = {"pymol", "dock"}
 
 
 async def main(argv):

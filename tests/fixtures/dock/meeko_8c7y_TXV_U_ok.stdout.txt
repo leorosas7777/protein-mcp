@@ -1,0 +1,6 @@
+Template padding will be used.
+[32m gasteiger charges will be read from template file 
+ [0m
+
+Files written:
+rec.pdbqt <-- static (i.e., rigid) receptor input file

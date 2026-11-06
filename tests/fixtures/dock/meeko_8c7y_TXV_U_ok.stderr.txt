@@ -1,0 +1,33 @@
+No template matched for residue_key='A:607'
+tried 3 templates for residue_key='A:607'excess_H_ok=False
+SER        heavy_miss=1 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess=set()
+NSER       heavy_miss=1 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={4}
+CSER       heavy_miss=2 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={1}
+
+matched with excess inter-residue bond(s): A:607
+No template matched for residue_key='A:608'
+tried 9 templates for residue_key='A:608'excess_H_ok=False
+HIE        heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess=set()
+HID        heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess=set()
+HIP        heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess=set()
+NHIE       heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={4}
+NHID       heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={4}
+NHIP       heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={4}
+CHIE       heavy_miss=6 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={1}
+CHID       heavy_miss=6 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={1}
+CHIP       heavy_miss=6 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={1}
+
+matched with excess inter-residue bond(s): A:608
+No template matched for residue_key='A:609'
+tried 3 templates for residue_key='A:609'excess_H_ok=False
+GLN        heavy_miss=4 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess=set()
+NGLN       heavy_miss=4 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={4}
+CGLN       heavy_miss=5 heavy_excess=0 H_excess=[] bond_miss=set() bond_excess={1}
+
+matched with excess inter-residue bond(s): A:609
+
+Ignored A:607: 17.4870 A outside box (> delete_bad_res_from_box_radius=8.0).
+
+Ignored A:608: 14.9810 A outside box (> delete_bad_res_from_box_radius=8.0).
+
+Ignored A:609: 11.8590 A outside box (> delete_bad_res_from_box_radius=8.0).

@@ -53,6 +53,13 @@ Each tool saves its full result to a dossier on disk and sends Claude a compact 
 | `select_structure` | Records the user's structure, chain and pocket in the manifest after validating them |
 | `analyze_interfaces` | Reports partner chains, construct sequences, RCSB assemblies, PDBe PISA interfaces and protein-protein contacts in UniProt numbering |
 
+**Phase 3: experiments (in progress)**
+
+| Tool | What it does |
+|---|---|
+| `dock_ligand` | Starts a re-docking of the crystal ligand of a chosen pocket with AutoDock Vina in a separate process and answers at once: a chat request is cut long before docking ends. Validates and refuses first (box flags, cofactors, changed files, a run already in progress); one run at a time on the machine |
+| `dock_status` | Reports what a background run is doing (running, finished, failed, stopped, or vanished because its process died), returns the finished result — RMSD of the best-scored pose to the crystal pose with a negative control, scores labelled as calculated — and can stop a live run |
+
 ## Example
 
 In a new Claude Desktop chat:
@@ -98,7 +105,7 @@ In Claude Desktop, go to *Settings → Developer → Edit Config* and add:
 }
 ```
 
-Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 11 tools should appear.
+Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 13 tools should appear.
 
 PyMOL is optional. The [usage guide](docs/USAGE.md) covers how to set it up, which prompts work, and what the server does not do.
 
@@ -146,7 +153,9 @@ docs/                usage guide, interpretation guide, demo script, sample repo
 
 ## Roadmap
 
-Phase 3 will start experiments from the Phase 2 manifest: docking and molecular dynamics for small molecules, and complex prediction for biologics, with a human review before anything runs. A structure with the user's choice, pocket and box is already recorded for that hand-off. No Phase 3 tool exists yet: so far only the docking validation has been run, as a re-docking control that reproduced a known crystallographic pose (vemurafenib in 3OG7, 0.61 A RMSD from a conformer regenerated from SMILES, against a pre-registered 2.0 A threshold).
+Phase 3 will start experiments from the Phase 2 manifest: docking and molecular dynamics for small molecules, and complex prediction for biologics, with a human review before anything runs. A structure with the user's choice, pocket and box is already recorded for that hand-off. The first Phase 3 tool, `dock_ligand`, re-docks a crystal ligand into its own pocket. The criterion was pre-registered before anything was run: RMSD of 2.0 Å or less, from a regenerated conformer. In the validation, vemurafenib in 3OG7 gave 0.61 Å (conformer from the ChEMBL SMILES). Through the tool it gave 0.54 Å (conformer from the crystal ligand's own atoms and bonds), the same in every run that completed on 2026-11-05, whose Vina times ranged from 61 to 124 s. Runs started with little free memory were much slower and one was stopped at the 900 s limit. This is one re-docking of one ligand in one structure, not the accuracy of docking.
+
+Docking runs in a separate process because a chat request does not live long enough: in Claude Desktop the call was cut after 60 s or 240 s, and the cancellation took Vina with it. `dock_ligand` validates, refuses what it must refuse, launches and answers; `dock_status` reports the run and returns the result. One run at a time, a lock for the whole machine, and a run that dies is reported as such rather than as a result. Next: the docking section of the report, a hand-off package for CHARMM-GUI, a SLURM template, docking of ChEMBL compounds and ADMET.
 
 ## Data sources
 

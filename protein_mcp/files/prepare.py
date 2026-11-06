@@ -4,8 +4,8 @@ manifest, the contract with Phase 3 (dossiers/<acc>/prep/manifest.json).
 Step 1 of Phase 2: original files (mmCIF, AlphaFold mmCIF, UniProt FASTA, crystal ligand
 poses as SDF). Step 2 (files.clean, gemmi): cleaned receptor, chain metrics, pocket and box per
 ligand instance, AlphaFold pLDDT at each pocket. Nothing is protonated, completed or mutated;
-the manifest says so in `pending`. Imports common, dossier, files.{download, clean, choice} and
-sources.{rcsb, uniprot}. A user_choice of the previous manifest is kept only if it is still valid
+the manifest says so in `pending`. Imports common, dossier, files.{download, clean, choice},
+files.{interfaces, dock} (only carry_over) and sources.{rcsb, uniprot}. A user_choice of the previous manifest is kept only if it is still valid
 (files.choice.carry_over).
 """
 import asyncio
@@ -17,7 +17,7 @@ import httpx
 
 from protein_mcp import dossier
 from protein_mcp.common import log, parse_accession, short, utc_now
-from protein_mcp.files import choice, clean, interfaces
+from protein_mcp.files import choice, clean, dock, interfaces
 from protein_mcp.files.download import check_fasta, check_mmcif, check_sdf, download
 from protein_mcp.sources import rcsb
 from protein_mcp.sources.uniprot import UNIPROT_FASTA
@@ -318,6 +318,16 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
     interfaces_status = interfaces.carry_over(old_manifest, manifest)
     if interfaces_status["dropped"]:
         warnings.append("Interface analyses dropped (run analyze_interfaces again): " + "; ".join(interfaces_status["dropped"]))
+    # dock_ligand results survive per pocket only if the raw file and the box are the same (Phase 3)
+    # read again just before writing: a docking run can take minutes and may have finished after
+    # old_manifest was read (reviewer 2026-11-05); its block would otherwise be lost unreported
+    try:
+        latest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        latest = old_manifest
+    docking_status = dock.carry_over(latest, manifest)
+    if docking_status["dropped"]:
+        warnings.append("Docking results dropped (run dock_ligand again): " + "; ".join(docking_status["dropped"]))
     try:
         choice.write_manifest(manifest_path, manifest)
     except OSError as exc:
@@ -336,6 +346,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "replaced_manifest_from": previous,
         "user_choice": choice_status,
         "interfaces": interfaces_status if (interfaces_status["kept"] or interfaces_status["dropped"]) else None,
+        "docking": docking_status if (docking_status["kept"] or docking_status["dropped"]) else None,
         "sequence": {k: fasta.get(k) for k in ("ok", "path", "header", "length", "error") if k in fasta},
         "structures": [compact_structure(r) for r in structures],
         "alphafold": ({"entry_id": alphafold["entry_id"], "file": alphafold["file"].get("path"),

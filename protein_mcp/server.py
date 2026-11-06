@@ -21,6 +21,10 @@ Tools:
     open_in_pymol (fixed actions only, never PyMOL text from the chat).
   - analyze_interfaces (Phase 2): partner chains, construct sequences, RCSB
     assemblies, PDBe PISA interfaces and protein-protein contacts.
+  - dock_ligand (Phase 3): starts, in a detached process, a re-docking of the
+    crystal ligand of a pocket with AutoDock Vina.
+  - dock_status (Phase 3): the state of those runs and their result, the RMSD to
+    the crystal pose calculated in place (calculated values); can stop a run.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -43,7 +47,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import choice, control, interfaces, prepare, viewer  # noqa: E402
+from protein_mcp.files import choice, control, dock, interfaces, prepare, viewer  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -643,6 +647,105 @@ async def analyze_interfaces(uniprot_id: str, pdb_ids: list[str] | None = None) 
       copy and in a neighbouring copy: report each line separately.
     """
     return await interfaces.analyze_interfaces(uniprot_id, pdb_ids)
+
+
+@mcp.tool()
+async def dock_ligand(
+    uniprot_id: str,
+    structure: str = "",
+    pocket: str = "",
+    conformer: str = "regenerated",
+    exhaustiveness: int = 32,
+    seed: int = 42,
+) -> dict:
+    """Phase 3: START a re-docking of the crystal ligand of one pocket into its own receptor with
+    AutoDock Vina, in the background. Answers in seconds; the result comes from dock_status.
+
+    Docking takes minutes (Vina alone: 61-124 s measured for vemurafenib in 3OG7 with
+    exhaustiveness 32) and a chat request is cut long before that (60 s or 240 s, measured in
+    Claude Desktop), so this tool validates everything, launches a separate process and returns.
+    The run is not cut when this request or this chat ends; whether it also survives Claude
+    Desktop closing is not known, so do not promise that. NEVER promise a result in this reply
+    and never say the docking finished: `launched: true` only means it started. Tell the user it is running, that one run at a time is allowed on this machine, and
+    that you will read the result with dock_status (wait at least a minute before the first call).
+
+    Reads dossiers/<acc>/prep/manifest.json: run prepare_structures first. Receptor, box and
+    ligand all come from the manifest; nothing is taken from the chat. With no `structure`, the
+    user's choice (select_structure) is used and must have a pocket. `pocket` as in
+    select_structure: "032 C", "032" if unique, or "3OG7 032 C". One ligand per call.
+    - conformer "regenerated" (default): a new 3D conformer built from the crystal ligand's own
+      atoms and bonds, moved to the box centre. With exhaustiveness 32 and seed 42 this is the
+      pre-registered control (`is_preregistered_control: true`); other values are reported
+      against the same threshold but are not the control. "crystal" starts from the crystal
+      conformation: biased in favour; say so whenever you report it.
+    - The receptor is the whole cleaned receptor (all target chains), even if the user's choice
+      names fewer chains: report `receptor_preparation.chains_note` when present.
+    - exhaustiveness (1-64) and seed are recorded; num_modes 9, energy_range 3, min_rmsd 1 and
+      scoring "vina" are fixed.
+
+    Refused before anything is launched (`ok: false`, `launched: false`, with `options` when the
+    pocket is not found): pockets marked large_box or spans_target_chains, receptors that kept a
+    nucleotide/cofactor/metal (named), changed files, Vina not found (PROTEIN_MCP_VINA), and a
+    docking run already in progress on this machine (the reply names it; offer dock_status, and
+    do not launch anything else until it ends). The checks that need Meeko and Vina (the box
+    guard, residues without a template) happen inside the run and appear in dock_status.
+
+    Say only what this reply contains: the pocket, the box, the receptor chains (quote
+    `receptor.chains_note` when present), the ligand by `ligand.name`/`ligand.synonyms` only, and
+    that it is running. Do not call dock_ligand again for the same pocket while it is live.
+    """
+    return await dock.start_dock(uniprot_id, structure, pocket, conformer, exhaustiveness, seed)
+
+
+@mcp.tool()
+async def dock_status(
+    uniprot_id: str,
+    structure: str = "",
+    pocket: str = "",
+    conformer: str = "",
+    stop: bool = False,
+) -> dict:
+    """Phase 3: read what the background docking runs of a protein are doing, and the result of
+    the ones that finished. With stop=True, stop the run that is live.
+
+    Each run reports a `state`: "running" (or "queued") with its `phase` and `elapsed_seconds`;
+    "finished" with the full result; "failed" or "stopped" with the reason in `error`;
+    "vanished", which means its process stopped reporting (the computer was shut down or it was
+    killed); or "unknown", which means its state file could not be read and nothing can be said
+    about it. A "running" run is not a result: say it is still running, give the elapsed time, and
+    offer to look again; never guess an RMSD. Use stop=True only when the user asks to stop it.
+
+    Two fields must be quoted whenever they are present, because they change what the numbers
+    mean:
+    - `warning` on a run: it has not reported for a while, so `phase` and `elapsed_seconds` are
+      from then and not from now, and the run may already be dead. Never present them as current.
+    - `note_on_state`: the result was recovered from the manifest after the run stopped reporting,
+      or the run was not started by dock_ligand (the command line, or an older version). Say so;
+      do not present it as a run this chat started and watched.
+    Report every run by its own structure, pocket and conformer, and `selection` as given.
+
+    Rules for using a finished result:
+    - A Vina score (kcal/mol) is CALCULATED, not a measured affinity. Never call it an affinity
+      or a binding energy, never put it next to ChEMBL IC50/Ki/Kd as if comparable, and never
+      rank compounds by it here.
+    - Report `redocking.top_pose_rmsd_angstrom` with the criterion and `within_criterion`, and
+      quote `scope`: it is one re-docking of one ligand in one structure, not the accuracy of
+      docking for this target. If `is_preregistered_control` is false, quote `redocking.note`:
+      "biased" only for conformer "crystal"; other exhaustiveness/seed is "not the
+      pre-registered control", not biased.
+    - Name every residue in `receptor_preparation.deleted_residues` (Meeko removed them because
+      they match no template and lie outside the box; auth numbering). If
+      `receptor_preparation.warning` is present, quote it: the list may be incomplete.
+    - Give `poses_returned` as is: fewer than 9 poses means the others were outside energy_range.
+    - Identify the ligand only by `ligand.name` and `ligand.synonyms` (wwPDB); without a
+      synonym, do not give it a drug name.
+    - The receptor is rigid and was not completed: do not call the result a binding mode
+      prediction for a new compound.
+    - `vina.cpu_seconds` and `vina.cpu_per_wall_second` are measurements of this machine, not of
+      the docking: report them only if asked about speed, and if `vina.cpu_seconds_note` is
+      present say nothing about speed at all (it could not be measured; it is not a slow run).
+    """
+    return await dock.dock_status(uniprot_id, structure, pocket, conformer, stop)
 
 
 

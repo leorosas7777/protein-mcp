@@ -8,7 +8,13 @@ dependencies = [
     "gemmi>=0.7.5",
     "httpx>=0.28.1",
     "mcp[cli]<2",
+    "meeko>=0.8.0,<0.9",
+    "numpy>=2.5.4",
+    "rdkit>=2026.9.1",
     "reportlab>=5.0.1",
+    "scipy>=1.18.1",
+    "tomli>=2.5.0",
+    "tqdm>=4.70.1",
 ]
 
 [project.scripts]
@@ -20,3 +26,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["protein_mcp"]
+
+[dependency-groups]
+dev = [
+    "spyrmsd>=0.9.0",
+]

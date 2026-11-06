@@ -1,0 +1,32 @@
+Template padding will be used.
+[32m gasteiger charges will be read from template file 
+ [0m
+
+Error: Creation of data structure for receptor failed.
+
+Details:
+
+Bad res A:468 is within radius of box edge (0.0000 <= delete_bad_res_from_box_radius=8.0000 A).
+
+Bad res A:475 is within radius of box edge (0.0000 <= delete_bad_res_from_box_radius=8.0000 A).
+
+Bad res A:487 is within radius of box edge (0.0000 <= delete_bad_res_from_box_radius=8.0000 A).
+
+Bad res A:488 is within radius of box edge (1.5140 <= delete_bad_res_from_box_radius=8.0000 A).
+
+Bad res A:575 is within radius of box edge (0.3441 <= delete_bad_res_from_box_radius=8.0000 A).
+
+Bad res A:600 is within radius of box edge (2.4560 <= delete_bad_res_from_box_radius=8.0000 A).
+
+Bad res B:488 is within radius of box edge (3.9120 <= delete_bad_res_from_box_radius=8.0000 A).
+These residues can be ignored with option --delete_bad_res or --delete_bad_res_from_box_radius.
+
+Recommendations:
+1. (for batch processing) Use -a/--allow_bad_res to automatically remove residues
+that do not match templates, and --default_altloc to set
+a default altloc variant. Use these at your own risk.
+
+2. (processing individual structure) Inspecting and fixing the input structure is recommended.
+Use --wanted_altloc to set variants for specific residues.
+
+

@@ -44,6 +44,17 @@ The wheel has no graphical interface of its own: without `PyQt5` (or `PySide6`),
 
 If you already have PyMOL (Schrödinger or conda), point the variable to its `pymol.exe`. Those two distributions have not been tested yet.
 
+### AutoDock Vina (optional, for `dock_ligand`)
+
+`dock_ligand` runs the official AutoDock Vina 1.2.7 executable. The `vina` package on PyPI has no Windows wheel. Download `vina_1.2.7_win.exe` from the v1.2.7 release of `forlilab/AutoDock-Vina` on GitHub and put it in a folder whose path has only ASCII characters, such as `C:\vina\`. Check its SHA-256: `e0c4b2715e0c1a74f6e92d0f3be0328ac97542eafbc111e6b1efad897a73cce5`. Then add it to the same `env`:
+
+```json
+"env": { "PROTEIN_MCP_PYMOL": "C:\\pymol-env\\Scripts\\python.exe",
+         "PROTEIN_MCP_VINA": "C:\\vina\\vina_1.2.7_win.exe" }
+```
+
+RDKit and Meeko are installed with the project. One call docks one ligand. On a 12-thread laptop, Vina itself took 61 to 124 seconds across the runs measured on 2026-11-05, plus a few seconds for Meeko. With little free memory it took much longer (one run did not finish in 15 minutes and was stopped). Close memory-hungry programs before docking. Because a chat request is cut long before that, `dock_ligand` only starts the run and `dock_status` reads its result.
+
 ## 2. Recommended flow
 
 | Step | What you ask | Tool |
@@ -56,6 +67,8 @@ If you already have PyMOL (Schrödinger or conda), point the variable to its `py
 | 6. Choose (optional) | "I choose 8C7Y, pocket TXV U, because ..." | `select_structure` (recorded in the manifest and in section 6 of the report) |
 | 6b. Interfaces (optional, targets of biologics) | "Which chains touch the protein in 3WD5?", "analyze the interfaces" | `analyze_interfaces` (partners, construct sequences, RCSB assembly, PISA's view, contacts; section 6 of the report) |
 | 7. Change the view (optional, with PyMOL open) | "Colour chain B red", "show residues 594-596" | `pymol_view` |
+| 8. Re-docking control (optional, needs Vina) | "Re-dock the ligand of the pocket I chose" | `dock_ligand` starts it in the background and answers in seconds (crystal ligand only; the score is calculated, not an affinity) |
+| 8b. Its result | "Is the docking done?" | `dock_status` (also stops a run); docking takes about a minute or two, and only one runs at a time |
 
 - If several proteins are possible, Claude should ask you which one you mean. Always confirm the **accession** (e.g. `Q8NBP7`): everything else is saved under that code.
 - The report only includes what was collected in step 2. If something is missing, the PDF says so ("Missing sections") instead of making it up.
@@ -99,7 +112,8 @@ If you already have PyMOL (Schrödinger or conda), point the variable to its `py
 | Selectivity, toxicity, ADME, negative data | Not retrieved | Out of current scope |
 | Clinical trials (ClinicalTrials.gov) | Not connected | Pending |
 | Labels, surfaces or distances in PyMOL from the chat | Not among the actions of `pymol_view` | PyMOL menus |
-| Docking, molecule design, predictions | This is not a computation tool yet | Planned for Phase 3 |
+| Docking a ChEMBL compound or your own molecule, molecule design, predictions | `dock_ligand` only re-docks the crystal ligand of a pocket | Planned for Phase 3 |
+| Docking into a pocket that spans two chains (e.g. 5JSM 6NB), or a receptor with GDP/ATP kept | Refused before Vina starts (too slow; no template in Meeko) | Choose another pocket |
 | Ambiguous names ("insulin receptor") | Name search returns noise | Use the gene symbol (INSR) |
 | Free-text mutations ("the most common mutation") | The filter needs notation such as `G12C` or `G12` | Specify the variant |
 | "Write the conclusion in the PDF" | The PDF only contains sourced data; interpretation stays in the chat | Ask Claude to interpret it, citing the report |
