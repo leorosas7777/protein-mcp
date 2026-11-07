@@ -25,6 +25,9 @@ Tools:
     crystal ligand of a pocket with AutoDock Vina.
   - dock_status (Phase 3): the state of those runs and their result, the RMSD to
     the crystal pose calculated in place (calculated values); can stop a run.
+  - build_experiment_report (Phase 3): prep/manifest.json -> separate PDF +
+    Markdown record of the experiments (docking now; molecular dynamics and
+    ADMET declared as not run), with the provenance of every run.
 
 Logic lives in one module per source in protein_mcp/sources/: uniprot,
 europepmc, rcsb, alphafold, chembl, opentargets. target_profile combines
@@ -44,7 +47,7 @@ from mcp.server.fastmcp import FastMCP
 
 logging.basicConfig(level=logging.INFO)
 
-from protein_mcp import report, target_profile  # noqa: E402
+from protein_mcp import experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
 from protein_mcp.files import choice, control, dock, interfaces, prepare, viewer  # noqa: E402
@@ -311,6 +314,35 @@ async def build_report(uniprot_id: str) -> dict:
     - If it fails because the PDF is open in a viewer, ask the user to close it.
     """
     return await asyncio.to_thread(report.build_report, uniprot_id)
+
+
+@mcp.tool()
+async def build_experiment_report(uniprot_id: str) -> dict:
+    """Build the separate PDF + Markdown record of the in-silico experiments from prep/manifest.json (Phase 3).
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+
+    A document of its own, NOT a section of build_report: it holds the docking
+    runs recorded in dossiers/<accession>/prep/manifest.json, with the
+    provenance of each one (PDB entry, resolution, pocket, box, SHA-256 of the
+    mmCIF, receptor chains and, where it applies, the literal reason recorded by
+    select_structure). Molecular dynamics and ADMET are present as sections and
+    say "not run": no tool writes them yet.
+
+    Rules for using the result:
+    - Give the user `pdf_path` (and `markdown_path`), and name the runs in
+      `docking_runs` and the sections in `sections_not_run` as they come.
+    - The docking results (Vina scores, RMSD) are CALCULATED. The provenance
+      quotes other kinds of value: the resolution is the experimental value of
+      the PDB entry, and run times are measurements of this machine. Do not call
+      a score an affinity and do not compare it with the measured IC50/Ki/Kd
+      that build_report shows from ChEMBL: those stay in report_<accession>.pdf.
+    - If `docking_runs` is empty, say so and offer dock_ligand + dock_status;
+      never describe a run that is not listed.
+    - If it fails because the PDF is open in a viewer, ask the user to close it.
+    """
+    return await asyncio.to_thread(experiment_report.build_experiment_report, uniprot_id)
 
 
 @mcp.tool()

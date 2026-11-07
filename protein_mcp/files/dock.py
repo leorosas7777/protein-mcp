@@ -525,6 +525,9 @@ def _resolve(manifest: dict, structure: str, pocket: str):
     s = next(x for x in manifest["structures"] if x["pdb_id"] == snap["structure"])
     if origin == "user_choice":
         snap["user_chains"] = [c["auth_asym_id"] for c in manifest["user_choice"].get("chains") or []]
+        # which recording of the choice this run used: the same structure and pocket can be chosen
+        # again later with another reason, and the experiment record must not quote that one
+        snap["user_choice_chosen_at"] = manifest["user_choice"].get("chosen_at")
     return s, snap, origin
 
 
@@ -684,6 +687,7 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
     now = utc_now()
     run = {
         "generated_by": "dock_ligand", "computed_at": now, "selected_by": origin,
+        **({"user_choice_chosen_at": snap.get("user_choice_chosen_at")} if origin == "user_choice" else {}),
         "ligand": {"source": "crystal pose of this pocket", "comp_id": comp, "label_asym_id": label,
                    "auth_asym_id": pk.get("auth_asym_id"), "name": pk.get("name"), "synonyms": pk.get("synonyms") or [],
                    "sdf": files["sdf_record"].get("path"), "sdf_sha256": sha256(files["sdf"]), **lig_record},

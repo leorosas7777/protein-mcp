@@ -785,6 +785,16 @@ def _preparation(doc, m, entries):
         doc.p(f"{len(history)} earlier choice(s) in user_choice_history: " + "; ".join(
             choice.label(h) + (f" (dropped: {h['dropped_reason']})" if h.get("dropped_reason") else " (replaced)")
             for h in history), small=True)
+    # One line only, and no figures: the experiment record (calculated values) is a separate document,
+    # so that measured, calculated and predicted values never share a page (ESTADO 7.1, decided 2026-11-05).
+    dock_runs = [run.get("computed_at") for s in m.get("structures") or []
+                 for block in (s.get("docking") or {}).values() for run in (block.get("runs") or {}).values()]
+    if dock_runs:
+        doc.p(f"Experiment record: {len(dock_runs)} docking run{'' if len(dock_runs) == 1 else 's'} recorded in "
+              f"this manifest, the most recent "
+              f"on {max(c for c in dock_runs if c) if any(dock_runs) else NO_RECORD}. The calculated values are "
+              f"not repeated here: build_experiment_report(\"{m.get('uniprot_id')}\") writes them to "
+              f"experiments_{m.get('uniprot_id')}.pdf.", small=True)
     problems = list(m.get("failed_downloads") or []) + list(m.get("warnings") or [])
     if problems:
         doc.p("Failed downloads and warnings recorded in the manifest:", small=True)
@@ -868,6 +878,8 @@ def render_pdf(doc: Doc, path: Path, title: str, footer: str):
         2: ParagraphStyle("h2", fontName=bold, fontSize=12.5, leading=16, spaceBefore=10, spaceAfter=4,
                           textColor=colors.HexColor("#123b6d")),
         3: ParagraphStyle("h3", fontName=bold, fontSize=10, leading=13, spaceBefore=6, spaceAfter=3),
+        # level 4 is used by experiment_report.py (sub-blocks of one docking run)
+        4: ParagraphStyle("h4", fontName=bold, fontSize=8.6, leading=11, spaceBefore=5, spaceAfter=2),
     }
     width = A4[0] - 32 * mm
     flow = []
@@ -883,7 +895,7 @@ def render_pdf(doc: Doc, path: Path, title: str, footer: str):
             _, headers, rows, widths = b
             data = [[Paragraph(escape(_printable(h)), st["head"]) for h in headers]]
             data += [[Paragraph(_pdf(c), st["cell"]) for c in row] for row in rows]
-            t = Table(data, colWidths=[w * width for w in widths], repeatRows=1)
+            t = Table(data, colWidths=[w * width for w in widths], repeatRows=1, hAlign="LEFT")
             t.setStyle(TableStyle([
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b0b7c3")),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8edf4")),

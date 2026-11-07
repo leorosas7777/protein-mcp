@@ -14,7 +14,8 @@ Run:  uv run python tests/smoke_live.py              (all, ~2-3 min)
       uv run python tests/smoke_live.py kras pcsk9   (only these groups)
 Groups: kras pcsk9 egfr notfound tnf prep (Phase 2 downloads, BRAF V600E) interfaces (PCSK9, RCSB + PISA).
       pymol: chat control of a real PyMOL window; only when named and PROTEIN_MCP_PYMOL is set.
-      dock: dock_ligand + dock_status with real Meeko and Vina (BRAF V600E); only when named and
+      dock: dock_ligand + dock_status with real Meeko and Vina (BRAF V600E), and
+            build_experiment_report over the runs they produced; only when named and
             PROTEIN_MCP_VINA is set. It uses every core and launches detached processes, and its
             duration has not been measured yet (four Vina runs of 1-2 min each, plus downloads).
 Exit code 1 if any check fails.
@@ -482,8 +483,13 @@ async def dock():
         return
     await server.get_structures("P15056", mutation="V600E")
     rep = await server.prepare_structures("P15056", mutation="V600E", pdb_ids=["3OG7", "5JSM", "8C7Y"])
-    check("REGRESSION", "prepare_structures 3OG7 + 5JSM + 8C7Y", rep.get("ok"), rep.get("error"))
-    if not rep.get("ok"):
+    # ok alone is not enough: with RCSB down the call is ok with only AlphaFold in the manifest
+    prepared = set()
+    if rep.get("ok"):
+        prepared = {s["pdb_id"] for s in json.loads(Path(rep["manifest_path"]).read_text(encoding="utf-8"))["structures"]}
+    check("REGRESSION", "prepare_structures 3OG7 + 5JSM + 8C7Y: all three in the manifest",
+          prepared == {"3OG7", "5JSM", "8C7Y"}, rep.get("error") or rep.get("warnings") or sorted(prepared))
+    if prepared != {"3OG7", "5JSM", "8C7Y"}:
         return
     t0 = time.monotonic()
     big = await server.dock_ligand("P15056", structure="5JSM", pocket="6NB J")
@@ -565,6 +571,58 @@ async def dock():
         runs = next(s for s in m["structures"] if s["pdb_id"] == "3OG7")["docking"]["032 C"]["runs"]
         check("ANTI-HALLUCINATION", "the stopped run left no block in the manifest",
               "032_crystal" not in runs, list(runs))
+
+    await experiment_report_checks(Path(rep["manifest_path"]))
+
+
+async def experiment_report_checks(manifest_path: Path):
+    """Phase 3 step 3: the separate experiment record, over the runs just produced."""
+    blob = manifest_path.read_text(encoding="utf-8")
+    m = json.loads(blob)
+    runs = {f"{s['pdb_id']} {key} {run_id}": run
+            for s in m["structures"] for key, block in (s.get("docking") or {}).items()
+            for run_id, run in (block.get("runs") or {}).items()}
+    # with no run every check below would pass on an empty record
+    check("REGRESSION", f"the manifest holds docking runs to report ({len(runs)})", bool(runs), list(runs))
+    if not runs:
+        return
+    r = await server.build_experiment_report("P15056")
+    check("REGRESSION", "build_experiment_report writes the separate record of the runs in the manifest",
+          r.get("ok") and len(r.get("docking_runs") or []) == len(runs) and r.get("pages", 0) >= 2,
+          r.get("error") or r)
+    if not r.get("ok"):
+        return
+    md = Path(r["markdown_path"]).read_text(encoding="utf-8")
+    urls = re.findall(r"\]\((https?://[^)\s]+)\)", md)
+    bad = [u for u in urls if u not in blob]
+    check("ANTI-HALLUCINATION", f"every link in the experiment record is in the manifest ({len(urls)} links)",
+          urls and not bad, bad or "no link at all")
+    for key, run in runs.items():
+        run_id = key.split(" ")[3]          # "<PDB> <comp> <label> <run id>"
+        top = run["redocking"]["top_pose_rmsd_angstrom"]
+        check("ANTI-HALLUCINATION", f"{key}: RMSD, scope and provenance quoted from the manifest",
+              f"{top:.4f}" in md and run["redocking"]["scope"] in md
+              and run["ligand"]["sdf_sha256"] in md and run["files"]["receptor.pdbqt"]["sha256"] in md,
+              {"top": top, "scope": run["redocking"]["scope"]})
+        log = manifest_path.parent / run["files"][f"vina_{run_id}.log"]["path"]
+        header = "mode |   affinity | dist from best mode"
+        check("ANTI-HALLUCINATION", f"{key}: Vina's 'affinity' log header is in the dossier log and NOT in the record",
+              header in log.read_text(encoding="utf-8") and header not in md, log)
+    mentions = [l for l in md.splitlines() if "IC50" in l or "Ki/Kd" in l]
+    check("ANTI-HALLUCINATION", "ChEMBL potency is not in the experiment record: every IC50/Ki/Kd line is the caveat",
+          mentions and all("not comparable" in l for l in mentions) and "CHEMBL" not in md, mentions)
+    check("REGRESSION", "molecular dynamics and ADMET are declared not run, with the step that would fill them",
+          "Not run." in md.split("## 2. Molecular dynamics")[1] and "Phase 3 step 4" in md
+          and "Phase 3 step 7" in md and r["sections_not_run"][:2] == ["molecular dynamics (Phase 3 step 4)",
+                                                                       "ADMET (Phase 3 step 7)"], r["sections_not_run"])
+    research = await server.build_report("P15056")
+    sec6 = (Path(research["markdown_path"]).read_text(encoding="utf-8")
+            .split("## 6. Structure preparation (Phase 2)")[1].split("## 7. Methods")[0]) if research.get("ok") else ""
+    figures = [f for f in ("kcal/mol", "exhaustiveness", "Vina") + tuple(
+        f"{run['redocking']['top_pose_rmsd_angstrom']:.4f}" for run in runs.values()) if f in sec6]
+    check("REGRESSION", "the research report gains one line about the experiment record, with no figures in it",
+          research.get("ok") and f"{len(runs)} docking run" in sec6
+          and 'build_experiment_report("P15056")' in sec6 and not figures, figures or research.get("error"))
 
 
 GROUPS = {"kras": kras, "pcsk9": pcsk9, "egfr": egfr, "notfound": notfound, "tnf": tnf, "prep": prep,

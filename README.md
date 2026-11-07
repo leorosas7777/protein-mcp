@@ -42,6 +42,7 @@ Each tool saves its full result to a dossier on disk and sends Claude a compact 
 | `get_ligands` | ChEMBL | Ligands by potency per mutation and assay type, with development phase; drugs without IC50/Ki/Kd, such as antibodies, are listed separately |
 | `search_literature` | Europe PMC | Papers with abstracts and links; preprints only on request, and flagged |
 | `build_report` | Dossier only | PDF and Markdown report |
+| `build_experiment_report` | Preparation manifest only | Separate PDF and Markdown record of the in-silico experiments: each docking run with its calculated scores and RMSD, the provenance of the structure it came from, and molecular dynamics and ADMET declared as not run |
 
 **Phase 2: preparing in-silico experiments**
 
@@ -105,7 +106,7 @@ In Claude Desktop, go to *Settings → Developer → Edit Config* and add:
 }
 ```
 
-Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 13 tools should appear.
+Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 14 tools should appear.
 
 PyMOL is optional. The [usage guide](docs/USAGE.md) covers how to set it up, which prompts work, and what the server does not do.
 
@@ -155,7 +156,7 @@ docs/                usage guide, interpretation guide, demo script, sample repo
 
 Phase 3 will start experiments from the Phase 2 manifest: docking and molecular dynamics for small molecules, and complex prediction for biologics, with a human review before anything runs. A structure with the user's choice, pocket and box is already recorded for that hand-off. The first Phase 3 tool, `dock_ligand`, re-docks a crystal ligand into its own pocket. The criterion was pre-registered before anything was run: RMSD of 2.0 Å or less, from a regenerated conformer. In the validation, vemurafenib in 3OG7 gave 0.61 Å (conformer from the ChEMBL SMILES). Through the tool it gave 0.54 Å (conformer from the crystal ligand's own atoms and bonds), the same in every run that completed on 2026-11-05, whose Vina times ranged from 61 to 124 s. Runs started with little free memory were much slower and one was stopped at the 900 s limit. This is one re-docking of one ligand in one structure, not the accuracy of docking.
 
-Docking runs in a separate process because a chat request does not live long enough: in Claude Desktop the call was cut after 60 s or 240 s, and the cancellation took Vina with it. `dock_ligand` validates, refuses what it must refuse, launches and answers; `dock_status` reports the run and returns the result. One run at a time, a lock for the whole machine, and a run that dies is reported as such rather than as a result. Next: the docking section of the report, a hand-off package for CHARMM-GUI, a SLURM template, docking of ChEMBL compounds and ADMET.
+Docking runs in a separate process because a chat request does not live long enough: in Claude Desktop the call was cut after 60 s or 240 s, and the cancellation took Vina with it. `dock_ligand` validates, refuses what it must refuse, launches and answers; `dock_status` reports the run and returns the result. One run at a time, a lock for the whole machine, and a run that dies is reported as such rather than as a result. The experiment record is a document of its own (`build_experiment_report`): calculated values never share a page with the measured potency of the research report, which gains one line saying the record exists. Next: a hand-off package for CHARMM-GUI, a SLURM template, docking of ChEMBL compounds and ADMET.
 
 ## Data sources
 
