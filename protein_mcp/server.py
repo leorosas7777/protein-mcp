@@ -50,7 +50,7 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import choice, control, dock, interfaces, prepare, viewer  # noqa: E402
+from protein_mcp.files import choice, control, dock, interfaces, md_package, prepare, viewer  # noqa: E402
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -779,6 +779,82 @@ async def dock_status(
     """
     return await dock.dock_status(uniprot_id, structure, pocket, conformer, stop)
 
+
+@mcp.tool()
+async def build_md_package(
+    uniprot_id: str,
+    structure: str = "",
+    pocket: str = "",
+    conformer: str = "",
+    pose: int = 1,
+) -> dict:
+    """Phase 3: write the folder the USER uploads to CHARMM-GUI to build a molecular dynamics
+    system for a docked complex (receptor + one pose, in solution).
+
+    CHARMM-GUI has no public API for this, so the delivery is manual: this tool only writes
+    files and checks them. It does not contact CHARMM-GUI and starts no simulation. Run
+    dock_ligand first; the pose comes from the manifest, never from the chat.
+
+    `structure` and `pocket` as in dock_ligand (with no `structure`, the user's choice is used).
+    `conformer` names the run when the pocket has more than one. `pose` is 1-based over the
+    poses of that run, 1 (best scored) by default.
+
+    Tell the user, from this reply and nothing else:
+    - the two files of `upload` and the folder `package_dir`, and that the PDB must keep its
+      name (CHARMM-GUI reads the entry id from the file name);
+    - which runs to tick under "Model missing residues" (`tick_model_missing_residues`) and
+      which to leave unticked (`leave_unticked`: disordered terminal tails, not gaps);
+    - that README.md in that folder has the full click-by-click sequence;
+    - that when CHARMM-GUI returns the .tgz they should come back, because
+      check_charmm_gui_output has to verify it before anything is simulated. Of the four jobs of
+      the validation two finished with a broken system, so finishing the wizard proves nothing.
+
+    Always repeat `modelled_not_experimental`: the residues CHARMM-GUI builds into the gaps are
+    modelled, not experimental, and any later report must say so where they are discussed. Give
+    `missing_residues_source` as it comes: when the mmCIF has no record of unobserved residues,
+    say that the tool cannot tell, never that the structure has no gaps. If
+    `internal_runs_partly_in_the_file` is present, pass it on: those runs can be neither modelled
+    nor ignored, and the user has to look at the entry.
+
+    Refused (`ok: false`): no manifest, no docking run for that pocket, several runs without
+    `conformer`, a pose index outside the range, files changed since the manifest, or a written
+    PDB and SDF that do not agree atom by atom.
+    """
+    return md_package.build_md_package(uniprot_id, structure, pocket, conformer, pose)
+
+
+@mcp.tool()
+async def check_charmm_gui_output(
+    uniprot_id: str,
+    archive: str,
+    structure: str = "",
+    pocket: str = "",
+) -> dict:
+    """Phase 3: verify the .tgz CHARMM-GUI returns against the package build_md_package handed
+    over, BEFORE any simulation is submitted.
+
+    `archive` is the path to the .tgz on this machine. Nothing is sent anywhere; the archive is
+    read into a temporary folder and deleted.
+
+    Read the answer like this:
+    - `passes: true` means every check that COULD run passed. It is not "everything is fine":
+      always read `not_checked` and repeat it to the user. A check that could not run is a real
+      gap, not a detail (without the Modeller intermediate the ANISOU trap that broke one of the
+      validation jobs is not looked for at all).
+    - `passes: false` means it must NOT be submitted: list `failures` verbatim. They are
+      diagnoses, not guesses: a system without the ligand, a protein that came back distorted,
+      gaps bridged by a long artificial bond instead of filled, a pose that changed shape, or an
+      archive from another job.
+    - `checks` holds the measured values (geometry, ligand, box, ions, temperature, steps,
+      CGenFF penalties). Quote numbers from there, never from memory.
+    - Repeat `modelled_not_experimental` whenever the filled gaps are discussed.
+
+    Say plainly that reaching the end of the CHARMM-GUI wizard proves nothing: it reports no
+    error for any of these failures. What is NOT measured: the absolute displacement of the pose
+    (shape, pocket contacts and clashes are, so a rigid shift of about 1.5 A or less would not be
+    caught) and the values under `system`, which are reported without any threshold.
+    """
+    return md_package.check_charmm_gui_output(uniprot_id, archive, structure, pocket)
 
 
 def main():
