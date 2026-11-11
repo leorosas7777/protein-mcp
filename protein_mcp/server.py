@@ -50,7 +50,9 @@ logging.basicConfig(level=logging.INFO)
 from protein_mcp import experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
-from protein_mcp.files import choice, control, dock, interfaces, md_package, prepare, viewer  # noqa: E402
+from protein_mcp.files import (  # noqa: E402
+    choice, control, dock, interfaces, md_package, md_run, prepare, viewer,
+)
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
 from protein_mcp.sources.rcsb import MAX_PDB_MODELS, fetch_pdb  # noqa: E402
@@ -855,6 +857,96 @@ async def check_charmm_gui_output(
     caught) and the values under `system`, which are reported without any threshold.
     """
     return md_package.check_charmm_gui_output(uniprot_id, archive, structure, pocket)
+
+
+@mcp.tool()
+async def build_md_job(
+    uniprot_id: str,
+    archive: str,
+    structure: str = "",
+    pocket: str = "",
+    gpu_resident: bool = False,
+    site_report: str = "",
+    partition: str = "",
+    account: str = "",
+    time_limit: str = "",
+    cpus_per_task: int = 0,
+    gpus: int = 1,
+    gpu_type: str = "",
+    namd_module: str = "",
+    namd_binary: str = "",
+) -> dict:
+    """Phase 3: write the SLURM job the USER submits on THEIR cluster to run the molecular
+    dynamics of a CHARMM-GUI system.
+
+    `archive` is the path to the .tgz on this machine. The archive is re-checked here with the
+    same measurements as check_charmm_gui_output and the job is REFUSED if they fail, so a
+    `ok: false` with `failures` means the system must not be simulated, not that the tool broke.
+    Nothing is sent anywhere and no simulation is started: the transfer and `sbatch` are manual,
+    exactly like the CHARMM-GUI upload. `structure` and `pocket` as in build_md_package.
+
+    THIS TOOL KNOWS NOTHING ABOUT ANY CLUSTER, and will not guess. Called without `site_report`
+    it writes no script and comes back with `site_unknown` plus the commands in
+    `paste_the_output_of`. Give those commands to the user to run on their own machine and ask
+    them to paste everything back; then call again with all of it in `site_report`. Never fill a
+    partition, account, module, binary or time limit from memory, from another session, or from
+    what some other cluster uses, and never invent the output of those commands yourself.
+
+    The reply then separates two things that must not be mixed, and you should keep them apart
+    when you talk about them:
+    - `simulation`: read from the archive. The chunk count is `cntmax` from its own namd/README
+      and the chunk length comes from the `run` line of the production input. The equilibration
+      runs as CHARMM-GUI wrote it.
+    - `site`: one entry per `#SBATCH` field, each with a `mark` and a `source`. REPORTED means it
+      was read from the pasted output and the source names the command; CHOSEN means the user
+      said so; CONFIRM means nothing could fill it and the script will abort until they do;
+      EDITABLE is a knob whose default comes from a stated rule. Quote the `source` when the
+      user asks where a value came from, and say plainly when something is EDITABLE rather than
+      measured. `site_report_unparsed` holds the pasted lines that were not understood: pass them
+      on instead of pretending they were used.
+
+    Tell the user, from this reply and nothing else: `run_dir`; that README.md there has the
+    transfer and submit lines; whatever is in `to_confirm`; `run_several_at_once` when present
+    (one SLURM array task per system, rebuilt from the manifest with every system whose archive
+    passed the checks); `verified.not_checked`, repeated as it comes, because a check that could
+    not run is a real gap; and `modelled_not_experimental` wherever the filled gaps are discussed.
+
+    For a longer run, give both places in `edit_to_change_the_length`: CHUNKS in run_md.slurm, or
+    the chunk length in the production input. For that second one give BOTH lines it names, with
+    their numbers and current text: the real input carries `numsteps` AND `run`, NAMD executes the
+    steps of `run`, and raising only `numsteps` would leave every chunk at its current length.
+    Those are STEPS, not seconds, and editing the input means the system is no longer the one
+    CHARMM-GUI returned and verified.
+
+    Do NOT estimate how long the run will take: no wall time per nanosecond has been measured for
+    this system on any machine. `--time` is the limit the cluster REPORTED, used as a ceiling; the
+    honest way to replace it is to measure the first chunk with the `sacct` line the reply and the
+    README give. The script times each production chunk and keeps the last measurement, so a
+    re-submitted job is guarded from its first chunk and continues where it stopped; the very
+    first chunk of the first submission runs unguarded.
+
+    What the cluster reports is not a promise that the job runs: whether NAMD works there, and
+    whether the site wants `--gres=gpu` or `--gpus`, only the first `sbatch` will tell. Say so.
+
+    A partition can be several kinds of node: on a real cluster `gpu` had six rows with five GPU
+    models (rtx_2080, rtx_3090, a100, V100). When that happens nothing is sized from them and
+    `site.partition.gpu_types_reported` lists the models: tell the user, because without
+    `gpu_type` the job lands on whichever node the scheduler gives it, and for molecular dynamics
+    an rtx_2080 and an a100 are not the same machine. With `gpu_type` the request is sized against
+    that node and the model is pinned in the GRES.
+
+    The overrides (`partition`, `account`, `time_limit`, `cpus_per_task`, `gpus`, `gpu_type`,
+    `namd_module`, `namd_binary`) are for values the USER states. A partition that the pasted output does not
+    list, or a time over the limit it reports, is refused rather than written.
+
+    `gpu_resident: true` inserts `CUDASOAintegrate on` before the line that executes the run. It
+    is an edit to CHARMM-GUI's output, reported in `inputs_edited`: only use it if the user asks,
+    and then say the input was changed. It has not been tested on any cluster, and the
+    equilibration is deliberately left untouched.
+    """
+    return md_run.build_md_job(uniprot_id, archive, structure, pocket, gpu_resident, site_report,
+                               partition, account, time_limit, cpus_per_task, gpus, gpu_type,
+                               namd_module, namd_binary)
 
 
 def main():
