@@ -51,7 +51,7 @@ from protein_mcp import experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
 from protein_mcp.files import (  # noqa: E402
-    choice, control, dock, interfaces, md_package, md_run, prepare, viewer,
+    choice, control, dock, interfaces, md_analyze, md_package, md_run, prepare, viewer,
 )
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
@@ -947,6 +947,169 @@ async def build_md_job(
     return md_run.build_md_job(uniprot_id, archive, structure, pocket, gpu_resident, site_report,
                                partition, account, time_limit, cpus_per_task, gpus, gpu_type,
                                namd_module, namd_binary)
+
+
+@mcp.tool()
+async def analyze_md(
+    folder: str,
+    topology: str = "",
+    ligand_resname: str = "LIG",
+    ligand_segid: str = "",
+    pocket_cutoff: float = 5.0,
+    skip_frames: int = -1,
+    reference_frame: int = -1,
+    include_series: bool = False,
+    stage: str = "",
+) -> dict:
+    """Phase 3: measure a FINISHED molecular dynamics trajectory that the user has brought back
+    from their cluster, and report five metrics with the selection and the criterion behind each.
+
+    `folder` is a path ON THIS MACHINE holding the PSF and the DCD files (the folder itself, or
+    its `system/namd/`, which is where a build_md_job package keeps them). Nothing is downloaded:
+    the user copies the files back themselves, with scp, rsync or a client such as WinSCP. If the
+    folder has no .dcd yet, the run has not written one and the reply says so; do not retry.
+
+    What each metric answers, and in this order, because the first one gates the rest:
+    - `protein_rmsd`: the backbone against the reference frame, ONE SERIES PER PROTEIN SEGMENT
+      (`protein_rmsd.per_segment`); the headline numbers are the segment with the LARGEST DRIFT,
+      named in `protein_rmsd.segid` and with the rule in `protein_rmsd.headline_rule`. That is not
+      the segment that moved most: a chain swinging widely about one position has a drift near
+      zero, so check `per_segment` ranges before saying anything about how much the protein moved.
+      This is the EQUILIBRATION CONTROL. If it has not reached a plateau the
+      protein is still settling and every other number is premature; say that before discussing
+      the ligand. Chains are never fitted together, so motion of one chain relative to another is
+      NOT measured here: do not describe the whole protein from one segment's number.
+      BEFORE quoting it, read `trajectory.restraints`. The tool READS the NAMD restraint reference
+      file and reports, per group, how many of the atoms it measured were held: `restraints.held.
+      protein_backbone` and `restraints.held.ligand_heavy`. A CHARMM-GUI equilibration holds the
+      ligand's heavy atoms too, so BOTH the plateau and the ligand figures can be meaningless on
+      the same trajectory. Where `held` is above zero, say the figure passes by construction and
+      is not evidence; the offered reading marks those lines itself.
+      Each group carries `known`. When it is FALSE there is no number, and you report it as
+      UNKNOWN rather than as "not held": it means the reference file was absent, unreadable, named
+      a force-constant column that is not X/Y/Z/O/B, described a different number of atoms, or had
+      the right count in another order (its atom and residue names are checked against the
+      topology at every index this tool measures). Read `restraints.force_constant_column_source`
+      too: when no column was declared the tool ASSUMES B, which is what CHARMM-GUI writes, and
+      the counts are then unverified - say so. `restraints.declarations` lists every hold the
+      input declares; with both a spring and fixed atoms, the counts come from the frozen one.
+      And read `protein_rmsd.drift_is_meaningful`: with few analysed frames the drift is a
+      difference between single frames and cannot show a plateau at all. When it is false, pass on
+      `drift_warning` and do not call anything equilibrated.
+    - `ligand_rmsd`: the ligand's heavy atoms, superposed on the POCKET backbone. Report that it
+      is fitted on the pocket and not on the ligand, because the second would show a ligand
+      sitting still while it leaves the site.
+    - `com_distance`: ligand centre of mass against the pocket's. This is what separates a ligand
+      that reorients inside the site from one that dissociates. `pbc_corrected_frames` says
+      whether any frame needed a periodic-image correction.
+    - `hbonds`: per donor-H-acceptor pair, `frames_present` out of `frames_analysed`.
+      `occupancy_sampled` is a SHARE OF FRAMES, never a share of elapsed time: hydrogen bonds
+      break and re-form faster than a DCD stores frames. Repeat that whenever you quote it.
+    - `rmsf`: per pocket residue. With no apo control, a flexible residue cannot be attributed to
+      the ligand; say so rather than implying the ligand caused it.
+
+    Always report, from the reply and nothing else: `trajectory.frames_note` ("N of M frames
+    analysed"), `trajectory.minimization_note`, `trajectory.restraints.note`,
+    `trajectory.span_ns`, `ligand.selection` with
+    `ligand.dropped_note`, and `pocket.selection` with `pocket.segments_note`. Name the pocket
+    residues from `pocket.residues` when they are discussed; they are measured by distance in the
+    reference frame, so they are evidence, and a dossier label such as `3OG7_032_C` names a
+    POCKET, not a segment of the simulated system.
+
+    ONE STAGE is analysed, never two. `trajectory.stage` is the CHARMM-GUI stage (`step5`,
+    `step4`, ...), taken from the trajectory file names, and by default it is the LATEST stage
+    present, because CHARMM-GUI numbers stages in protocol order. Every other trajectory is named
+    in `trajectory.left_out` with its own stage, and `trajectory.stages_present` lists them all:
+    they were simulated at another point of the protocol, usually at another `dcdfreq`, so
+    chaining them would run the time axis backwards. The `stage` argument analyses a different one
+    instead, and naming a stage that is not there is a refusal that lists the ones that are.
+
+    THE TOOL NEVER DECIDES THAT A TRAJECTORY IS "PRODUCTION" OR "EQUILIBRATION", and neither may
+    you from its file name. Those words come only from the NAMD input of that stage, named in
+    `trajectory.stage_inputs`, which whoever built the job wrote; say where the word comes from.
+    What the input actually declares is in `trajectory.restraints` (were atoms held in place?) and
+    `trajectory.minimization` (are the first frames minimization rather than dynamics?), and those
+    two are the facts that decide whether a number means anything. When `stage_inputs` is empty, no
+    input was found and the part of the protocol is UNKNOWN: report it as unknown.
+    Always report `trajectory.stage`, `trajectory.stage_selection` and `trajectory.stage_note`.
+
+    Refusals are results, not failures, and come back as `ok: false` with the reason in `error`.
+    Trajectories whose frame spacing differs are refused by name instead of averaged, which
+    happens when `dcdfreq` was changed between chunks: pass on which files differ. A reference
+    frame with no residue near the ligand is refused instead of producing a residue list nothing
+    supports. Never retry a refusal unchanged, and never present one as a measurement.
+
+    The optional arguments are for the cases the defaults do not cover, and all of them are the
+    USER's choice, never yours to guess: `topology` names the PSF when it is not in the folder or
+    not the one the search would pick; `ligand_resname` defaults to `LIG`, which is what
+    CHARMM-GUI names the ligand it parameterised, and a refusal lists the non-standard residue
+    names actually present, so pass one of THOSE rather than inventing one; `ligand_segid` picks
+    ONE copy when the system holds several, which is refused otherwise - two copies measured
+    together put the centre of mass between them, where there is no ligand - and the refusal lists
+    the copies, so pass one of those segments and run the others separately, reporting each on its
+    own; `pocket_cutoff`
+    (angstrom, default 5.0) changes how far from the ligand a residue still counts as pocket, and
+    changing it changes the residue list, the superposition and the centre-of-mass reference
+    together, so say that it was changed whenever it was.
+
+    `com_distance.pbc_corrected_frames` is not a warning about the ligand. CHARMM-GUI writes
+    `wrapAll on`, so NAMD re-images whole molecules back into the box; each frame's ligand is put
+    in the image nearest where it was in the PREVIOUS frame, and the same corrected coordinates
+    feed the RMSD. Report the count when it is above zero, as re-imaging and not as motion -
+    but ONLY as a count of corrections, never as a reason to discount a large RMSD: a ligand that
+    really leaves the site produces a large RMSD and no correction at all, and the two are
+    different facts. Three fields say when the numbers above are not trustworthy and each must be
+    passed on plainly when it is above zero: `non_orthorhombic_frames` (the correction rule
+    assumes 90 deg angles and was NOT applied), `frames_without_box` (the frame declares no unit
+    cell, so nothing could be corrected) and `pocket_split_frames` (the pocket's own atoms span
+    more than half a box, so its centre of mass and the superposition are both unreliable and
+    nothing was corrected for it).
+
+    `skip_frames` defaults to the minimization frames that the NAMD input itself declares, read
+    from its `minimize` and `dcdfreq` lines. Those frames are NOT dynamics: minimization carries
+    a step number but no time, so counting them as simulated time is wrong. Pass 0 only if the
+    user asks, and then say the time axis is fiction for them. `trajectory.minimization_note` can
+    also say the answer is UNKNOWN, which is not the same as "none": it means no NAMD input of
+    this stage was found, so nothing was dropped and nobody knows whether something should have
+    been. Pass that on as unknown.
+
+    `reference_frame` is the frame everything is measured AGAINST: the pocket is selected around
+    the ligand there, both RMSDs take their zero there, and the series need not start at 0 if it
+    lies outside the analysed range. It is an index into the whole chained trajectory, counted
+    from 0, and it defaults to the first analysed frame. It is the USER's choice; `ligand_rmsd.
+    reference` says which frame was used, and that is what to report. A frame the trajectory does
+    not have comes back as `ok: false` with the frame count, and so does any negative value other
+    than the default: negatives are NOT counted from the end here. Pass the refusal on and ask the
+    user for a frame in range rather than guessing one.
+
+    `trajectory.span_ps` and `span_ns` are the elapsed time between the FIRST and the LAST
+    analysed frame, which is one frame spacing less than frames x dt. Quote the field, do not
+    recompute it.
+
+    `stage` names the CHARMM-GUI stage to analyse (`step5`, `step4`, ...) when the folder holds
+    more than one and the user does not want the latest. It is the USER's choice: offer it when
+    `trajectory.stages_present` shows another stage they might have meant, and never pass it on a
+    guess.
+
+    `reading` is an OFFERED INTERPRETATION and is the only part of the reply that is not a
+    measurement. Present it as such, always with `reading.thresholds_used`, and pass on
+    `reading.disclaimer`: those thresholds are conventions, not measurements of this system, and
+    the researcher's own judgement decides. Never upgrade it to a conclusion of your own and
+    never call a pose stable on your own authority.
+
+    What is NOT measured, and is listed in `not_measured`: binding affinity or any free energy
+    (none of these metrics is one, and a stable pose is not a potent ligand), bridging waters,
+    and whether the pose is correct. Repeat that list when the user asks what the simulation
+    proves.
+
+    `include_series` defaults to false and returns only the summary of each series. Pass true
+    when the user wants the per-frame values, for a plot or to see when something changed.
+    """
+    return md_analyze.analyze_md(
+        folder, topology=topology or None, ligand_resname=ligand_resname,
+        ligand_segid=ligand_segid, pocket_cutoff=pocket_cutoff, skip_frames=skip_frames,
+        reference_frame=reference_frame, include_series=include_series,
+        stage=stage or None)
 
 
 def main():
