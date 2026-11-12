@@ -2229,6 +2229,375 @@ def _run(folder: Path, topology: Path, **kwargs) -> dict:
     return md_analyze.analyze_md(folder, **kwargs)
 
 
+# ---------------------------------------------------------------------------------------------
+# Built (modelled) residues, 2026-11-12. On the first real production run the full-backbone
+# drift of the pocket chain was 1.35 A and 0.43 A without the 25 residues MODELLER had filled in.
+# ---------------------------------------------------------------------------------------------
+
+def _write_orig(path: Path, residues, icode: str = "", atoms=("N", "CA", "C", "O"),
+                partial=()) -> Path:
+    """An `.orig.pdb` with a full backbone per (resid, resname), in the real file's layout.
+
+    The real `3og7_proa.orig.pdb` starts `ATOM      1  N   ASP   449` with a BLANK chain column;
+    the columns the reader uses (12-15 atom, 17-20 residue name, 22-25 number, 26 insertion code)
+    are the same here. Residues in `partial` get a CA only, as a chain with missing atoms would.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines, serial = [], 0
+    for resid, resname in residues:
+        for name in (("CA",) if resid in partial else atoms):
+            serial += 1
+            lines.append(f"ATOM  {serial:5d} {' ' + name:<4} {resname:>3}  {resid:4d}{icode:1}   "
+                         f"{0.0:8.3f}{0.0:8.3f}{0.0:8.3f}{0.0:6.2f}{0.0:6.2f}           "
+                         f"{name[0]}")
+    path.write_text("\n".join(lines) + "\nEND\n")
+    return path
+
+
+RAMP = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0]
+
+
+def _built_residue_run(namd: Path) -> Path:
+    """Residue 3 of PROA walks along z by RAMP while residues 1, 2 and the ligand stay still.
+
+    With residue 3 counted as BUILT, the analytic answer is: observed-only RMSD 0 at every frame,
+    built-only RMSD equal to RAMP (a rigid translation carried by a fit that never moves), and a
+    full-segment RMSD that is neither.
+    """
+    import MDAnalysis as mda
+
+    namd.mkdir(parents=True, exist_ok=True)
+    u = _universe()
+    res3 = u.select_atoms("segid PROA and resid 3")
+    base = res3.positions.copy()
+    with mda.Writer(str(namd / "step5_production.dcd"), n_atoms=len(u.atoms), dt=2.0) as writer:
+        for z in RAMP:
+            res3.positions = base + np.array([0.0, 0.0, z], dtype=np.float32)
+            u.trajectory.ts.dimensions = np.array(BOX, dtype=np.float32)
+            writer.write(u.atoms)
+    (namd / "step5_production.inp").write_text(
+        NAMD_INPUT.replace("minimize                2000\n", ""))
+    return _run_topology(namd)
+
+
+def _has_series(node) -> bool:
+    if isinstance(node, dict):
+        return any(k in ("values", "times_ps") or _has_series(v) for k, v in node.items())
+    if isinstance(node, list):
+        return any(_has_series(v) for v in node)
+    return False
+
+
+def test_built_residues_are_split_from_the_observed_ones():
+    """The CHARMM-GUI layout: PSF in system/namd, `.orig.pdb` one level up in system/.
+
+    Control that must fail: without the split the observed residues would read the full-segment
+    series, which here is visibly non-zero.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        _built_residue_run(folder / "system" / "namd")
+        _write_orig(folder / "system" / "1abc_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        r = analyze_md(folder)
+        summary = analyze_md(folder, include_series=False)
+    assert r["ok"], r.get("error")
+    seg = r["modelled_residues"]["segments"]["PROA"]
+    assert seg["known"] and seg["residues"] == [3] and seg["ranges"] == "3", seg
+    assert seg["selection"] == ("1 of 3 residues of PROA were built: 1 absent from "
+                                "system/1abc_proa.orig.pdb"), seg["selection"]
+    assert seg["partial_backbone"] == [], seg
+    per = r["protein_rmsd"]["per_segment"]["PROA"]
+    assert max(per["values"]) > 0.5, per["values"]
+    assert max(per["observed_only"]["values"]) < 1e-3, per["observed_only"]["values"]
+    assert np.allclose(per["modelled_only"]["values"], RAMP, atol=2e-3), \
+        per["modelled_only"]["values"]
+    assert per["observed_only"]["atoms"] == 8 and per["modelled_only"]["atoms"] == 4, per
+    # the headline stays the full segment: the split is an addition, not a replacement
+    assert r["protein_rmsd"]["drift"] == per["drift"], (r["protein_rmsd"]["drift"], per["drift"])
+    line = next(l for l in r["reading"]["offered"] if l.startswith("Split into observed"))
+    assert "NOT PRE-REGISTERED" in line, line
+    assert "For PROA, the segment of the line above, the observed residues are within" in line, line
+    assert "experimental only if that was a deposited structure" in line, line
+    assert r["reading"]["offered"][0].startswith("Protein backbone RMSD"), r["reading"]["offered"]
+    assert r["pocket"]["modelled_residues_in_pocket"] == [], r["pocket"]
+    assert summary["ok"] and not _has_series(summary["protein_rmsd"]), summary["protein_rmsd"]
+    assert "observed_only" in summary["protein_rmsd"]["per_segment"]["PROA"]
+    json.dumps(r)
+    print(f"ok  built residue split out: observed {max(per['observed_only']['values']):.4f} A, "
+          f"built = ramp, full segment {max(per['values']):.3f} A; summary carries no series")
+
+
+def test_no_orig_file_means_unknown_not_none():
+    """No `.orig.pdb`: the answer is UNKNOWN, no split is computed, and nothing says 'none'."""
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        _built_residue_run(folder / "system" / "namd")
+        r = analyze_md(folder)
+    assert r["ok"], r.get("error")
+    seg = r["modelled_residues"]["segments"]["PROA"]
+    assert seg["known"] is False and "UNKNOWN" in seg["reason"], seg
+    assert "residues" not in seg and "count" not in seg, seg
+    per = r["protein_rmsd"]["per_segment"]["PROA"]
+    assert "observed_only" not in per and "modelled_only" not in per, per.keys()
+    note = r["pocket"]["modelled_residues_in_pocket_note"]
+    assert note.startswith("UNKNOWN whether any pocket residue of segment(s) PROA"), note
+    assert "0 of" not in note, note
+    assert r["pocket"]["modelled_residues_in_pocket"] is None, r["pocket"]
+    assert r["pocket"]["modelled_residues_known"] is False, r["pocket"]
+    assert any(l.startswith("Whether any pocket residue was built") for l in
+               r["reading"]["offered"]), r["reading"]["offered"]
+    assert r["protein_rmsd"]["drift"] > 0.5, r["protein_rmsd"]["drift"]
+    assert any("UNKNOWN" in l and "cannot be split" in l for l in r["reading"]["offered"]), \
+        r["reading"]["offered"]
+    assert not any(l.startswith("Split into observed") for l in r["reading"]["offered"])
+    print("ok  without an .orig.pdb the built residues are UNKNOWN and no split is offered")
+
+
+def test_an_orig_file_that_does_not_match_the_numbering_is_unknown():
+    """Each way the file can fail to describe THIS segment ends in UNKNOWN, never a list."""
+    u = _universe()
+    cases = {
+        "another residue name": [(1, "GLY"), (2, "ALA")],
+        "a number the segment does not have": [(1, "ALA"), (2, "ALA"), (7, "ALA")],
+    }
+    for label, residues in cases.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_orig(Path(tmp) / "x_proa.orig.pdb", residues)
+            seg = md_analyze.modelled_residues(u, [tmp])["segments"]["PROA"]
+        assert seg["known"] is False and "nothing is inferred" in seg["reason"], (label, seg)
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_orig(Path(tmp) / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA")], icode="A")
+        seg = md_analyze.modelled_residues(u, [tmp])["segments"]["PROA"]
+    assert seg["known"] is False and "insertion codes" in seg["reason"], seg
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_orig(Path(tmp) / "x_proa.orig.pdb", [(1, "ALA")])
+        _write_orig(Path(tmp) / "y_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        seg = md_analyze.modelled_residues(u, [tmp])["segments"]["PROA"]
+    assert seg["known"] is False and "2 different files" in seg["reason"], seg
+    # the same file reached through two search folders is ONE file, not two
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_orig(Path(tmp) / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        seg = md_analyze.modelled_residues(u, [tmp, tmp, Path(tmp) / "."])["segments"]["PROA"]
+    assert seg["known"] and seg["residues"] == [3], seg
+    # CHARMM's HSD is the deposited HIS; any other renaming is not
+    u.residues[1].resname = "HSD"
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_orig(Path(tmp) / "x_proa.orig.pdb", [(1, "ALA"), (2, "HIS")])
+        seg = md_analyze.modelled_residues(u, [tmp])["segments"]["PROA"]
+    assert seg["known"] and seg["residues"] == [3], seg
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_orig(Path(tmp) / "x_proa.orig.pdb", [(1, "ALA"), (2, "GLY")])
+        seg = md_analyze.modelled_residues(u, [tmp])["segments"]["PROA"]
+    assert seg["known"] is False, seg
+    print("ok  a renamed, renumbered, insertion-coded or doubled .orig.pdb is UNKNOWN; HSD = HIS")
+
+
+def test_a_built_pocket_residue_is_named():
+    """Residue 1 is in the pocket. Built, it must be named in the pocket and in the reading."""
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        write_fixture(folder)
+        _run_topology(folder)
+        _write_orig(folder / "x_proa.orig.pdb", [(2, "ALA"), (3, "ALA")])
+        r = analyze_md(folder)
+    assert r["ok"], r.get("error")
+    assert r["pocket"]["modelled_residues_in_pocket"] == ["PROA:ALA1"], r["pocket"]
+    assert r["pocket"]["modelled_residues_in_pocket_note"].startswith("1 of 2 pocket residues"), \
+        r["pocket"]["modelled_residues_in_pocket_note"]
+    assert any("PROA:ALA1" in l and "were built" in l for l in r["reading"]["offered"]), \
+        r["reading"]["offered"]
+    print("ok  a built pocket residue is named in the pocket block and in the reading")
+
+
+def test_the_built_residues_are_carried_by_the_rotation_and_weighted_by_mass():
+    """Reviewer round 2026-11-12, H4: the first split test never rotated anything.
+
+    Here the WHOLE system turns rigidly, and on top of that only the O of residue 3 (built) moves
+    by d along z. The analytic answer: observed residues 0 at every frame; built residues
+    d * sqrt(m_O / (m_N + m_CA + m_C + m_O)), because the RMSD is mass-weighted. (The O, not the
+    N: sqrt(m_N / sum) is 0.509, too close to the unweighted 0.5 to tell the two apart.) Applying the
+    rotation the wrong way round (`@ rot` for `@ rot.T`) leaves a residual that grows with the
+    angle, and an unweighted RMSD would read d / 2.
+    """
+    import MDAnalysis as mda
+
+    shifts, angles = [0.0, 2.0, 4.0, 6.0], [0.0, 20.0, 40.0, 60.0]
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        namd = folder / "system" / "namd"
+        namd.mkdir(parents=True)
+        u = _universe()
+        base = u.atoms.positions.copy()
+        centre = base.mean(axis=0)
+        n3 = u.select_atoms("segid PROA and resid 3 and name O")[0].index
+        with mda.Writer(str(namd / "step5_production.dcd"), n_atoms=len(u.atoms), dt=2.0) as w:
+            for d, a in zip(shifts, angles):
+                pos = base.copy()
+                pos[n3] += np.array([0.0, 0.0, d])
+                u.atoms.positions = ((pos - centre) @ _rotation(a).T + centre).astype(np.float32)
+                u.trajectory.ts.dimensions = np.array(BOX, dtype=np.float32)
+                w.write(u.atoms)
+        (namd / "step5_production.inp").write_text(
+            NAMD_INPUT.replace("minimize                2000\n", ""))
+        _run_topology(namd)
+        _write_orig(folder / "system" / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        r = analyze_md(folder)
+    assert r["ok"], r.get("error")
+    per = r["protein_rmsd"]["per_segment"]["PROA"]
+    m = {"N": 14.007, "CA": 12.011, "C": 12.011, "O": 15.999}
+    expected = [d * np.sqrt(m["O"] / sum(m.values())) for d in shifts]
+    assert max(per["observed_only"]["values"]) < 2e-3, per["observed_only"]["values"]
+    assert np.allclose(per["modelled_only"]["values"], expected, atol=2e-3), \
+        (per["modelled_only"]["values"], expected)
+    assert abs(expected[-1] - shifts[-1] / 2) > 0.2, (expected, shifts)
+    print(f"ok  built residues carried through a 60 deg turn, mass-weighted: "
+          f"{per['modelled_only']['values']} = {[round(e, 4) for e in expected]}")
+
+
+def test_a_residue_without_a_full_backbone_counts_as_built():
+    """H5: present in the .orig.pdb with a CA only, its N, C and O were built by MODELLER."""
+    u = _universe()
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_orig(Path(tmp) / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA"), (3, "ALA")],
+                    partial=(2,))
+        seg = md_analyze.modelled_residues(u, [tmp])["segments"]["PROA"]
+    assert seg["known"] and seg["residues"] == [2] and seg["partial_backbone"] == [2], seg
+    assert "without all of N, CA, C, O" in seg["selection"], seg["selection"]
+    print("ok  a residue with a CA only in the .orig.pdb is counted as built")
+
+
+def test_a_system_folder_away_from_the_topology_is_not_searched():
+    """H5: an `.orig.pdb` of another build under `folder` must not answer for this topology."""
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        # the topology under run/system/namd; another build's file under system/ at the root,
+        # which the first version searched and would have accepted
+        write_fixture(folder / "run" / "system" / "namd")
+        _run_topology(folder / "run" / "system" / "namd")
+        _write_orig(folder / "system" / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        r = analyze_md(folder)
+        assert r["ok"], r.get("error")
+        assert r["modelled_residues"]["segments"]["PROA"]["known"] is False, r["modelled_residues"]
+        # control: the same file next to the topology IS found
+        _write_orig(folder / "run" / "system" / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        r = analyze_md(folder)
+    assert r["modelled_residues"]["segments"]["PROA"]["known"] is True, r["modelled_residues"]
+    print("ok  only the topology's folder and the one above it are searched")
+
+
+def test_the_build_md_job_layout_finds_the_files_beside_the_other_copy():
+    """Second review round, finding 1, on the project's own layout.
+
+    A build_md_job folder holds `step3_input.psf` at its ROOT and, byte-identical, under
+    run/system/namd/; the search picks the root copy, and the `.orig.pdb` files sit in run/system/.
+    The first fix searched only beside the root copy and answered UNKNOWN on every real package.
+    Control: a root .psf that is NOT identical (another build) must not open run/system/.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        write_fixture(folder)
+        top = _run_topology(folder)
+        namd = folder / "run" / "system" / "namd"
+        namd.mkdir(parents=True)
+        (namd / "step3_input.psf").write_bytes(top.read_bytes())
+        _write_orig(folder / "run" / "system" / "x_proa.orig.pdb", [(1, "ALA"), (2, "ALA")])
+        r = analyze_md(folder)
+        assert r["ok"], r.get("error")
+        seg = r["modelled_residues"]["segments"]["PROA"]
+        assert seg["known"] and seg["residues"] == [3], (seg, r["topology"]["selection"])
+        assert "byte-identical" in r["modelled_residues"]["searched_note"], r["modelled_residues"]
+        # control: the copy under run/system/namd differs by one byte -> another topology
+        (namd / "step3_input.psf").write_bytes(top.read_bytes() + b"\n")
+        r = analyze_md(folder)
+    seg = r["modelled_residues"]["segments"]["PROA"]
+    assert seg["known"] is False, (seg, r["topology"]["selection"])
+    print("ok  a build_md_job folder finds its .orig.pdb beside the identical copy, and only then")
+
+
+def test_a_full_figure_within_the_limit_can_hide_an_observed_drift():
+    """Second review round, finding 2: built residues drifting the other way offset the observed
+    ones, and the verdict said 'the split changes nothing' beside a figure ABOVE the limit."""
+    obs = {"drift": 0.7, "atoms": 8}
+    mod = {"drift": -2.0, "last_quarter_mean": 2.5}
+    lines = _fake_reading({"PROA": {"drift": 0.2, "observed_only": obs, "modelled_only": mod}},
+                          "PROA", {"PROA": {"known": True, "count": 1, "residues_total": 3,
+                                            "ranges": "3"}})
+    split = next(l for l in lines if l.startswith("Split into observed"))
+    assert "changes nothing" not in split and "hides it" in split, split
+    print("ok  a full figure within 0.5 A over an observed drift above it is called out")
+
+
+def test_a_geometric_hydrogen_bond_selection_is_refused():
+    """The selections are evaluated ONCE (update_selections=False, 119.5 s -> 1.6 s on the real
+    production). That is only right while they are topological; a geometric term would be frozen
+    at the first frame, so it is refused instead."""
+    u = _universe()
+    try:
+        md_analyze.hydrogen_bonds(u, "LIG or (around 5 protein)", first_frame=0, frames_analysed=1)
+    except MdAnalyzeError as exc:
+        assert "geometric term" in str(exc), exc
+    else:
+        raise AssertionError("a geometric selection was evaluated once and kept")
+    print("ok  a geometric hydrogen-bond selection is refused, not frozen at frame 0")
+
+
+def _fake_reading(per_segment, head, built, **observed_extra):
+    """A result with just the fields `reading` reads, for the wording controls."""
+    prot = {**per_segment[head], "segid": head, "per_segment": per_segment,
+            "first_quarter_mean": 1.0, "last_quarter_mean": 1.0 + per_segment[head]["drift"]}
+    return md_analyze.reading({
+        "protein_rmsd": prot,
+        "ligand_rmsd": {"max": 1.0, "last_quarter_mean": 1.0},
+        "com_distance": {"range": 0.5, "mean": 3.0, "n": 10},
+        "hbonds": {"pairs": [], "pairs_found": 0},
+        "modelled_residues": {"segments": built},
+    })["offered"]
+
+
+def test_the_split_speaks_only_for_the_segment_it_split():
+    """H1 and H6, from the reviewer's reproduction.
+
+    PROB drifts 0.9 A and its built residues are UNKNOWN; PROA was split and its observed residues
+    are flat. The reading said the excess "in the line above" (PROB's) came from built residues,
+    and the UNKNOWN line for PROB vanished. And with the headline within 0.5 A, it still said
+    something "exceeds" it.
+    """
+    obs = {"drift": 0.3, "atoms": 8}
+    mod = {"drift": 2.0, "last_quarter_mean": 2.5}
+    known = {"known": True, "count": 1, "residues_total": 3, "ranges": "3"}
+    lines = _fake_reading(
+        {"PROA": {"drift": 0.6, "observed_only": obs, "modelled_only": mod},
+         "PROB": {"drift": 0.9}},
+        "PROB", {"PROA": known, "PROB": {"known": False, "reason": "no file"}})
+    split = next(l for l in lines if l.startswith("Split into observed"))
+    assert "comes from the residues CHARMM-GUI built" not in split, split
+    assert "PROB, is not among them" in split, split
+    assert any(l.startswith("Segment PROB drifts") and "UNKNOWN" in l for l in lines), lines
+    # H6: the headline already within the figure
+    lines = _fake_reading({"PROA": {"drift": 0.2, "observed_only": obs, "modelled_only": mod}},
+                          "PROA", {"PROA": known})
+    split = next(l for l in lines if l.startswith("Split into observed"))
+    assert "changes nothing there" in split and "exceeds" not in split, split
+    # control: the case the sentence is for
+    lines = _fake_reading({"PROA": {"drift": 0.9, "observed_only": obs, "modelled_only": mod}},
+                          "PROA", {"PROA": known})
+    split = next(l for l in lines if l.startswith("Split into observed"))
+    assert "comes from the residues CHARMM-GUI built" in split, split
+    print("ok  the split concludes only about the headline segment; UNKNOWN segments keep their line")
+
+
+def test_the_split_passes_on_a_drift_warning():
+    """H2: with too few frames the observed-only drift cannot show a plateau either."""
+    obs = {"drift": 0.1, "atoms": 8, "drift_warning": "THE DRIFT BELOW CANNOT SUPPORT A STATEMENT"}
+    mod = {"drift": 2.0, "last_quarter_mean": 2.5}
+    lines = _fake_reading({"PROA": {"drift": 0.9, "observed_only": obs, "modelled_only": mod}},
+                          "PROA", {"PROA": {"known": True, "count": 1, "residues_total": 3,
+                                            "ranges": "3"}})
+    split = next(l for l in lines if l.startswith("Split into observed"))
+    assert "NO STATEMENT ABOUT A PLATEAU" in split and "comes from" not in split, split
+    print("ok  a drift warning on the observed residues replaces the verdict")
+
+
 def main():
     test_the_fixture_is_what_it_claims()
     test_minimization_frames_are_read_from_the_input()
@@ -2310,6 +2679,22 @@ def main():
     test_the_force_constant_file_wins_over_the_coordinate_file()
     test_a_reference_file_with_nothing_in_it_is_unknown()
     test_the_hydrogen_bond_line_is_not_left_clean_when_the_atoms_are_held()
+    # 2026-11-12: residues built by CHARMM-GUI, after the first real production run
+    test_built_residues_are_split_from_the_observed_ones()
+    test_no_orig_file_means_unknown_not_none()
+    test_an_orig_file_that_does_not_match_the_numbering_is_unknown()
+    test_a_built_pocket_residue_is_named()
+    # the reviewer's round on the split, same day
+    test_the_built_residues_are_carried_by_the_rotation_and_weighted_by_mass()
+    test_a_residue_without_a_full_backbone_counts_as_built()
+    test_a_system_folder_away_from_the_topology_is_not_searched()
+    test_the_split_speaks_only_for_the_segment_it_split()
+    test_the_split_passes_on_a_drift_warning()
+    # the second round on the split
+    test_the_build_md_job_layout_finds_the_files_beside_the_other_copy()
+    test_a_full_figure_within_the_limit_can_hide_an_observed_drift()
+    # Claude Desktop timed out: the hydrogen-bond selections are now evaluated once
+    test_a_geometric_hydrogen_bond_selection_is_refused()
     print("ALL OK")
 
 

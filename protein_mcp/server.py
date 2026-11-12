@@ -1004,6 +1004,23 @@ async def analyze_md(
       And read `protein_rmsd.drift_is_meaningful`: with few analysed frames the drift is a
       difference between single frames and cannot show a plateau at all. When it is false, pass on
       `drift_warning` and do not call anything equilibrated.
+      BUILT RESIDUES. `modelled_residues.segments` says, per segment, which residues CHARMM-GUI
+      built: absent from its `<pdb>_<segid>.orig.pdb`, or present there without all of N, CA, C,
+      O (`partial_backbone`). Only the topology's folder and the one above it are searched.
+      Where some were built, `protein_rmsd.per_segment.<SEG>` carries two more series:
+      `observed_only` (the observed residues, superposed on themselves) and `modelled_only` (the
+      built ones, carried by that superposition). "Observed" means present in the structure that
+      was uploaded to CHARMM-GUI; it is experimental only if that was a deposited structure, which
+      the tool does not check - do not call it experimental unless the user says what was
+      uploaded. A built loop's motion says how much a guess relaxed. Report both, and say plainly that the
+      full-segment figure stays the pre-registered control and that the split was NOT
+      pre-registered; the offered reading says so too. Never quote `observed_only` as if it were
+      the headline. When a segment has `known: false`, which residues were built is UNKNOWN:
+      report the `reason`, never "none were built". `pocket.modelled_residues_in_pocket` names any
+      built pocket residue; when it is not empty, say so before discussing the ligand figures.
+      When `pocket.modelled_residues_known` is false, the list may be None and whether the pocket
+      holds built residues is UNKNOWN: pass on `pocket.modelled_residues_in_pocket_note`, never
+      "no pocket residue was built".
     - `ligand_rmsd`: the ligand's heavy atoms, superposed on the POCKET backbone. Report that it
       is fitted on the pocket and not on the ligand, because the second would show a ligand
       sitting still while it leaves the site.

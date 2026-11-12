@@ -241,6 +241,7 @@ def find_inputs(folder, topology=None, stage=None) -> dict:
                "protocol these trajectories are. Do not call them production or equilibration "
                "without the input file")),
         "left_out": [d.name for d in others],
+        "psfs_all": psfs,
         "inputs": inps,
         "looked_in": [str(p) for p in places if p.is_dir()],
     }
@@ -751,6 +752,158 @@ def select_pocket(universe, ligand_heavy, cutoff: float, ref_frame: int) -> dict
 
 
 # ---------------------------------------------------------------------------------------------
+# 4b. Which residues were BUILT rather than observed
+# ---------------------------------------------------------------------------------------------
+
+# CHARMM names histidine by protonation state; the deposited file says HIS. Nothing else is
+# renamed: any other disagreement means the file does not describe this segment's numbering.
+_RESNAME_ALIASES = {"HSD": "HIS", "HSE": "HIS", "HSP": "HIS"}
+
+MODELLED_RULE = (
+    "a residue of the topology that is ABSENT from the `<pdb>_<segid>.orig.pdb` CHARMM-GUI writes "
+    "for that segment, or present there without all four backbone atoms N, CA, C, O, is counted "
+    "as built. That file is the chain as CHARMM-GUI read it, before it filled gaps; the rule is "
+    "read from the file names CHARMM-GUI uses, it is not a statement CHARMM-GUI makes. 'Observed' "
+    "means present in the structure that was UPLOADED to CHARMM-GUI: it is experimental only if "
+    "that structure was a deposited one, and this tool does not check what was uploaded. Only the "
+    "folder of the topology and the one above it are searched. The residue NAMES of every residue "
+    "the two share are compared (HSD/HSE/HSP read as HIS), and any disagreement makes the answer "
+    "UNKNOWN, never 'none'")
+
+_BACKBONE = {"N", "CA", "C", "O"}
+
+
+def _ranges(resids) -> str:
+    """[545, 546, 547, 597, 598] -> '545-547, 597-598'."""
+    out, start, prev = [], None, None
+    for r in sorted(resids):
+        if start is None:
+            start = prev = r
+        elif r == prev + 1:
+            prev = r
+        else:
+            out.append(f"{start}-{prev}" if prev != start else f"{start}")
+            start = prev = r
+    if start is not None:
+        out.append(f"{start}-{prev}" if prev != start else f"{start}")
+    return ", ".join(out)
+
+
+def _orig_residues(path: Path):
+    """({resid: resname}, {resid: atom names}) of an `.orig.pdb`, or a reason it cannot be trusted."""
+    found, atoms = {}, {}
+    for line in path.read_text(errors="replace").splitlines():
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        if len(line) < 27:
+            return None, f"{path.name} has an ATOM line too short to carry a residue number"
+        if line[26].strip():
+            return None, (f"{path.name} uses insertion codes ({line[17:27].strip()}), so its "
+                          "residue numbers cannot be matched one to one with the topology")
+        try:
+            resid = int(line[22:26])
+        except ValueError:
+            return None, f"{path.name} has a residue number that is not an integer: {line[22:26]!r}"
+        name = line[17:21].strip()
+        if found.get(resid, name) != name:
+            return None, f"{path.name} gives residue {resid} two names ({found[resid]}, {name})"
+        found[resid] = name
+        atoms.setdefault(resid, set()).add(line[12:16].strip())
+    if not found:
+        return None, f"{path.name} holds no ATOM or HETATM record"
+    return (found, atoms), None
+
+
+def modelled_residues(universe, search_dirs, root=None) -> dict:
+    """Per protein segment, the residues CHARMM-GUI built instead of reading from the structure.
+
+    Why this exists: on the first production run of this project the full-backbone RMSD of the
+    pocket chain drifted 1.35 A, and 1.25 A of it came from 25 residues MODELLER had filled in
+    (the activation loop 597-614 among them), which moved ~10 A while the 247 observed residues
+    stayed under 0.5 A. A built loop is a guess with no experimental coordinates, and an RMSD over
+    it says how much the guess relaxed, not whether the protein is equilibrated.
+
+    Every segment answers `known: true` with the list (possibly empty), or `known: false` with
+    the reason. An unknown is never reported as "nothing was built".
+    """
+    root = Path(root) if root is not None else None
+    dirs, seen = [], set()
+    for d in search_dirs:
+        d = Path(d)
+        if d.is_dir() and d.resolve() not in seen:
+            seen.add(d.resolve())
+            dirs.append(d)
+    backbone = universe.select_atoms("protein and name N CA C O")
+    segments = {}
+    for seg in sorted(set(backbone.segids)):
+        residues = universe.select_atoms(f"protein and segid {seg}").residues
+        total = int(residues.n_residues)
+        candidates, ids = [], set()
+        for d in dirs:
+            for path in sorted(d.glob(f"*_{seg.lower()}.orig.pdb")):
+                ident = _file_identity(path)
+                if ident not in ids:
+                    ids.add(ident)
+                    candidates.append(path)
+        names = [_relative(p, root) if root else p.name for p in candidates]
+        if not candidates:
+            segments[seg] = {"known": False, "residues_total": total,
+                             "reason": f"no *_{seg.lower()}.orig.pdb was found next to the "
+                                       "topology, so which residues were built is UNKNOWN"}
+            continue
+        if len(candidates) > 1:
+            segments[seg] = {"known": False, "residues_total": total,
+                             "reason": f"{len(candidates)} different files could describe {seg} "
+                                       f"({', '.join(names)}); none was chosen"}
+            continue
+        parsed, problem = _orig_residues(candidates[0])
+        if problem:
+            segments[seg] = {"known": False, "residues_total": total, "source_file": names[0],
+                             "reason": problem}
+            continue
+        orig, orig_atoms = parsed
+        topo = {}
+        for r in residues:
+            if int(r.resid) in topo:
+                problem = f"the topology numbers two residues of {seg} as {r.resid}"
+                break
+            topo[int(r.resid)] = r.resname
+        extra = sorted(set(orig) - set(topo))
+        clash = [f"{k}: {orig[k]} in the file, {topo[k]} in the topology"
+                 for k in sorted(set(orig) & set(topo))
+                 if _RESNAME_ALIASES.get(topo[k], topo[k]) != _RESNAME_ALIASES.get(orig[k], orig[k])]
+        if problem or extra or clash:
+            reason = problem or (
+                f"{len(extra)} residue number(s) of {names[0]} are not in segment {seg} "
+                f"({_ranges(extra)})" if extra else
+                f"{len(clash)} residue(s) carry a different name in {names[0]} than in the "
+                f"topology ({'; '.join(clash[:5])}{'; ...' if len(clash) > 5 else ''})")
+            segments[seg] = {"known": False, "residues_total": total, "source_file": names[0],
+                             "reason": reason + ". The file does not describe this segment's "
+                                                "numbering, so nothing is inferred from it"}
+            continue
+        absent = set(topo) - set(orig)
+        # Present in the file but without a full backbone: MODELLER built the missing atoms, and
+        # a backbone RMSD over them is partly a guess. They go with the built residues.
+        partial = sorted(k for k in set(orig) & set(topo) if not _BACKBONE <= orig_atoms[k])
+        built = sorted(absent | set(partial))
+        segments[seg] = {
+            "known": True,
+            "source_file": names[0],
+            "residues": built,
+            "ranges": _ranges(built) or "none",
+            "count": len(built),
+            "residues_total": total,
+            "partial_backbone": partial,
+            "selection": f"{len(built)} of {total} residues of {seg} were built: {len(absent)} "
+                         f"absent from {names[0]}"
+                         + (f" and {len(partial)} present there without all of N, CA, C, O "
+                            f"({_ranges(partial)})" if partial else ""),
+        }
+    return {"rule": MODELLED_RULE, "segments": segments}
+
+
+# ---------------------------------------------------------------------------------------------
 # 5. The single pass that produces four of the five metrics
 # ---------------------------------------------------------------------------------------------
 
@@ -810,7 +963,8 @@ def _series(values, times, *, unit: str) -> dict:
     }
 
 
-def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None) -> dict:
+def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None,
+            modelled=None) -> dict:
     """One pass over the trajectory: backbone RMSD, ligand RMSD, COM distance and RMSF inputs.
 
     Every frame is superposed on the POCKET BACKBONE. The rotation that does it is then applied to
@@ -832,6 +986,12 @@ def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None
 
     Only the small selections are kept in memory (33 ligand atoms, ~28 pocket CAs), so the cost
     does not grow with the 140k atoms of the box.
+
+    `modelled` maps a segid to the residue numbers that were BUILT, not observed (see
+    `modelled_residues`). For each segment with any, two more series are measured: the backbone
+    of the OBSERVED residues superposed on itself, and the built residues alone, carried by that
+    same superposition. The full-segment series stays the headline: it is the pre-registered
+    control, and the split is an addition, not a replacement.
     """
     import numpy as np
     from MDAnalysis.analysis import align
@@ -863,11 +1023,28 @@ def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None
     seg_sel = {s: backbone_all.select_atoms("segid " + s) for s in segids}
     seg_sel = {s: sel for s, sel in seg_sel.items() if sel.n_atoms}
 
+    # Observed / built split, per segment with at least one built residue AND one observed one.
+    split = {}
+    for s, built in (modelled or {}).items():
+        if s not in seg_sel or not built:
+            continue
+        sel = seg_sel[s]
+        mask = np.isin(sel.resids, list(built))
+        if mask.all() or not mask.any():
+            continue
+        split[s] = (sel[~mask], sel[mask])
+
     universe.trajectory[ref_frame]
     fit_masses = fit.masses
     ref_fit_com = fit.center_of_mass()
     ref_fit = fit.positions - ref_fit_com
     seg_ref = {s: (sel.positions - sel.center_of_mass(), sel.masses) for s, sel in seg_sel.items()}
+    split_ref = {}
+    for s, (obs, built) in split.items():
+        com = obs.center_of_mass()
+        split_ref[s] = (obs.positions - com, built.positions - com)
+    obs_rmsd = {s: [] for s in split}
+    built_rmsd = {s: [] for s in split}
 
     frames_without_box = 0
     non_orthorhombic = 0
@@ -948,6 +1125,17 @@ def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None
             _, rmsd_seg = align.rotation_matrix(sel.positions - sel.center_of_mass(),
                                                 ref_pos, weights=masses)
             seg_rmsd[s].append(float(rmsd_seg))
+        # the same, on the observed residues only; the built ones ride on that superposition, so
+        # their RMSD says how far the guess moved RELATIVE TO THE OBSERVED FRAME of the chain.
+        for s, (obs, built) in split.items():
+            obs_ref, built_ref = split_ref[s]
+            obs_com = obs.center_of_mass()
+            rot, rmsd_obs = align.rotation_matrix(obs.positions - obs_com, obs_ref,
+                                                  weights=obs.masses)
+            obs_rmsd[s].append(float(rmsd_obs))
+            moved = (built.positions - obs_com) @ np.asarray(rot).T
+            sq = ((moved - built_ref) ** 2).sum(axis=1)
+            built_rmsd[s].append(float(np.sqrt((sq * built.masses).sum() / built.masses.sum())))
 
         # superpose on the pocket backbone, then carry the ligand along.
         pocket_com = pocket_all.center_of_mass()
@@ -975,6 +1163,21 @@ def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None
     per_segment = {s: {**_series(vals, times, unit="angstrom"),
                        "atoms": int(seg_sel[s].n_atoms)}
                    for s, vals in seg_rmsd.items()}
+    for s, (obs, built) in split.items():
+        n_built = len(set(built.resids))
+        per_segment[s]["observed_only"] = {
+            **_series(obs_rmsd[s], times, unit="angstrom"),
+            "atoms": int(obs.n_atoms),
+            "selection": f"{obs.n_atoms} backbone atoms of the {len(set(obs.resids))} OBSERVED "
+                         f"residues of {s}, superposed on themselves; the {n_built} built "
+                         "residues are left out",
+        }
+        per_segment[s]["modelled_only"] = {
+            **_series(built_rmsd[s], times, unit="angstrom"),
+            "atoms": int(built.n_atoms),
+            "selection": f"{built.n_atoms} backbone atoms of the {n_built} BUILT residues of {s}, "
+                         "carried by the superposition on the observed ones (mass-weighted)",
+        }
     # The headline series is the segment that moved MOST, named. Taking the mildest, or an average
     # over chains, would hide exactly the chain an analyst needs to see.
     worst = max(per_segment, key=lambda s: abs(per_segment[s]["drift"])) if per_segment else None
@@ -1082,6 +1285,10 @@ def measure(universe, ligand, pocket, *, first_frame: int, ref_frame: int = None
 # 6. Hydrogen bonds
 # ---------------------------------------------------------------------------------------------
 
+_GEOMETRIC_SELECTION = re.compile(
+    r"\b(around|sphzone|sphlayer|cyzone|cylayer|point|prop|isolayer|byres)\b")
+
+
 def hydrogen_bonds(universe, resname: str, *, first_frame: int, frames_analysed: int,
                    segid: str = "") -> dict:
     """Ligand-protein hydrogen bonds, as a sampled occupancy per donor-H-acceptor triplet.
@@ -1117,9 +1324,22 @@ def hydrogen_bonds(universe, resname: str, *, first_frame: int, frames_analysed:
             "No hydrogen in the protein or the ligand is bonded to a nitrogen or an oxygen, so no "
             "donor can be identified. A PSF carries bonds; a topology without them (a bare PDB, "
             "for instance) cannot support hydrogen-bond analysis.")
+    # `update_selections=False`: the selections are TOPOLOGICAL (resname, protein, mass, bonded),
+    # so re-evaluating them on every frame - MDAnalysis's default - returns the same atoms each
+    # time and cost 119.5 s of a 135 s analysis on the real 140k-atom, 100-frame production,
+    # against 1.6 s without it, with the same 191 rows (compared element by element, 2026-11-12).
+    # That pushed the tool past the 60 s Claude Desktop's remote bridge waits, and the call died.
+    # A geometric keyword in either selection would make per-frame updates necessary again, so
+    # one is refused here rather than silently frozen at frame 0.
+    for sel in (lig_sel, acceptors_sel, hydrogens_sel):
+        if _GEOMETRIC_SELECTION.search(sel):
+            raise MdAnalyzeError(
+                f"The hydrogen-bond selection {sel!r} has a geometric term, and these selections "
+                "are evaluated once, not per frame.")
     hba = HBA(universe=universe, between=[lig_sel, "protein"],
               donors_sel=None, hydrogens_sel=hydrogens_sel, acceptors_sel=acceptors_sel,
-              d_a_cutoff=HB_DA_CUTOFF, d_h_a_angle_cutoff=HB_ANGLE_CUTOFF)
+              d_a_cutoff=HB_DA_CUTOFF, d_h_a_angle_cutoff=HB_ANGLE_CUTOFF,
+              update_selections=False)
     hba.run(start=first_frame, verbose=False)
 
     # `count_by_ids()` is NOT used, and deliberately. It converts to atom IDS
@@ -1259,6 +1479,85 @@ def reading(result: dict) -> dict:
         + (held_warning.format(by_atom.get("protein_backbone", {}).get("note", "restraints on"))
            if held else "")
         + (" " + prot["drift_warning"] + "." if prot.get("drift_warning") else ""))
+    # The observed/built split. Offered as its own line, never folded into the one above: the
+    # full-backbone comparison is the pre-registered control and keeps its own verdict.
+    limit = thresholds["protein_plateau_angstrom"]
+    per_seg = prot.get("per_segment", {})
+    split = {s: v for s, v in per_seg.items() if "observed_only" in v}
+    built_info = result.get("modelled_residues", {}).get("segments", {})
+    head = prot.get("segid")
+    if split:
+        parts, warnings_ = [], []
+        for s, v in split.items():
+            o, m = v["observed_only"], v["modelled_only"]
+            info = built_info.get(s, {})
+            o_drift = round(abs(o["drift"]), 4)
+            parts.append(
+                f"{s}: the observed residues drift {o_drift} A over {o['atoms']} atoms "
+                f"({'within' if o_drift <= limit else 'ABOVE'} the chosen {limit} A; full "
+                f"segment {round(abs(v['drift']), 4)} A), with {info.get('count', '?')} of "
+                f"{info.get('residues_total', '?')} residues built and left out "
+                f"({info.get('ranges', '?')}); the built residues alone drift "
+                f"{round(m['drift'], 4)} A and average {m['last_quarter_mean']} A over the last "
+                "quarter")
+            for series in (o, m):
+                if series.get("drift_warning"):
+                    warnings_.append(f"{s}: {series['drift_warning']}")
+        if warnings_:
+            verdict = ("NO STATEMENT ABOUT A PLATEAU CAN BE MADE FROM THESE FIGURES: "
+                       + "; ".join(dict.fromkeys(warnings_)) + ".")
+        elif head not in split:
+            verdict = (f"The segment of the line above, {head}, is not among them, so this split "
+                       "says nothing about its drift.")
+        else:
+            h_full = abs(per_seg[head]["drift"])
+            h_obs = abs(per_seg[head]["observed_only"]["drift"])
+            verdict = (
+                f"For {head}, the segment of the line above, the full backbone is within the "
+                "chosen figure but its observed residues alone are NOT, so the built residues "
+                "offset part of the observed drift and the full-backbone figure hides it."
+                if h_full <= limit < h_obs else
+                f"For {head}, the segment of the line above, the full backbone is within the "
+                "chosen figure already, so the split changes nothing there." if h_full <= limit else
+                f"For {head}, the segment of the line above, the observed residues are within "
+                "the chosen figure, so what exceeds it comes from the residues CHARMM-GUI built."
+                if h_obs <= limit else
+                f"For {head}, the segment of the line above, the observed residues still drift "
+                "beyond the chosen figure, so the built residues do not account for the whole "
+                "drift.")
+        notes.append(
+            "Split into observed and BUILT residues (built = absent from, or without a full "
+            "backbone in, CHARMM-GUI's .orig.pdb; observed = present in the structure uploaded to "
+            "CHARMM-GUI, which is experimental only if that was a deposited structure - not "
+            "checked here): " + "; ".join(parts) + ". " + verdict
+            + " THIS SPLIT WAS NOT PRE-REGISTERED: it was added on 2026-11-12, after the "
+              "full-backbone control above failed on this project's first production run. Its "
+              "reason - built residues are a guess, not a measurement - does not depend on the "
+              "result, but the decision to look came after seeing it. The line above remains the "
+              "pre-registered control."
+            + (held_warning.format(by_atom.get("protein_backbone", {}).get("note", "restraints on"))
+               if held else ""))
+    # Independent of the split above: every segment that drifts beyond the figure and whose built
+    # residues are UNKNOWN says so, whatever happened in the other segments.
+    for s, v in per_seg.items():
+        info = built_info.get(s, {})
+        if abs(v["drift"]) > limit and info and not info.get("known"):
+            notes.append(
+                f"Segment {s} drifts {round(abs(v['drift']), 4)} A over its full backbone, and "
+                f"whether any of its residues were built rather than observed is UNKNOWN "
+                f"({info.get('reason', 'not looked up')}), so that drift cannot be split into "
+                "observed and built residues.")
+    in_pocket = result.get("pocket", {}).get("modelled_residues_in_pocket") or []
+    if result.get("pocket", {}).get("modelled_residues_known") is False:
+        notes.append(
+            "Whether any pocket residue was built rather than observed is UNKNOWN ("
+            + result["pocket"].get("modelled_residues_in_pocket_note", "") + "). If some were, "
+            "the ligand figures are superposed on a guessed backbone.")
+    if in_pocket:
+        notes.append(
+            f"{len(in_pocket)} pocket residue(s) were built, not observed ({', '.join(in_pocket)}). "
+            "The ligand RMSD is superposed on the pocket backbone, theirs included, and the "
+            "pocket itself was selected around a ligand placed next to a guessed geometry.")
     notes.append(
         f"Ligand RMSD reaches {lig['max']} A at most and averages {lig['last_quarter_mean']} A over "
         f"the last quarter (chosen comparison: {thresholds['ligand_stable_angstrom']} A). "
@@ -1422,7 +1721,51 @@ def _analyze(folder, *, topology, ligand_resname, ligand_segid, pocket_cutoff, s
                 "to use the first analysed frame; negative values are not counted from the end.",
                 frames_total=int(len(universe.trajectory)))
         pocket = select_pocket(universe, ligand["atoms"], pocket_cutoff, ref)
-        measured = measure(universe, ligand, pocket, first_frame=first, ref_frame=ref)
+        # CHARMM-GUI keeps the `.orig.pdb` files one level above `namd/` (in `system/`); the
+        # folder the user named and the topology's own folder are searched too.
+        # Only next to the topology: a `system/` elsewhere under `folder` can belong to another
+        # build with the same numbering, and would be accepted as "known" for this one. "The
+        # topology" includes every other .psf found that is BYTE-IDENTICAL to the one measured:
+        # a build_md_job folder holds `step3_input.psf` at its root AND under run/system/namd/,
+        # the search picks the root copy, and the `.orig.pdb` files sit in run/system/ - next to
+        # the other copy of the same file, not of another build.
+        import filecmp
+        root = Path(folder)
+        psf = Path(found["psf"])
+        copies = [psf] + [p for p in found.get("psfs_all", [])
+                          if _file_identity(p) != _file_identity(psf)
+                          and filecmp.cmp(p, psf, shallow=False)]
+        search = [d for p in copies for d in (p.parent, p.parent.parent)]
+        built = modelled_residues(universe, search, root=root)
+        built["searched"] = list(dict.fromkeys(_relative(d, root) for d in search))
+        built["searched_note"] = (
+            "the folder of the measured topology and the one above it"
+            + (f", and the same for {len(copies) - 1} other .psf byte-identical to it"
+               if len(copies) > 1 else ""))
+        known_built = {s: set(v["residues"]) for s, v in built["segments"].items()
+                       if v.get("known") and v.get("residues")}
+        in_pocket = [label for label, r in zip(pocket["residues"], pocket["atoms"].residues)
+                     if int(r.resid) in known_built.get(r.segid, ())]
+        unknown_pocket_segs = sorted(s for s in pocket["segments"]
+                                     if not built["segments"].get(s, {}).get("known"))
+        # An empty list beside an UNKNOWN reads as "none". When any pocket segment is unknown, the
+        # list is None unless something was found, and the note leads with the unknown.
+        pocket["modelled_residues_known"] = not unknown_pocket_segs
+        pocket["modelled_residues_in_pocket"] = (in_pocket or None) if unknown_pocket_segs \
+            else in_pocket
+        n_known = sum(1 for r in pocket["atoms"].residues if r.segid not in unknown_pocket_segs)
+        found_part = (f"{len(in_pocket)} of {n_known} pocket residues were built, "
+                      f"not observed: {', '.join(in_pocket)}" if in_pocket else
+                      f"0 of {n_known} pocket residues were built")
+        pocket["modelled_residues_in_pocket_note"] = (
+            f"UNKNOWN whether any pocket residue of segment(s) {', '.join(unknown_pocket_segs)} "
+            "was built (see modelled_residues.segments); "
+            + ("in the other segment(s), " + found_part
+               if len(unknown_pocket_segs) < len(pocket["segments"]) else
+               "no other segment holds pocket residues")
+            if unknown_pocket_segs else found_part)
+        measured = measure(universe, ligand, pocket, first_frame=first, ref_frame=ref,
+                           modelled=known_built)
         measured["hbonds"] = hydrogen_bonds(universe, ligand_resname, first_frame=first,
                                             frames_analysed=measured["frames_analysed"],
                                             segid=ligand_segid)
@@ -1484,6 +1827,7 @@ def _analyze(folder, *, topology, ligand_resname, ligand_segid, pocket_cutoff, s
         },
         "ligand": {k: v for k, v in ligand.items() if k != "atoms"},
         "pocket": {k: v for k, v in pocket.items() if k not in ("atoms", "backbone")},
+        "modelled_residues": built,
         "protein_rmsd": measured["protein_rmsd"],
         "ligand_rmsd": measured["ligand_rmsd"],
         "com_distance": measured["com_distance"],
@@ -1509,6 +1853,9 @@ def _analyze(folder, *, topology, ligand_resname, ligand_segid, pocket_cutoff, s
         for series in out["protein_rmsd"].get("per_segment", {}).values():
             series.pop("values", None)
             series.pop("times_ps", None)
+            for part in ("observed_only", "modelled_only"):
+                series.get(part, {}).pop("values", None)
+                series.get(part, {}).pop("times_ps", None)
         out["hbonds"]["count_per_frame"].pop("values", None)
         out["hbonds"]["count_per_frame"].pop("times_ps", None)
     return out
