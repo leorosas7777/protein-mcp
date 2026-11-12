@@ -29,10 +29,18 @@ PENDING_SECTIONS = [
     ("2. Molecular dynamics", "No tool writes this section yet. Phase 3 step 4 is to build a delivery package "
                               "for CHARMM-GUI and a SLURM template (the simulation runs outside this machine and "
                               "comes back later), and this section stays empty until a run is recorded."),
-    ("3. ADMET", "No tool writes this section yet (Phase 3 step 7). ADMET values will be PREDICTED values and will "
-                 "be kept in their own section, never in the same table as the calculated docking scores or as "
-                 "measured potency."),
 ]
+# Section 3 is written by _admet() from the `admet` blocks analyze_admet records in the manifest.
+# What it must never do, decided when that tool was measured against the real API (ESTADO 7.3):
+# keep the three provenances in three tables, never average or convert a measured value, keep a
+# censored relation attached to its number, and present the rules as offered conventions.
+ADMET_VOCABULARY = (
+    "Section 3 holds three different kinds of statement, in three separate tables, and they are "
+    "not comparable with each other or with the calculated docking scores of section 1: the "
+    "ChEMBL record (facts of a database entry), the retrieved measurements (each with the units "
+    "and the assay it was measured in) and the calculated properties (computed from the ligand's "
+    "atoms and bonds). NOTHING in this section is a prediction: no value here comes from a "
+    "trained model.")
 
 VOCABULARY = ("The docking results in section 1 (Vina scores and RMSD values) are CALCULATED by AutoDock Vina "
               "and RDKit, as recorded in the manifest. The provenance lines quote other kinds of value: the "
@@ -255,6 +263,226 @@ def _docking(doc, m: dict, accession: str):
     return len(runs)
 
 
+def _admet_rows(m: dict) -> list:
+    """(structure, pocket_key, admet block) for every pocket with a recorded ADMET result."""
+    out = []
+    for s in m.get("structures") or []:
+        for key, block in sorted((s.get("admet") or {}).items()):
+            if isinstance(block, dict):
+                out.append((s, key, block))
+    return out
+
+
+def _admet(doc, m: dict, accession: str) -> int:
+    doc.h(2, "3. ADMET")
+    rows = _admet_rows(m)
+    if not rows:
+        doc.p("Not run. No ADMET result is recorded in prep/manifest.json. Run analyze_admet(\""
+              f"{accession}\", structure, pocket) to record one, and build this record again.")
+        return 0
+    doc.p(f"{len(rows)} compound{'' if len(rows) == 1 else 's'} recorded. " + ADMET_VOCABULARY,
+          small=True)
+    for s, key, block in rows:
+        ident = block.get("compound_identity") or {}
+        look = block.get("chembl_lookup") or {}
+        doc.h(3, f"{s.get('pdb_id')} · pocket {key} · {ident.get('comp_id') or NO_RECORD}")
+        doc.p(f"Recorded {_v(block.get('generated_at'))} by {_v(block.get('generated_by'))}. "
+              f"{block.get('selection') or ''}", small=True)
+
+        doc.h(4, "Compound identity")
+        doc.table(["Field", "Value"], [
+            ["InChIKey (computed here with RDKit)", ident.get("inchikey") or NO_RECORD],
+            ["Read from", ident.get("source") or NO_RECORD],
+            ["File", ident.get("source_file") or NO_RECORD],
+            ["SHA-256 of that file", ident.get("source_sha256") or NO_RECORD],
+            ["Docking run", ident.get("run_id") or "none (crystallographic ligand)"],
+            ["Agreement between the files", ident.get("identity_check") or NO_RECORD],
+            ["Heavy atoms (SDF / manifest pocket)",
+             f"{(block.get('calculated_properties') or {}).get('rdkit', {}).get('heavy_atoms', NO_RECORD)}"
+             f" / {_v(ident.get('heavy_atoms_in_manifest_pocket'))}"],
+            ["ChEMBL molecules with this exact InChIKey", _v(look.get("matches"))],
+        ], (0.38, 0.62))
+
+        rec = block.get("chembl_record") or {}
+        doc.h(4, "ChEMBL record (facts of the entry, not measurements)")
+        # "no record" and "the lookup never completed" are different statements and only the
+        # first is a fact about ChEMBL. Printing "No record." for a failed lookup was the report
+        # saying zero where the tool said UNKNOWN (reviewer finding 2026-11-12; real case:
+        # 5JSM pocket 6NB J, whose lookup returned HTTP 500).
+        if str(rec.get("status", "")).startswith("UNKNOWN"):
+            doc.p(f"UNKNOWN, not 'no record'. {rec.get('note') or ''} Whether this compound has a "
+                  "ChEMBL entry, a name, a development phase or any measurement was NOT "
+                  "established: the lookup did not complete. "
+                  + (rec.get("name_status") or "")
+                  + " Only the calculated properties and the rule reading below apply.",
+                  small=True)
+        elif rec.get("status") == "NO RECORD" or not rec.get("chembl_id"):
+            doc.p(f"No record. {rec.get('note') or 'No ChEMBL molecule has this exact InChIKey.'} "
+                  + (rec.get("name_status") or "")
+                  + " Only the calculated properties and the rule reading below apply.",
+                  small=True)
+        else:
+            fields = rec.get("fields") or {}
+            doc.p(Lines([Link(f"ChEMBL {rec['chembl_id']}", rec.get("link")),
+                         f" · name in ChEMBL: {rec.get('pref_name') or 'unnamed (no pref_name)'}"]),
+                  small=True)
+            minus_one = rec.get("fields_minus_one") or []
+            false_flags = rec.get("boolean_fields_false") or []
+            doc.table(["Field", "Value"],
+                      [[f, f"{_v(fields.get(f))} (-1, see below)" if f in minus_one
+                        else f"{_v(fields.get(f))} (default, see below)" if f in false_flags
+                        else _v(fields.get(f))] for f in
+                       ("max_phase", "first_approval", "withdrawn_flag", "black_box_warning",
+                        "oral", "parenteral", "topical", "molecule_type", "therapeutic_flag",
+                        "usan_stem", "first_in_class")]
+                      + [["ATC", ", ".join(rec.get("atc_classifications") or []) or NO_RECORD]],
+                      (0.38, 0.62))
+            if minus_one or false_flags:
+                doc.p(rec.get("defaults_note") or "", small=True)
+                if minus_one:
+                    doc.p("Returned as -1: " + ", ".join(minus_one) + ".", small=True)
+                if false_flags:
+                    doc.p("Returned as False: " + ", ".join(false_flags) + ". On an entry with "
+                          "nothing annotated every one of these is False, so none of them is "
+                          "evidence that the compound lacks that property.", small=True)
+
+        meas = block.get("measured_adme") or {}
+        doc.h(4, "Measured ADME (retrieved from ChEMBL)")
+        if not meas.get("retrieved"):
+            # "the lookup did not complete" was printed even when no query was made at all
+            if meas.get("no_chembl_entry"):
+                doc.p("No ADME measurement is reported because no ChEMBL molecule has this exact "
+                      "InChIKey, so no ADME query was made. ChEMBL holds nothing for a compound it "
+                      "does not have; a measurement published elsewhere would not be here.",
+                      small=True)
+            else:
+                # the reason travels in the note: "the lookup failed" and "the time budget ran
+                # out before any assay type could be asked about" are different, and a document
+                # that prints neither leaves a zero looking like a real zero (reviewer, 11-12)
+                doc.p("UNKNOWN, not 'no data' and not zero rows: "
+                      + (meas.get("note") or "the ChEMBL lookup did not complete")
+                      + (f" ({meas['error']})" if meas.get("error") else ""), small=True)
+        else:
+            adme = meas.get("adme_rows") or []
+            read = meas.get("rows_read")
+            held = meas.get("rows_total")
+            doc.p(f"{len(adme)} of {_v(read)} rows read from ChEMBL assay types "
+                  f"{', '.join(meas.get('assay_types_queried') or {})} are on this project's ADME "
+                  f"allowlist. Assay types {', '.join(meas.get('assay_types_not_queried') or {})} "
+                  "were not queried, so a measurement filed only there is not here. Values are "
+                  "quoted with their own units and are never converted or averaged; a relation "
+                  "('>' or '<') is part of the value.", small=True)
+            if meas.get("truncated"):
+                # the cap was blamed for everything, including a clock that stopped the reading
+                # with the cap nowhere near (reviewer 11-12): the reason has to be the real one
+                skipped = meas.get("assay_types_skipped_at_the_time_budget") or []
+                cut = meas.get("assay_types_cut_off_at_the_time_budget") or []
+                capped = meas.get("assay_types_skipped_at_the_row_cap") or []
+                reason = ("the row cap of " + str(_v(meas.get("row_cap"))) + " was reached"
+                          if (read or 0) >= (meas.get("row_cap") or 10 ** 9)
+                          else "the time budget ran out, not the row cap: ChEMBL was slow, "
+                               "not empty" if skipped or cut
+                          else "reading stopped before the total ChEMBL reported was reached")
+                doc.p(f"TRUNCATED: ChEMBL holds at least {_v(held)} rows in the assay types "
+                      f"queried and only {_v(read)} were read, so {_v(meas.get('rows_not_read'))} "
+                      f"were never examined. Reason: {reason}. Every count in this subsection is "
+                      "a LOWER BOUND."
+                      + (f" Assay type(s) {', '.join(skipped)} were never queried at all, so how "
+                         "many rows they hold is UNKNOWN, not zero." if skipped else "")
+                      + (f" Assay type(s) {', '.join(cut)} were cut off part-way." if cut else "")
+                      + (f" Assay type(s) {', '.join(capped)} were not reached before the row cap "
+                         "was spent." if capped else ""), small=True)
+            if adme:
+                doc.table(["Property", "Type", "Value", "Units", "Assay"],
+                          [[r.get("adme_class") or NO_RECORD, r.get("standard_type") or NO_RECORD,
+                            f"{r.get('relation') or ''} {_v(r.get('value'))}".strip()
+                            + (" [depositor says calculated]"
+                               if r.get("description_says_value_was_calculated") else ""),
+                            r.get("units") or NO_RECORD, r.get("assay_description") or NO_RECORD]
+                           for r in adme],
+                          (0.14, 0.1, 0.14, 0.14, 0.48))
+                if any(r.get("description_says_value_was_calculated") for r in adme):
+                    doc.p("A row marked [depositor says calculated] has an assay description that "
+                          "says the value was calculated or estimated rather than measured. The "
+                          "wording is the source's own; such a row is not a measurement.",
+                          small=True)
+            else:
+                doc.p("No row in the assay types queried is on this project's ADME allowlist.",
+                      small=True)
+            other = meas.get("rows_excluded_by_allowlist_by_standard_type") or {}
+            if other:
+                # these rows are NOT "not ADME": for vemurafenib the excluded 'Ratio' rows are
+                # P-gp and BCRP efflux ratios and one 'Activity' row is CYP450 induction, all of
+                # which are ADME. Calling them "not ADME" was a claim about the source's data
+                # made from this project's own narrower allowlist (reviewer finding, 2026-11-11).
+                doc.p("Rows in those assay types that are NOT on this project's allowlist and were "
+                      "therefore excluded: "
+                      + ", ".join(f"{k or NO_RECORD} ({v})" for k, v in other.items())
+                      + ". This does not mean they are not ADME. The allowlist is narrower than "
+                        "ADME on purpose: the generic types 'Activity' and 'Ratio' carry real ADME "
+                        "in some rows (efflux ratios, CYP induction) and cytotoxicity or "
+                        "target-engagement in others, and the two cannot be separated without "
+                        "reading each assay description. An excluded row may hold a measurement "
+                        "this subsection does not show.", small=True)
+                # F3: the counts alone said WHICH TYPES were excluded but not WHAT they were, so
+                # the rows that prompted the paragraph above -- the P-gp and BCRP efflux ratios
+                # and the CYP450 induction -- stayed invisible to the reader it warns. They are
+                # listed here unclassified, under a heading that says so, and they are NOT added
+                # to the table above.
+                shown = meas.get("rows_excluded_by_allowlist") or []
+                if shown:
+                    doc.p(f"The excluded rows themselves ({meas.get('rows_excluded_shown')}), "
+                          "unclassified and NOT part of the count above, so each can be read on "
+                          "its own terms:", small=True)
+                    doc.table(
+                        ["Type", "Value", "Units", "Assay (ChEMBL's own description)"],
+                        [[r.get("standard_type") or NO_RECORD,
+                          " ".join(x for x in (r.get("relation"), _v(r.get("value"))) if x),
+                          r.get("units") or "—",
+                          r.get("assay_description") or NO_RECORD] for r in shown],
+                        # FRACTIONS of the usable width, like every other table in this project
+                        # (report.py multiplies them by it). Absolute points here squeezed the
+                        # whole table into 40% of the frame and cut off the very descriptions
+                        # this table exists to show (reviewer finding 2026-11-12).
+                        (0.14, 0.12, 0.12, 0.62))
+
+        calc = block.get("calculated_properties") or {}
+        rd, ch = calc.get("rdkit") or {}, calc.get("chembl") or {}
+        doc.h(4, "Calculated properties (not measured, not predicted)")
+        doc.p(calc.get("note") or "", small=True)
+        doc.table(["Property", f"This project ({rd.get('engine') or 'RDKit'})", "ChEMBL's own engine"],
+                  [["Molecular weight", _v(rd.get("molecular_weight")), _v(ch.get("full_mwt"))],
+                   ["cLogP", _v(rd.get("clogp")), _v(ch.get("alogp"))],
+                   ["TPSA", _v(rd.get("tpsa")), _v(ch.get("psa"))],
+                   ["H-bond donors", _v(rd.get("hbd")), _v(ch.get("hbd"))],
+                   ["H-bond acceptors", _v(rd.get("hba")), _v(ch.get("hba"))],
+                   ["Rotatable bonds", _v(rd.get("rotatable_bonds")), _v(ch.get("rtb"))],
+                   ["Aromatic rings", _v(rd.get("aromatic_rings")), _v(ch.get("aromatic_rings"))],
+                   ["Heavy atoms", _v(rd.get("heavy_atoms")), _v(ch.get("heavy_atoms"))],
+                   ["Fraction Csp3", _v(rd.get("fraction_csp3")), NO_RECORD],
+                   ["QED", _v(rd.get("qed")), _v(ch.get("qed_weighted"))],
+                   ["Formula", rd.get("molecular_formula") or NO_RECORD,
+                    ch.get("full_molformula") or NO_RECORD]],
+                  (0.3, 0.35, 0.35))
+
+        reading = block.get("rule_reading") or {}
+        res = reading.get("results") or {}
+        doc.h(4, "Property rules (offered, not measured)")
+        doc.p(f"{reading.get('status') or ''}. {reading.get('disclaimer') or ''}", small=True)
+        doc.table(["Rule", "Cut-offs", "Violations", "Exceeded"],
+                  [[name,
+                    "; ".join((reading.get("rules_used") or {}).get(name, {}).get("cutoffs") or []),
+                    "UNKNOWN" if r.get("violations") is None else str(r.get("violations")),
+                    "; ".join(r.get("violated") or []) or
+                    (f"not evaluated: {', '.join(r.get('not_evaluated') or [])}"
+                     if r.get("not_evaluated") else "none")]
+                   for name, r in res.items()],
+                  (0.12, 0.38, 0.12, 0.38))
+        for note in block.get("notes") or []:
+            doc.p(note, small=True)
+    return len(rows)
+
+
 def _methods(doc, m: dict):
     doc.h(2, "4. Methods and limitations")
     doc.p("This record is generated deterministically from prep/manifest.json: every value and every identifier is "
@@ -274,27 +502,52 @@ def _methods(doc, m: dict):
         doc.bullets(list(m["decisions"]))
     doc.p("Preparation steps still pending in the manifest: "
           + ("; ".join(m.get("pending") or []) or "none listed")
-          + ". Molecular dynamics and ADMET (sections 2 and 3) have not been run.")
+          + ". Molecular dynamics (section 2) has not been run.")
 
 
 def build_document(accession: str, m: dict, generated: str) -> tuple:
-    """(Doc, number of docking runs recorded)."""
+    """(Doc, number of docking runs recorded, number of ADMET results recorded)."""
     doc = Doc()
     doc.h(1, f"In-silico experiment record: {accession}")
     seq = m.get("sequence") or {}
     doc.p(f"Generated {generated} from prep/manifest.json (created {_v(m.get('created_at'))} by "
           f"{_v(m.get('generated_by'))}). Variant filter: {m.get('mutation_filter') or 'none'}. "
           f"UniProt sequence used for the numbering: {seq.get('header') or NO_RECORD}", small=True)
-    doc.p("Results of in-silico experiments (calculated docking scores and RMSD values; predicted ADMET values once "
-          "that step exists), each with the provenance of the structure it came from, quoted from the manifest. "
-          "Measured potency (ChEMBL) is not part of this document; it is in the research report, "
-          f"report_{accession}.pdf. Interpretation is not part of either.", small=True)
+    doc.p("Results of in-silico experiments (calculated docking scores and RMSD values; ADME records, retrieved "
+          "measurements and calculated properties of the ligand), each with the provenance of the structure it came "
+          "from, quoted from the manifest. No value in this document is a prediction: nothing here comes from a "
+          "trained model. Measured potency against the target (ChEMBL activities) is not part of this document; it "
+          f"is in the research report, report_{accession}.pdf. Interpretation is not part of either.", small=True)
     n = _docking(doc, m, accession)
     for title, text in PENDING_SECTIONS:
         doc.h(2, title)
         doc.p("Not run. " + text)
+    n_admet = _admet(doc, m, accession)
     _methods(doc, m)
-    return doc, n
+    return doc, n, n_admet
+
+
+def _section_inventory(doc) -> list:
+    """What the document's sections are and which are declared holes, READ BACK from the blocks.
+
+    F4, from the Desktop test of 2026-11-12: asked what section 3 said, the answer was "the tool
+    output does not number the sections", which was true -- so the analyst could not know what
+    the document holds without opening it. Derived from the document itself and never from a
+    hand-kept list: a parallel list is a claim about a document that drifts from it, which is
+    the same mistake as the file-name stage rule of analyze_md (ESTADO 4, tool 18).
+    """
+    out = []
+    for b in doc.blocks:
+        if b[0] == "h" and b[1] == 2:
+            number, _, title = str(b[2]).partition(". ")
+            out.append({"number": number.strip(), "title": title.strip() or str(b[2]),
+                        "heading": str(b[2]), "status": "has content"})
+        elif out and b[0] == "p" and out[-1]["status"] == "has content":
+            text = " ".join(str(p) for p in b[1] if p)
+            if text.startswith("Not run."):
+                out[-1]["status"] = "DECLARED HOLE (not run)"
+                out[-1]["says"] = text if len(text) <= 300 else text[:299] + "…"
+    return out
 
 
 def build_experiment_report(uniprot_id: str) -> dict:
@@ -311,7 +564,7 @@ def build_experiment_report(uniprot_id: str) -> dict:
         return {"ok": False, "uniprot_id": accession,
                 "error": f"prep/manifest.json could not be read ({m['unreadable']})."}
     generated = utc_now()
-    doc, n_runs = build_document(accession, m, generated)
+    doc, n_runs, n_admet = build_document(accession, m, generated)
     folder = dossier.DOSSIER_DIR / accession
     md_path = folder / f"experiments_{accession}.md"
     pdf_path = folder / f"experiments_{accession}.pdf"
@@ -339,7 +592,14 @@ def build_experiment_report(uniprot_id: str) -> dict:
         "generated": generated,
         "manifest_created_at": m.get("created_at"),
         "docking_runs": runs,
-        "sections_not_run": ["molecular dynamics (Phase 3 step 4)", "ADMET (Phase 3 step 7)"]
+        "admet_compounds": [f"{s.get('pdb_id')} {key} "
+                            f"{((b.get('compound_identity') or {}).get('inchikey')) or 'no InChIKey'}"
+                            for s, key, b in _admet_rows(m)],
+        # the inventory is the authoritative answer to "what does section N say": it is read
+        # back from the document that was just written, so it cannot disagree with it
+        "sections": _section_inventory(doc),
+        "sections_not_run": ["molecular dynamics (Phase 3 step 4)"]
+                            + (["ADMET (no analyze_admet result in the manifest)"] if not n_admet else [])
                             + (["docking (no run in the manifest)"] if not n_runs else []),
         **({"font_warning": font_note} if font_note else {}),
     }

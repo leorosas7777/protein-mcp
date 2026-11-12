@@ -69,9 +69,15 @@ def test_no_runs():
     assert "docking (no run in the manifest)" in r["sections_not_run"]
     # the two sections that no tool fills yet are present and say so, with the step that would
     assert "## 2. Molecular dynamics" in md and "Phase 3 step 4" in md
-    assert "## 3. ADMET" in md and "Phase 3 step 7" in md and "PREDICTED" in md
+    # Section 3 exists from the start and declares the gap by naming the tool that fills it.
+    # It must NOT call anything PREDICTED: nothing analyze_admet writes comes from a trained
+    # model (ESTADO 7.3), and the placeholder used to promise "PREDICTED values".
+    assert "## 3. ADMET" in md and "analyze_admet" in md
+    assert "ADMET (no analyze_admet result in the manifest)" in r["sections_not_run"]
+    assert "PREDICTED" not in md and "predicted" not in md
     # H5: the pending line does not contradict the two sections declared not run
-    assert "Preparation steps still pending in the manifest:" in md and "have not been run" in md
+    assert "Preparation steps still pending in the manifest:" in md
+    assert "Molecular dynamics (section 2) has not been run" in md
     assert "nothing listed" not in md
     return prep
 
@@ -297,6 +303,53 @@ def test_research_report_gains_one_line_without_figures():
         assert figure not in sec6, f"section 6 of the research report repeats a docking figure: {figure}"
 
 
+def test_the_section_inventory_is_read_from_the_document():
+    """F4 (Desktop test of 2026-11-12): asked what section 3 said, the answer was that the tool
+    output does not number the sections -- true, and it left the analyst unable to know what the
+    document holds without opening it. The inventory is read BACK from the blocks that were
+    written, so it cannot drift from the document the way a hand-kept list would.
+
+    CONTROL: the status of each section is asserted against what the document itself prints, and
+    the count is tied to the number of level-2 headings, so an inventory that silently stopped
+    following the document would fail here.
+    """
+    r = build()
+    assert r["ok"], r
+    sections = r["sections"]
+    doc, _n, _n_admet = experiment_report.build_document(
+        ACC, report.load_manifest(ACC), "2026-11-12T00:00:00Z")
+    headings = [b[2] for b in doc.blocks if b[0] == "h" and b[1] == 2]
+    assert len(sections) == len(headings) == 4, (sections, headings)
+    assert [s["number"] for s in sections] == ["1", "2", "3", "4"], sections
+    assert [s["heading"] for s in sections] == headings
+    by_number = {s["number"]: s for s in sections}
+    assert "docking" in by_number["1"]["title"].lower()
+    assert by_number["1"]["status"] == "has content", by_number["1"]
+    # section 2 is the one declared hole, and it says so in the document
+    assert by_number["2"]["title"] == "Molecular dynamics"
+    assert by_number["2"]["status"] == "DECLARED HOLE (not run)", by_number["2"]
+    assert by_number["2"]["says"].startswith("Not run."), by_number["2"]
+    assert by_number["4"]["status"] == "has content"
+    # a section with no content must not be reported as having any. This manifest records no
+    # ADMET result, so section 3 IS a hole -- asserted flatly, because the first version of this
+    # test asked `if "Not run." in md: ... else: assert "has content"`, and that `else` ACCEPTED
+    # the lie: dropping the "Not run. " prefix from the placeholder made the inventory call an
+    # empty section "has content" and the suite stayed green (reviewer finding 2026-11-12).
+    assert by_number["3"]["title"] == "ADMET"
+    assert by_number["3"]["status"] == "DECLARED HOLE (not run)", by_number["3"]
+    assert "analyze_admet" in by_number["3"]["says"]
+    for s in sections:
+        assert ("says" in s) == (s["status"] != "has content"), s
+    # cross-check between the two fields of the same result: a section the inventory calls full
+    # while sections_not_run calls it empty is a contradiction the analyst would be handed, and
+    # this is what catches a placeholder whose wording drifts away from the inventory's rule
+    not_run = " ".join(r["sections_not_run"]).lower()
+    keyword = {"1": "docking", "2": "dynamics", "3": "admet", "4": "methods"}
+    for s in sections:
+        named = keyword[s["number"]] in not_run
+        assert named == (s["status"] != "has content"), (s, r["sections_not_run"])
+
+
 def test_open_pdf_error():
     md_path = dossier.DOSSIER_DIR / ACC / f"experiments_{ACC}.md"
     before = md_path.read_bytes()
@@ -322,6 +375,7 @@ def main():
     test_missing_fields_and_earlier_choice()
     test_choice_recorded_again_after_the_run()
     test_research_report_gains_one_line_without_figures()
+    test_the_section_inventory_is_read_from_the_document()
     test_open_pdf_error()
     assert calls(record), "the Vina stand-in was never called: the run was not real"
     print(json.dumps({"pages": build()["pages"], "runs": len(build()["docking_runs"]),

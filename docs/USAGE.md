@@ -69,7 +69,7 @@ RDKit and Meeko are installed with the project. One call docks one ligand. On a 
 | 7. Change the view (optional, with PyMOL open) | "Colour chain B red", "show residues 594-596" | `pymol_view` |
 | 8. Re-docking control (optional, needs Vina) | "Re-dock the ligand of the pocket I chose" | `dock_ligand` starts it in the background and answers in seconds (crystal ligand only; the score is calculated, not an affinity) |
 | 8b. Its result | "Is the docking done?" | `dock_status` (also stops a run); docking takes about a minute or two, and only one runs at a time |
-| 8c. Experiment record | "Write up the experiments" | `build_experiment_report`: a separate PDF/Markdown record of the docking runs with their provenance; molecular dynamics and ADMET say "not run". Its calculated values are not mixed with the measured potency of the research report |
+| 8c. Experiment record | "Write up the experiments" | `build_experiment_report`: a separate PDF/Markdown record of the docking runs with their provenance; the ADMET section once `analyze_admet` has recorded a compound; molecular dynamics says "not run". Its calculated values are not mixed with the measured potency of the research report |
 
 - If several proteins are possible, Claude should ask you which one you mean. Always confirm the **accession** (e.g. `Q8NBP7`): everything else is saved under that code.
 - The report only includes what was collected in step 2. If something is missing, the PDF says so ("Missing sections") instead of making it up.

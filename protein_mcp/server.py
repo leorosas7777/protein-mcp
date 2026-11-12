@@ -51,7 +51,7 @@ from protein_mcp import experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
 from protein_mcp.files import (  # noqa: E402
-    choice, control, dock, interfaces, md_analyze, md_package, md_run, prepare, viewer,
+    admet, choice, control, dock, interfaces, md_analyze, md_package, md_run, prepare, viewer,
 )
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
@@ -329,12 +329,20 @@ async def build_experiment_report(uniprot_id: str) -> dict:
     runs recorded in dossiers/<accession>/prep/manifest.json, with the
     provenance of each one (PDB entry, resolution, pocket, box, SHA-256 of the
     mmCIF, receptor chains and, where it applies, the literal reason recorded by
-    select_structure). Molecular dynamics and ADMET are present as sections and
-    say "not run": no tool writes them yet.
+    select_structure), and the ADMET results recorded by analyze_admet. The
+    molecular dynamics section is present and says "not run": no tool writes it
+    yet.
 
     Rules for using the result:
     - Give the user `pdf_path` (and `markdown_path`), and name the runs in
-      `docking_runs` and the sections in `sections_not_run` as they come.
+      `docking_runs` and the compounds in `admet_compounds` as they come.
+    - `sections` is the document's own inventory, read back from what was
+      written: each entry has its `number`, `title` and `status`, which is
+      either "has content" or "DECLARED HOLE (not run)" with the sentence the
+      document prints. Answer "what does section N say" from it, and do not
+      claim a section has content when its status says otherwise. It is an
+      inventory, not the text: the content of a section is in the file, so to
+      quote a section say that the file has to be opened.
     - The docking results (Vina scores, RMSD) are CALCULATED. The provenance
       quotes other kinds of value: the resolution is the experimental value of
       the PDB entry, and run times are measurements of this machine. Do not call
@@ -1110,6 +1118,91 @@ async def analyze_md(
         ligand_segid=ligand_segid, pocket_cutoff=pocket_cutoff, skip_frames=skip_frames,
         reference_frame=reference_frame, include_series=include_series,
         stage=stage or None)
+
+
+@mcp.tool()
+async def analyze_admet(
+    uniprot_id: str,
+    structure: str = "",
+    pocket: str = "",
+    conformer: str = "",
+    pose: int = 1,
+) -> dict:
+    """Phase 3: retrieved ADME records and measurements plus locally calculated properties for the
+    ligand of one pocket. NOTHING HERE IS PREDICTED and NO RISK IS ASSESSED: there is no hERG
+    result at all, and no classification of anything. If a prediction, a risk or a class was
+    asked for, say this tool does not produce one rather than estimating it. (A CYP or
+    cytotoxicity row can appear, but only inside `rows_excluded_by_allowlist`, unclassified and
+    quoted from its own assay description -- never as an endpoint of this tool.)
+
+    The compound is the one that was docked and simulated, identified by its InChIKey.
+
+    `structure` and `pocket` as in build_md_package; with neither, the user's choice recorded by
+    select_structure is used. The compound is read from the docked pose when a run exists, and
+    from the crystallographic SDF otherwise; `compound_identity.source` says which, and
+    `identity_check` says whether the two files agree. Nothing is downloaded except the ChEMBL
+    query.
+
+    THE THREE BLOCKS ARE THREE DIFFERENT KINDS OF STATEMENT AND MUST NOT BE MIXED IN ONE
+    SENTENCE, ONE TABLE OR ONE LIST:
+    - `chembl_record`: facts of the ChEMBL entry (`max_phase`, `first_approval`,
+      `withdrawn_flag`, `black_box_warning`, the route flags, ATC). These are RECORDS, not
+      measurements and not predictions. `pref_name` is None for most research compounds: report
+      it as unnamed, never substitute a synonym, a PDB chemical-component name or a guess.
+      `name_status` says in words whether any retrieved source names this compound, and when
+      none does you must not name it, give it a code, or say what it IS (an analogue, dimer or
+      linked version of some named drug): there is no source for that. Pass `name_status` on.
+      `fields_minus_one` and `boolean_fields_false` name values that are NOT findings: a field
+      returned as -1 means nothing this project can state, and a flag returned as False is the
+      value an unannotated entry carries, so never report "this compound is not oral" or "was
+      not withdrawn" from one. Pass on `defaults_note`.
+    - `measured_adme`: retrieved measurements, each with ITS OWN units, relation and assay
+      description. Quote every value with its units exactly as given and NEVER convert, average
+      or pool them: one standard_type arrives in incompatible units across rows. A row with a
+      `relation` of '>' or '<' is a CENSORED value and the relation is part of the number -- "> 30
+      uM" is not "30 uM". Cite `assay_description` when you quote a row: an in-vitro clearance in
+      hepatocytes and an in-vivo clearance are both "CL" and are not comparable. A row with
+      `description_says_value_was_calculated` is one whose own assay description says the
+      depositor calculated or estimated the value: report it as such, not as a measurement.
+      When `truncated` is true, every count is a LOWER BOUND and you must say so: ChEMBL held
+      `rows_total` rows and only `rows_read` were read.
+    - `calculated_properties`: `rdkit` (computed here from the SDF) and `chembl` (ChEMBL's own
+      engine) side by side. Report them as calculated, name the engine, and do NOT present their
+      agreement as confirmation or a measurement: if they disagree, neither can be called correct
+      from here.
+
+    `rule_reading` (Lipinski, Veber, Egan) carries `status: "READING OFFERED, NOT MEASURED"`.
+    Those cut-offs are CONVENTIONS pre-registered by this project, not measurements and not
+    citations: pass on `rule_reading.disclaimer`, give the violation COUNT and which cut-off was
+    exceeded, and never turn it into a verdict of your own. Breaking a rule is not a prediction of
+    failure -- vemurafenib breaks Lipinski on logP and `chembl_record` shows it was approved in
+    2011 -- so say both without implying a contradiction.
+
+    NOTHING IN THIS OUTPUT IS PREDICTED. No value comes from a trained model, so do not call any
+    of it a prediction, and do not add endpoints that are absent (hERG, Caco-2 class, CYP
+    inhibition, clearance class, toxicity). hERG and other off-target safety data are NOT here by
+    design.
+
+    Always report the selection with `selection`, which gives "N of total" for the measurements.
+    When `measured_adme.retrieved` is false, distinguish the two cases it reports: with
+    `no_chembl_entry` no query was made because the compound is not in ChEMBL; otherwise the
+    lookup FAILED and the answer is UNKNOWN, never "no ADME data". The same applies to
+    `chembl_record.status`, which is "UNKNOWN (the ChEMBL lookup failed)" when even the molecule
+    lookup did not complete.
+
+    `rows_excluded_by_allowlist_by_standard_type` counts the rows left out by THIS PROJECT'S
+    allowlist, and `rows_excluded_by_allowlist` gives them one by one with their own assay
+    description so they can be read. That list is CAPPED: report `rows_excluded_shown` ("N of
+    total") with it and never present the rows shown as all there are. Do NOT call them "not ADME": the allowlist is narrower than
+    ADME on purpose, and the generic types `Activity` and `Ratio` carry real ADME in some rows
+    (efflux ratios, CYP induction) mixed with cytotoxicity in others. Quote one only as what its
+    own description says, never as an allowlisted measurement, and never add them to the ADME
+    count. `assay_types_not_queried` names what was never looked at, while
+    `assay_types_skipped_at_the_row_cap` and `assay_types_skipped_at_the_time_budget` name types
+    whose row counts are UNKNOWN for those two different reasons -- a slow source, not an empty
+    one. Any count that comes with `truncated` true is a LOWER BOUND.
+    """
+    return admet.compact(await admet.analyze_admet(uniprot_id, structure, pocket, conformer, pose))
 
 
 def main():

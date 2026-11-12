@@ -42,7 +42,7 @@ Each tool saves its full result to a dossier on disk and sends Claude a compact 
 | `get_ligands` | ChEMBL | Ligands by potency per mutation and assay type, with development phase; drugs without IC50/Ki/Kd, such as antibodies, are listed separately |
 | `search_literature` | Europe PMC | Papers with abstracts and links; preprints only on request, and flagged |
 | `build_report` | Dossier only | PDF and Markdown report |
-| `build_experiment_report` | Preparation manifest only | Separate PDF and Markdown record of the in-silico experiments: each docking run with its calculated scores and RMSD, the provenance of the structure it came from, and molecular dynamics and ADMET declared as not run |
+| `build_experiment_report` | Preparation manifest only | Separate PDF and Markdown record of the in-silico experiments: each docking run with its calculated scores and RMSD, the provenance of the structure it came from, the ADMET section when `analyze_admet` has recorded one, and molecular dynamics declared as not run |
 
 **Phase 2: preparing in-silico experiments**
 
@@ -106,7 +106,11 @@ In Claude Desktop, go to *Settings → Developer → Edit Config* and add:
 }
 ```
 
-Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 14 tools should appear.
+Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 19 tools should appear.
+
+> The tables above do not yet list the Phase 3 molecular-dynamics and ADMET tools
+> (`build_md_package`, `check_charmm_gui_output`, `build_md_job`, `analyze_md`, `analyze_admet`).
+> They are registered and tested; the documentation for them is still being written.
 
 PyMOL is optional. The [usage guide](docs/USAGE.md) covers how to set it up, which prompts work, and what the server does not do.
 

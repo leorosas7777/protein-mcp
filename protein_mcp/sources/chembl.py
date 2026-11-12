@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import statistics
+import time
 from collections import defaultdict
 
 import httpx
@@ -26,7 +27,23 @@ MAX_LIGANDS = 15            # default number of ligands returned
 MIN_CONFIDENCE = 8          # assay confidence_score threshold (client-side)
 STANDARD_TYPES = "IC50,Ki,Kd"
 IN_BATCH = 50               # ids per __in query
-TIMEOUT = 60.0
+# MEASURED 2026-11-12, three probes of the same molecule URL: HTTP 200 in 1.8 s, HTTP 500 in
+# 63.2 s, HTTP 200 in 1.4 s. A healthy answer takes under 2 s and a failing one can take over a
+# minute, so one unlucky request outlived Claude Desktop's own limit on a tool call; with three
+# attempts and the back-off in _get, the old flat 60 s allowed 3*60+9 = 189 s per endpoint, and
+# analyze_admet calls two or three of them. Measured consequence (Desktop test of 2026-11-12):
+# analyze_admet timed out twice with nothing to show. The UNKNOWN branches already existed and
+# were honest; what was missing was reaching them quickly.
+# The short read timeout belongs to the ADME path, which answers one chat message and has a
+# budget. get_ligands keeps the old 60 s on purpose: it pages with limit=1000, one failed page
+# kills the whole tool, and pages that END WELL above 20 s were measured on 2026-11-12 (offset
+# 5000 of CHEMBL203 returned HTTP 200 after 71.2 s, while offsets 0 and 1000 took 6-7 s). A
+# 20 s cap there would turn a slow success into a failure, which is a regression, so the two
+# callers get two timeouts and the reason is written here rather than shared by accident.
+READ_TIMEOUT = 20.0        # ADME path: ten times a healthy answer, well under a caller's window
+CONNECT_TIMEOUT = 10.0
+TIMEOUT = 60.0                                                  # get_ligands and its paging
+ADME_TIMEOUT = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
 MAX_DOCS_PER_GROUP = 5
 MAX_DESCS_PER_GROUP = 2
 
@@ -50,12 +67,48 @@ def _short(text, n=160):
     return text if len(text) <= n else text[: n - 3] + "..."
 
 
-async def _get(client, endpoint, params):
+class Deadline:
+    """A wall-clock budget shared by every request of one call.
+
+    httpx bounds a single request; this bounds the TOTAL, retries and back-off included, so a
+    slow source does not outlive the caller that is waiting. When it runs out the answer is an
+    honest UNKNOWN inside the caller's window instead of a hang with nothing to show.
+
+    The bound is not exact, and the slack is stated rather than implied: a request already in
+    flight is given at least 1 s of read time, and CONNECT_TIMEOUT is not reduced by what is
+    left, so a call can overshoot the budget by roughly CONNECT_TIMEOUT. It cannot overshoot by
+    a multiple of it, which is what the 3 x 60 s of retries did before.
+    """
+
+    def __init__(self, budget):
+        self.budget = float(budget)
+        self._start = time.monotonic()
+
+    def spent(self):
+        return round(time.monotonic() - self._start, 1)
+
+    def remaining(self):
+        return self.budget - (time.monotonic() - self._start)
+
+    def expired(self):
+        return self.remaining() <= 0
+
+
+async def _get(client, endpoint, params, deadline=None):
     url = f"{BASE}/{endpoint}.json"
     last = None
     for attempt in range(3):
+        if deadline is not None and deadline.expired():
+            raise RuntimeError(
+                f"ChEMBL {endpoint} gave up after {deadline.spent()} s of a "
+                f"{deadline.budget} s budget: {last or 'the first attempt did not complete'}")
+        kwargs = {}
+        if deadline is not None:
+            # never wait past the budget for one request either
+            kwargs["timeout"] = httpx.Timeout(
+                min(READ_TIMEOUT, max(1.0, deadline.remaining())), connect=CONNECT_TIMEOUT)
         try:
-            r = await client.get(url, params=params)
+            r = await client.get(url, params=params, **kwargs)
             if r.status_code in (429, 500, 502, 503, 504):
                 last = f"HTTP {r.status_code}"
             else:
@@ -63,13 +116,16 @@ async def _get(client, endpoint, params):
                 return r.json()
         except httpx.HTTPError as e:
             last = f"{type(e).__name__}: {e}"
-        await asyncio.sleep(1.5 * (attempt + 1))
+        nap = 1.5 * (attempt + 1)
+        if deadline is not None:
+            nap = min(nap, max(0.0, deadline.remaining()))
+        await asyncio.sleep(nap)
     raise RuntimeError(f"ChEMBL {endpoint} failed: {last}")
 
 
-async def _get_all(client, endpoint, params, key, cap):
+async def _get_all(client, endpoint, params, key, cap, deadline=None):
     """Page through an endpoint. Returns (items, total_count)."""
-    first = await _get(client, endpoint, {**params, "limit": PAGE, "offset": 0})
+    first = await _get(client, endpoint, {**params, "limit": PAGE, "offset": 0}, deadline)
     items = list(first.get(key) or [])
     total = int((first.get("page_meta") or {}).get("total_count") or len(items))
     offsets = list(range(PAGE, min(total, cap), PAGE))
@@ -77,7 +133,7 @@ async def _get_all(client, endpoint, params, key, cap):
 
     async def one(off):
         async with sem:
-            d = await _get(client, endpoint, {**params, "limit": PAGE, "offset": off})
+            d = await _get(client, endpoint, {**params, "limit": PAGE, "offset": off}, deadline)
             return d.get(key) or []
 
     for chunk in await asyncio.gather(*(one(o) for o in offsets)):
@@ -704,6 +760,359 @@ async def get_ligands(uniprot_id, mutation="", max_ligands=MAX_LIGANDS,
             "mechanism_compounds_other_variants_only": other_variants_only,
             "mechanism_compounds_unchecked": unchecked,
             "notes": notes,
+        }
+    finally:
+        if own:
+            await client.aclose()
+
+# ---------------------------------------------------------------- ADME (Phase 3 step 7)
+# Measured against the real API on 2026-11-11 with the two ligands of this project
+# (ESTADO 8.5). Three findings shape everything below:
+#   1. assay_type=A is NOT ADMET. It holds 1,168,142 rows whose standard_type vocabulary
+#      includes 'Saluretic potency', 'Hammett constant', 'Tail vein toxicity' and
+#      'No. of animals protected/animals tested'. Of vemurafenib's 17 "A" rows only ONE is
+#      ADME (CLint in human hepatocytes); the rest are HepG2 cytotoxicity and a B-Raf
+#      western blot. So the filter here is a POSITIVE allowlist, never ChEMBL's own label.
+#   2. Units are not homogeneous inside one standard_type: 'CL' arrives as mL.min-1.kg-1,
+#      mL.min-1.g-1 and 'ml kg-1' (not a clearance unit at all) in the same 3000-row sample,
+#      and 'Kd' arrives in min-1. Nothing here is averaged, aggregated or converted: every
+#      row keeps its own units verbatim, with its relation and its assay description.
+#   3. The vocabulary is case-inconsistent ('Papp' and 'permeability' in the same molecule),
+#      so matching is case-folded while the output prints what ChEMBL returned.
+# hERG is deliberately NOT here: it lives in assay_type=F against target CHEMBL240 and is
+# off-target safety, not ADME (decision of 2026-11-11; ESTADO 6).
+ADME_TYPES = {
+    # absorption / permeability / physicochemical
+    "papp": "permeability", "permeability": "permeability", "logpapp": "permeability",
+    "absorption": "absorption", "solubility": "solubility",
+    "logd": "lipophilicity", "logp": "lipophilicity", "pka": "ionisation",
+    # distribution
+    "vd": "volume of distribution", "vdss": "volume of distribution",
+    "ppb": "plasma protein binding", "fu": "fraction unbound",
+    "bpr": "tissue-to-plasma ratio",
+    # metabolism / clearance
+    "cl": "clearance", "clint": "clearance", "clearance": "clearance", "clh": "clearance",
+    "t1/2": "half-life", "% remaining": "metabolic stability",
+    "remaining": "metabolic stability", "stability": "metabolic stability",
+    "drug metabolism": "metabolic stability",
+    # exposure (in vivo pharmacokinetics)
+    "auc": "exposure", "cmax": "exposure", "tmax": "exposure", "cp": "exposure",
+    "auc/dose": "exposure", "cmax/dose": "exposure", "plasma level": "exposure",
+    "f": "oral bioavailability", "bioavailability": "oral bioavailability",
+    "mrt": "mean residence time",
+}
+# MEASURED 2026-11-11, second round, after the reviewer found the allowlist too narrow. The nine
+# types added above were checked one by one against the real API first, and two candidates were
+# REJECTED because their standard_type lies about their content:
+#   - 'pKa1'/'pKa2' (57 and 66 rows) carry "Partition coefficient at pH 7.4 between chloroform
+#     and water as a measure of lipid solubility", which is a logP, not an acid constant;
+#   - 'Solubility ratio' (365 rows) is "[HbS+drug]/[HbS-drug]", the solubility of sickle
+#     haemoglobin, not of the compound.
+# Those two are why the allowlist is read as a list of types whose CONTENT was checked, not a
+# list of names that sound right. Added with their measured evidence: 'CLH' (14,593 rows,
+# uL/min, "Hepatic clearance in rat liver microsomes"), 'logPapp' (722, Caco-2 apparent
+# permeability), 'Cp' (10,210, ug ml-1, plasma concentration), 'Plasma level' (396),
+# 'AUC/dose' (2,290), 'Cmax/dose' (408), 'Stability' (50,706, %, "First pass metabolism and
+# metabolic bioavailability using rat hepatic microsomes"), 'Drug metabolism' (27,774,
+# "Metabolic stability ... assessed as disappearance of compound") and 'BPR' (3,489, "Ratio of
+# drug level in brain against plasma"; named tissue-to-plasma, not blood-to-plasma, because
+# that is what the descriptions say).
+# STILL NOT ON THE LIST, and this is a declared limitation, not an oversight: the generic types
+# 'Activity' and 'Ratio' carry real ADME in some rows (P-gp and BCRP efflux ratios, CYP450
+# induction for vemurafenib) mixed with cytotoxicity and target-engagement in others. They
+# cannot be separated without reading each assay description, so admitting them would bring
+# back the exact defect the allowlist exists to prevent. The excluded rows are therefore
+# reported as "not on this project's allowlist", NEVER as "not ADME".
+# Words in an assay description that say the depositor CALCULATED the value rather than
+# measuring it. Real rows exist: 'pKa' rows read "Acid dissociation constant was calculated
+# based on carbon atom CH2". A flagged row is still reported, with the flag, because the claim
+# comes from the source's own text.
+_CALCULATED_WORDS = ("calculated", "calcd", "predicted", "estimated", "computed", "in silico")
+MAX_ADME_ROWS = 300      # vemurafenib has 17 rows of assay_type=A; CHEMBL53463 has 1143
+MAX_EXCLUDED_SHOWN = 40  # the excluded rows travel with their description (F3), so they are capped
+# Budget for ALL the ChEMBL work of one analyze_admet call (molecule lookup plus activities), so
+# the tool reaches its UNKNOWN branch inside the caller's window instead of hanging. A CHOICE,
+# not a measurement: Claude Desktop's limit on a tool call is not published, and the measured
+# facts behind the number are the ones in the READ_TIMEOUT comment (a healthy answer in under
+# 2 s, a failing one in 63.2 s).
+ADME_BUDGET = 40.0
+# MEASURED 2026-11-11: the page size decides whether this query works at all. With
+# assay_type=A and one molecule, limit=1000 returned HTTP 500 three times out of three and
+# limit=200 three out of three, while limit=50 and limit=20 returned 200 (with an occasional
+# 500, which _get retries). So _get_all's PAGE=1000 cannot be used here.
+ADME_PAGE = 20
+# The assay types queried for ADME. The loop and the output both read THIS tuple, so the
+# output cannot claim a type that was not asked for (reviewer finding, 2026-11-11).
+ADME_ASSAY_TYPES = ("A", "P")
+# fields of `molecule` that are records of the ChEMBL entry: not calculations, not measurements
+RECORD_FIELDS = ("max_phase", "first_approval", "withdrawn_flag", "black_box_warning", "oral",
+                 "parenteral", "topical", "molecule_type", "natural_product", "prodrug",
+                 "therapeutic_flag", "availability_type", "chirality", "dosed_ingredient",
+                 "indication_class", "usan_year", "usan_stem", "first_in_class", "structure_type",
+                 "inorganic_flag", "polymer_flag", "orphan", "chemical_probe", "veterinary")
+_INCHIKEY_RE = re.compile(r"[A-Z]{14}-[A-Z]{10}-[A-Z]")
+
+
+def adme_class(standard_type):
+    """The ADME class of a standard_type, or None if it is not on the allowlist."""
+    return ADME_TYPES.get(" ".join(str(standard_type or "").split()).lower())
+
+
+async def fetch_molecule_by_inchikey(inchi_key: str, client=None, deadline=None) -> dict:
+    """Exact 27-character InChIKey -> the one ChEMBL molecule, or found: False.
+
+    Exact match only (decision of 2026-11-11): a connectivity-block match would also hit a
+    different salt, tautomer or stereoisomer, and this is the link that lets ADMET data be
+    attributed to the compound that was docked and simulated. No compound name is ever used
+    to search, and none is ever inferred.
+    """
+    key = (inchi_key or "").strip().upper()
+    if not _INCHIKEY_RE.fullmatch(key):
+        return {"found": False, "inchi_key": inchi_key,
+                "error": "Not a 27-character standard InChIKey, so ChEMBL was not queried."}
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=ADME_TIMEOUT, follow_redirects=True)
+    try:
+        d = await _get(client, "molecule",
+                       {"molecule_structures__standard_inchi_key": key}, deadline)
+        mols = d.get("molecules") or []
+        total = int((d.get("page_meta") or {}).get("total_count") or len(mols))
+        if not mols:
+            return {"found": False, "inchi_key": key, "matches": 0,
+                    "note": "No ChEMBL molecule has this exact InChIKey (no record)."}
+        if total > 1:
+            # not observed in the two real cases (both total_count=1); never guess which one
+            return {"found": False, "inchi_key": key, "matches": total,
+                    "candidates": [m.get("molecule_chembl_id") for m in mols[:10]],
+                    "note": (f"{total} ChEMBL molecules share this exact InChIKey, so none was "
+                             "chosen. The candidate ids are listed.")}
+        m = mols[0]
+        structs = m.get("molecule_structures") or {}
+        cid = m.get("molecule_chembl_id")
+        return {
+            "found": True,
+            "inchi_key": key,
+            "matches": 1,
+            "chembl_id": cid,
+            "link": f"https://www.ebi.ac.uk/chembl/compound_report_card/{cid}/" if cid else None,
+            # None for most research compounds; never substituted by a synonym or a guess
+            "pref_name": m.get("pref_name"),
+            "inchi_key_in_chembl": structs.get("standard_inchi_key"),
+            "canonical_smiles_in_chembl": structs.get("canonical_smiles"),
+            "record": {f: m.get(f) for f in RECORD_FIELDS},
+            # MEASURED 2026-11-11: TXV (CHEMBL5440746) comes back with prodrug, chirality,
+            # availability_type, first_in_class, inorganic_flag, orphan and veterinary all at
+            # -1, while vemurafenib has 0/1 there (and chirality 2, availability_type 1, so
+            # those two are NOT binary flags -- an earlier wording here claimed they were and
+            # that claim came from no source). All this says is that ChEMBL returned -1, which
+            # is named and NOT interpreted: this project has not read ChEMBL's schema, so it
+            # cannot say what -1 means, and least of all read it as "no".
+            "record_fields_minus_one": sorted(f for f in RECORD_FIELDS if m.get(f) == -1),
+            # The other half of the same asymmetry (reviewer finding): these flags come back
+            # False on an entry with nothing annotated (TXV: max_phase None, molecule_type
+            # None, no ATC, no cross-references, seven fields at -1 -- and oral/parenteral/
+            # topical/therapeutic_flag/dosed_ingredient/withdrawn_flag all False). The API does
+            # not distinguish "annotated as no" from "not annotated", so a False here must not
+            # be read as a negative finding. Named, not reinterpreted.
+            "record_boolean_fields_false": sorted(
+                f for f in RECORD_FIELDS if m.get(f) is False),
+            "atc_classifications": list(m.get("atc_classifications") or []),
+            "cross_references": list(m.get("cross_references") or []),
+            # calculated BY ChEMBL with its own engine; kept apart from our RDKit values on purpose
+            "chembl_calculated_properties": m.get("molecule_properties"),
+            "molecule_hierarchy": m.get("molecule_hierarchy"),
+        }
+    finally:
+        if own:
+            await client.aclose()
+
+
+async def fetch_adme_activities(chembl_id: str, client=None, deadline=None) -> dict:
+    """ADME rows for one molecule: assay_type A and P fetched, then the positive allowlist applied.
+
+    Both types are queried because MEASURED 2026-11-11: vemurafenib's only aqueous solubility
+    (2.0 ug.mL-1 in FaSSIF at pH 6.5) is filed under assay_type=P, not A, so querying A alone
+    silently loses real ADME measurements. B (binding), F (functional), T (toxicity) and U are
+    NOT queried: that is where off-target safety lives (hERG included), which is out of this
+    step's scope, so a measurement filed only there is missed and the note says so.
+
+    Every surviving row keeps its own units and its assay_type, and the rows that did not survive
+    are counted by standard_type, so "few measurements" is never silently "we filtered them out".
+    """
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=ADME_TIMEOUT, follow_redirects=True)
+    try:
+        rows, totals, out_of_time, stopped_by_clock = [], {}, [], []
+        for at in ADME_ASSAY_TYPES:
+            params = {"molecule_chembl_id": chembl_id, "assay_type": at}
+            total, offset, read_here = None, 0, 0
+            while True:
+                # MAX_ADME_ROWS is a cap on ROWS READ, not on the offset: with the offset form
+                # a molecule could come back with MAX+PAGE-1 rows (reviewer finding)
+                room = MAX_ADME_ROWS - len(rows)
+                if room <= 0:
+                    break
+                # out of time is NOT out of rows: a type left unread here is UNKNOWN for its own
+                # reason, and the two reasons are reported separately on purpose
+                if deadline is not None and deadline.expired():
+                    if total is None:
+                        out_of_time.append(at)       # never asked about at all
+                    else:
+                        stopped_by_clock.append(at)  # asked, then cut off mid-type
+                    break
+                d = await _get(client, "activity",
+                               {**params, "limit": min(ADME_PAGE, room), "offset": offset},
+                               deadline)
+                page = d.get("activities") or []
+                if total is None:
+                    total = int((d.get("page_meta") or {}).get("total_count") or len(page))
+                for a in page:
+                    a["_assay_type"] = at
+                rows.extend(page)
+                offset += len(page)
+                read_here += len(page)
+                if not page or read_here >= total:
+                    break
+            # None, not 0, when the cap was already spent and this type was never asked about:
+            # "ChEMBL has no rows of type P" and "we never asked for type P" are different
+            # statements, and only the first is a fact (found by the truncation test)
+            totals[at] = total
+        known = [v for v in totals.values() if v is not None]
+        total = sum(known)
+        unqueried = sorted(at for at, v in totals.items()
+                           if v is None and at not in out_of_time)
+        kept, dropped, excluded = [], defaultdict(int), []
+        for a in rows:
+            cls = adme_class(a.get("standard_type"))
+            if not cls:
+                dropped[a.get("standard_type")] += 1
+                # F3 (Desktop test of 2026-11-12): the counts alone left the analyst unable to
+                # see WHAT was excluded, and the whole point of the allowlist being narrower than
+                # ADME is that these rows may hold real measurements (P-gp and BCRP efflux ratios,
+                # CYP450 induction). The row travels with its own assay description so the
+                # analyst can see it; it is NOT classified and must never be added to the
+                # allowlisted rows or counted as an ADME measurement.
+                if len(excluded) < MAX_EXCLUDED_SHOWN:
+                    ex_assay = a.get("assay_chembl_id")
+                    excluded.append({
+                        "on_adme_allowlist": False,
+                        "assay_type": a.get("_assay_type"),
+                        "assay_type_meaning": ASSAY_TYPES.get(a.get("_assay_type")),
+                        "standard_type": a.get("standard_type"),
+                        "relation": a.get("standard_relation"),
+                        "value": a.get("standard_value"),
+                        "units": a.get("standard_units"),
+                        "assay_description": _short(a.get("assay_description"), 300),
+                        "assay_chembl_id": ex_assay,
+                        "assay_link": (f"https://www.ebi.ac.uk/chembl/assay_report_card/{ex_assay}/"
+                                       if ex_assay else None),
+                    })
+                continue
+            doc, assay = a.get("document_chembl_id"), a.get("assay_chembl_id")
+            desc = _short(a.get("assay_description"), 300)
+            # the source's own text, not our judgement: 'pKa' rows exist that read "Acid
+            # dissociation constant was calculated based on carbon atom CH2"
+            said = [w for w in _CALCULATED_WORDS if w in (desc or "").lower()]
+            kept.append({
+                "adme_class": cls,
+                "description_says_value_was_calculated": bool(said),
+                "calculated_wording_found": said or None,
+                "assay_type": a.get("_assay_type"),
+                "assay_type_meaning": ASSAY_TYPES.get(a.get("_assay_type")),
+                "standard_type": a.get("standard_type"),      # as ChEMBL returned it
+                "relation": a.get("standard_relation"),       # a censored value stays censored
+                "value": a.get("standard_value"),
+                "units": a.get("standard_units"),             # never converted
+                "assay_description": _short(a.get("assay_description"), 300),
+                "assay_chembl_id": assay,
+                "assay_link": (f"https://www.ebi.ac.uk/chembl/assay_report_card/{assay}/"
+                               if assay else None),
+                "target_organism": a.get("target_organism"),
+                "bao_label": a.get("bao_label"),
+                "data_validity_comment": a.get("data_validity_comment"),
+                "potential_duplicate": a.get("potential_duplicate"),
+                "activity_comment": a.get("activity_comment"),
+                "document_chembl_id": doc,
+                "document_link": (f"https://www.ebi.ac.uk/chembl/document_report_card/{doc}/"
+                                  if doc else None),
+            })
+        truncated = total > len(rows) or bool(unqueried) or bool(out_of_time)
+        asked = [at for at in ADME_ASSAY_TYPES
+                 if at not in unqueried and at not in out_of_time]
+        # REVIEWER FINDING 2026-11-12, introduced by F1 the same day: when the budget was spent
+        # before any type could be asked about, this returned retrieved=True with rows_total 0,
+        # which reads as "ChEMBL holds no ADME measurements" -- the exact shape of TXV's real
+        # zero. Nothing was retrieved, so say so and let the caller's UNKNOWN branch handle it.
+        if not asked:
+            return {
+                "retrieved": False,
+                "lookup_reached_chembl": True,
+                "assay_types_skipped_at_the_time_budget": out_of_time or None,
+                "assay_types_skipped_at_the_row_cap": unqueried or None,
+                "note": ("No assay type could be queried: the "
+                         + ("time budget ran out" if out_of_time else "row cap was already spent")
+                         + f" first ({', '.join(out_of_time or unqueried)}). Whether ADME "
+                         "measurements exist is UNKNOWN. This is NOT 'no data' and NOT zero "
+                         "rows: the source was not asked."),
+            }
+        # the cap and the clock are different reasons and the sentence must name the real one
+        cap_reached = len(rows) >= MAX_ADME_ROWS
+        queried = ", ".join(asked)
+        not_queried = tuple(at for at in ASSAY_TYPES if at not in asked)
+        return {
+            "retrieved": True,
+            "assay_types_queried": {at: ASSAY_TYPES[at] for at in asked},
+            "assay_types_not_queried": {at: ASSAY_TYPES[at] for at in not_queried},
+            "assay_types_skipped_at_the_row_cap": unqueried or None,
+            "assay_types_skipped_at_the_time_budget": out_of_time or None,
+            "assay_types_cut_off_at_the_time_budget": stopped_by_clock or None,
+            # a value of None means "never asked", not "ChEMBL has none"
+            "rows_total_by_assay_type": totals,
+            "rows_total": total,
+            "rows_total_is_lower_bound": bool(unqueried) or bool(out_of_time),
+            "rows_read": len(rows),
+            "truncated": truncated,
+            "rows_not_read": total - len(rows),
+            "row_cap": MAX_ADME_ROWS,
+            "adme_rows": kept,
+            "rows_excluded_by_allowlist_by_standard_type":
+                dict(sorted(dropped.items(), key=lambda kv: -kv[1])),
+            "rows_excluded_by_allowlist": excluded,
+            "rows_excluded_shown": (f"{len(excluded)} of {sum(dropped.values())}"
+                                    if dropped else "0 of 0"),
+            "rows_excluded_note": (
+                "These rows were read from the same query and are NOT on this project's ADME "
+                "allowlist, which is narrower than ADME on purpose. That is a statement about "
+                "the allowlist, NOT about the data: some of these rows do hold real ADME "
+                "measurements. They are shown with their own assay description so they can be "
+                "read one by one, and each is unclassified: do not add them to the allowlisted "
+                "rows, do not count them as ADME measurements, and do not call them 'not ADME'."
+            ) if dropped else None,
+            "note": (f"{len(kept)} of {len(rows)} rows read from assay types {queried} are on "
+                     "this project's ADME allowlist. The rest are listed by standard_type: they "
+                     "are NOT 'not ADME', they are not on the allowlist, which is narrower than "
+                     "ADME on purpose. The generic types 'Activity' and 'Ratio' in particular "
+                     "carry real ADME in some rows (efflux ratios, CYP induction) mixed with "
+                     "cytotoxicity in others, and are excluded because the two cannot be told "
+                     f"apart without reading each assay description. Assay types "
+                     f"{', '.join(not_queried)} were not queried, so a measurement filed only "
+                     "there is not in this result."
+                     + (f" TRUNCATED: ChEMBL has at least {total} rows in the types queried and "
+                        f"only {len(rows)} were read, so {total - len(rows)} were never examined "
+                        "and this is a LOWER BOUND. Reason: "
+                        + (f"the row cap of {MAX_ADME_ROWS} was reached." if cap_reached
+                           else "the time budget ran out, NOT the row cap (which is "
+                                f"{MAX_ADME_ROWS} and was not reached): ChEMBL was slow, not "
+                                "empty." if out_of_time or stopped_by_clock
+                           else "a page came back short of the total ChEMBL reported.")
+                        if truncated else "")
+                     + (" The row cap was reached before assay type(s) "
+                        f"{', '.join(unqueried)} were queried at all, so how many rows they hold "
+                        "is UNKNOWN, not zero." if unqueried else "")
+                     + (" The time budget ran out before assay type(s) "
+                        f"{', '.join(out_of_time)} were queried at all, so how many rows they "
+                        "hold is UNKNOWN, not zero: ChEMBL was slow, not empty."
+                        if out_of_time else "")),
         }
     finally:
         if own:
