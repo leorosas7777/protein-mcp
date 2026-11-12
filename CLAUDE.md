@@ -4,6 +4,8 @@ Servidor MCP local (Python, `uv`, `mcp[cli]<2`/FastMCP) para Claude Desktop. El 
 
 **Al iniciar una sesión, lee `ESTADO_PROYECTO.md` completo.** Es el estado real del proyecto, las decisiones tomadas y las limitaciones conocidas. No reabras decisiones de la sección 5 sin motivo.
 
+`HISTORIAL_PROYECTO.md` (en `.gitignore`) es el mismo documento antes de dividirlo el 2026-11-12, con todo el historial sin resumir y los mismos encabezados: pruebas, rondas del revisor, pasos cerrados y las validaciones 8.1 a 8.5. **No se lee al iniciar**: se busca en él cuando haga falta el detalle de algo cerrado, en vez de suponerlo.
+
 ## Reglas que no se negocian
 - **Nunca `print()` a stdout** (rompe stdio del MCP). Usa `logging`.
 - **Todo lo que produce el proyecto va en inglés** (decidido por el usuario 2026-11-04): salidas de las herramientas, reportes, docstrings, `README.md` y `docs/`, en cualquier fase. El español queda para el trabajo interno: este archivo, `ESTADO_PROYECTO.md`, `.claude/agents/` y la conversación.
