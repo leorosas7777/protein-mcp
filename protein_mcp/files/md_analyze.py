@@ -1422,6 +1422,25 @@ def hydrogen_bonds(universe, resname: str, *, first_frame: int, frames_analysed:
 # 7. The reading, kept apart from the measurements
 # ---------------------------------------------------------------------------------------------
 
+# Self-contained on purpose: this text is printed in the experiment report, which is read without
+# the project's internal notes, so it states the thresholds and the reason for each itself.
+THRESHOLDS_SOURCE = (
+    "common conventions, written down with a reason for each on 2026-11-11, before any "
+    "production trajectory existed but after a restrained equilibration of this project's first "
+    "simulated system (BRAF with vemurafenib, PDB 3OG7) had been measured, so they were chosen "
+    "with those numbers in view. No literature is cited because none was consulted. Backbone plateau: drift "
+    "(last-quarter mean minus first-quarter mean) of at most 0.5 A, of the order of the thermal "
+    "noise of a protein backbone at 303 K. Ligand RMSD: at most 2.0 A over the last quarter; the "
+    "same number as this project's docking validation threshold BY CONVENTION, not by "
+    "derivation: that one compares a calculated pose with a crystal pose, this one asks whether a "
+    "pose persists over time. Range of the ligand-pocket centre-of-mass distance: at most 2.0 A, "
+    "to separate a reorientation within the site from a dissociation; the scale comes from the "
+    "author's earlier simulations of a different system (neuropeptide-GPCR complexes, 10 ns) and "
+    "is not a value transferable to this one. Hydrogen-bond occupancy: at least 0.5 of the "
+    "analysed frames, the conventional cut between a contact that holds and an occasional one; "
+    "it is a sample of frames, not a fraction of time")
+
+
 def reading(result: dict) -> dict:
     """An offered interpretation, built only from the numbers above and from stated thresholds.
 
@@ -1531,7 +1550,8 @@ def reading(result: dict) -> dict:
             "CHARMM-GUI, which is experimental only if that was a deposited structure - not "
             "checked here): " + "; ".join(parts) + ". " + verdict
             + " THIS SPLIT WAS NOT PRE-REGISTERED: it was added on 2026-11-12, after the "
-              "full-backbone control above failed on this project's first production run. Its "
+              "pre-registered full-backbone control failed on this project's first production "
+              "run (the 10 ns production of BRAF with vemurafenib, PDB 3OG7). Its "
               "reason - built residues are a guess, not a measurement - does not depend on the "
               "result, but the decision to look came after seeing it. The line above remains the "
               "pre-registered control."
@@ -1619,17 +1639,56 @@ def reading(result: dict) -> dict:
             "nothing was corrected for it: the lines above should not be read for this run until "
             "that is understood.")
 
+    # The control as a FIELD as well as a sentence, so build_experiment_report can head its MD
+    # section with it by quoting, never by re-deriving the comparison from the numbers.
+    limit_p = thresholds["protein_plateau_angstrom"]
+    # "held" for the control is decided ONLY from the restraint file read atom by atom. The
+    # keyword fallback of _held() says something was held, not what, so a backbone whose holding
+    # is unknown cannot be called held (reviewer finding 2026-11-12).
+    bb = by_atom.get("protein_backbone", {})
+    bb_known = bool(bb.get("known"))
+    bb_held = bb_known and bb.get("held", 0) > 0
+    if prot.get("drift_warning"):
+        control = "CANNOT BE ASSESSED"
+        why = prot["drift_warning"]
+    elif bb_held and drift <= limit_p:
+        control = "NO EVIDENCE"
+        why = (f"the protein backbone was held by the restraints of this stage ({bb.get('note')}), "
+               "so a drift within the threshold is what the restraints produce by construction "
+               "and is not evidence of equilibration")
+    elif not bb_known and restraint.get("atoms_held") and drift <= limit_p:
+        control = "CANNOT BE ASSESSED"
+        why = ("the NAMD input of this stage declares restraints, but which atoms they hold is "
+               f"UNKNOWN ({bb.get('note') or 'the restraint file was not read'}), so a drift within "
+               "the threshold may be produced by the restraints")
+    elif drift <= limit_p:
+        control = "MET"
+        why = "the drift is within the chosen threshold"
+    else:
+        control = "NOT MET"
+        why = ("the drift exceeds the chosen threshold, so the protein may not be equilibrated and "
+               "every other figure of this run is premature"
+               + (" (and it does so although the backbone was held)" if bb_held else ""))
+    equilibration_control = {
+        "status": control,
+        "segid": prot.get("segid"),
+        "drift_angstrom": round(drift, 4),
+        "drift_signed_angstrom": round(float(prot["drift"]), 4),
+        "threshold_angstrom": limit_p,
+        "backbone_held": bb_held if bb_known else None,
+        "backbone_held_note": bb.get("note"),
+        "why": why,
+        "rule": "absolute drift (last-quarter mean minus first-quarter mean) of the FULL backbone "
+                "of the segment with the largest drift, against protein_plateau_angstrom. The "
+                "observed/built split is not part of this control: it was not pre-registered",
+    }
+
     return {
         "offered": notes,
+        "equilibration_control": equilibration_control,
         "thresholds_used": thresholds,
         "status": "READING OFFERED, NOT MEASURED",
-        "thresholds_source": "common conventions, pre-registered with a reason for each in "
-                             "ESTADO_PROYECTO.md section 7.2 on 2026-11-11, before any production "
-                             "trajectory existed. No literature is cited because none was "
-                             "consulted. The 2.0 A for the ligand RMSD matches the docking "
-                             "validation threshold of section 7.1 BY CONVENTION, not by "
-                             "derivation: that one compares a calculated pose with a crystal "
-                             "pose, this one asks whether a pose persists over time",
+        "thresholds_source": THRESHOLDS_SOURCE,
         "disclaimer": "These lines are an interpretation built from the numbers in this same "
                       "result and from the thresholds listed here, which are conventions and not "
                       "measurements of this system. The measurements above stand on their own; "
@@ -1643,7 +1702,8 @@ def reading(result: dict) -> dict:
 
 def analyze_md(folder, *, topology=None, ligand_resname: str = "LIG", ligand_segid: str = "",
                pocket_cutoff: float = POCKET_CUTOFF, skip_frames: int = -1,
-               reference_frame: int = -1, include_series: bool = True, stage=None) -> dict:
+               reference_frame: int = -1, include_series: bool = True, stage=None,
+               uniprot_id: str = "", structure: str = "", pocket: str = "") -> dict:
     """Measure the trajectory in `folder` and return every metric with its selection and criterion.
 
     `skip_frames` defaults to the minimization frames declared by the NAMD inputs, which is the
@@ -1662,13 +1722,37 @@ def analyze_md(folder, *, topology=None, ligand_resname: str = "LIG", ligand_seg
     attached, the same contract as the rest of the project's tools: a trajectory that cannot be
     measured is a result the analyst needs to read, not an exception for Claude Desktop to
     swallow.
+
+    With `uniprot_id`, the result is also RECORDED in prep/manifest.json (section 9 below), after
+    checks that refuse rather than warn. Without it nothing is written anywhere, as before.
     """
     try:
-        return _analyze(folder, topology=topology, ligand_resname=ligand_resname,
-                        ligand_segid=ligand_segid,
-                        pocket_cutoff=pocket_cutoff, skip_frames=skip_frames,
-                        reference_frame=reference_frame, include_series=include_series,
-                        stage=stage)
+        ctx = None
+        if uniprot_id:
+            ctx = record_context(uniprot_id, structure, pocket, folder, topology, stage)
+        elif (structure or "").strip() or (pocket or "").strip():
+            raise MdAnalyzeError(
+                "structure and pocket only say WHERE to record the result, and that needs "
+                "uniprot_id as well. Pass uniprot_id too, or leave all three out to measure "
+                "without recording.")
+        out = _analyze(folder, topology=topology, ligand_resname=ligand_resname,
+                       ligand_segid=ligand_segid,
+                       pocket_cutoff=pocket_cutoff, skip_frames=skip_frames,
+                       reference_frame=reference_frame,
+                       include_series=include_series or ctx is not None, stage=stage)
+        if ctx is None:
+            out["recording"] = {"recorded": False,
+                                "why": "no uniprot_id was given, so nothing was written; "
+                                       "build_experiment_report will not show this analysis"}
+            return out
+        arguments = {"ligand_resname": ligand_resname, "ligand_segid": ligand_segid,
+                     "pocket_cutoff": pocket_cutoff, "skip_frames": skip_frames,
+                     "reference_frame": reference_frame, "stage": stage,
+                     "topology": str(topology) if topology else None}
+        out["recording"] = record_result(ctx, out, arguments)
+        if not include_series:
+            strip_series(out)
+        return out
     except MdAnalyzeError as exc:
         return {"ok": False, "folder": str(folder), "error": str(exc),
                 **getattr(exc, "extra", {})}
@@ -1844,18 +1928,287 @@ def _analyze(folder, *, topology, ligand_resname, ligand_segid, pocket_cutoff, s
     }
     out["reading"] = reading(out)
     if not include_series:
-        for key in ("protein_rmsd", "ligand_rmsd", "com_distance"):
-            out[key].pop("values", None)
-            out[key].pop("times_ps", None)
-        # per_segment carries a FULL series per protein chain, so dropping only the three series
-        # above left the "summary only" reply with one series per chain in it: ten chains over a
-        # thousand frames meant ten thousand numbers in a reply that said it had none.
-        for series in out["protein_rmsd"].get("per_segment", {}).values():
-            series.pop("values", None)
-            series.pop("times_ps", None)
-            for part in ("observed_only", "modelled_only"):
-                series.get(part, {}).pop("values", None)
-                series.get(part, {}).pop("times_ps", None)
-        out["hbonds"]["count_per_frame"].pop("values", None)
-        out["hbonds"]["count_per_frame"].pop("times_ps", None)
+        strip_series(out)
     return out
+
+
+def strip_series(out: dict) -> dict:
+    """Drop every per-frame series from a result, in place, keeping each series' summary."""
+    for key in ("protein_rmsd", "ligand_rmsd", "com_distance"):
+        out[key].pop("values", None)
+        out[key].pop("times_ps", None)
+        # the headline segment's split is copied onto protein_rmsd itself as well
+        for part in ("observed_only", "modelled_only"):
+            if isinstance(out[key].get(part), dict):
+                out[key][part].pop("values", None)
+                out[key][part].pop("times_ps", None)
+    # per_segment carries a FULL series per protein chain, so dropping only the three series
+    # above left the "summary only" reply with one series per chain in it: ten chains over a
+    # thousand frames meant ten thousand numbers in a reply that said it had none.
+    for series in out["protein_rmsd"].get("per_segment", {}).values():
+        series.pop("values", None)
+        series.pop("times_ps", None)
+        for part in ("observed_only", "modelled_only"):
+            series.get(part, {}).pop("values", None)
+            series.get(part, {}).pop("times_ps", None)
+    out["hbonds"]["count_per_frame"].pop("values", None)
+    out["hbonds"]["count_per_frame"].pop("times_ps", None)
+    # one index per analysed frame, so a series too (reviewer finding 2026-11-12)
+    out["hbonds"]["count_per_frame"].pop("frame_indices", None)
+    return out
+
+
+# ---------------------------------------------------------------------------------------------
+# 9. Recording in the manifest (decided with the user on 2026-11-12)
+# ---------------------------------------------------------------------------------------------
+#
+# analyze_md was the one Phase 3 tool that wrote nothing, so the experiment record had nothing to
+# read. With `uniprot_id` it now resolves the pocket like build_md_package, build_md_job and
+# analyze_admet do, and records one block PER STAGE under md_analysis[<pocket>][<stage label>].
+# Every check below REFUSES; none of them warns and writes anyway:
+#   - the trajectory folder, the PSF, the DCDs, the NAMD inputs of the stage and the restraint
+#     file they name all lie inside prep/md/<pocket folder>/, and all of them are hashed;
+#   - the measured PSF has the SHA-256 of the registered package's PSF (md_job.psf, or for a job
+#     recorded before that field existed, the PSF inside the archive whose SHA-256 md_job holds);
+#   - the stage is one the recorded job names (its production or its equilibration);
+#   - nothing changed while the analysis ran (files re-hashed, manifest re-read).
+# The per-frame series go to a file of their own, whose SHA-256 the manifest keeps; the report
+# draws its plots from that file and never recomputes them.
+
+SERIES_FILE = "analysis_{label}.json"
+
+
+def _sha256_file(path: Path) -> str:
+    """Streamed: a production DCD is 168 MB (measured 0.25 s on this machine, warm cache)."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _inside_dir(path, folder) -> bool:
+    p, f = Path(path).resolve(), Path(folder).resolve()
+    return p == f or f in p.parents
+
+
+def _psf_reference(job: dict) -> dict:
+    """The SHA-256 of the registered package's PSF, and where it came from. Raises when unknown."""
+    import hashlib
+    import tarfile
+
+    psf = job.get("psf") or {}
+    if psf.get("sha256"):
+        return {"sha256": psf["sha256"],
+                "source": "md_job.psf, hashed by build_md_job from the verified archive"}
+    arch = job.get("archive") or {}
+    if not arch.get("sha256") or not arch.get("path"):
+        raise MdAnalyzeError("Not recorded: the md_job block holds neither a PSF hash nor an "
+                             "archive hash, so the topology cannot be checked. Run build_md_job "
+                             "again.")
+    path = Path(arch["path"])
+    if not path.is_file():
+        raise MdAnalyzeError(
+            "Not recorded: the md_job block of this pocket predates the PSF hash, and the "
+            f"CHARMM-GUI archive it recorded is no longer at {path}, so there is nothing to check "
+            "the trajectory's topology against. Put the archive back, or run build_md_job again "
+            "with it (that records the PSF hash).")
+    if _sha256_file(path) != arch["sha256"]:
+        raise MdAnalyzeError(
+            f"Not recorded: {path} no longer has the SHA-256 that build_md_job recorded, so it is "
+            "not the archive the job was built from and cannot vouch for the topology.")
+    member = f"{job.get('job_folder')}/namd/step3_input.psf"
+    with tarfile.open(path, "r:*") as tar:
+        try:
+            info = tar.getmember(member)
+        except KeyError:
+            raise MdAnalyzeError(f"Not recorded: the recorded archive holds no {member}, so the "
+                                 "topology cannot be checked.") from None
+        fh = tar.extractfile(info) if info.isfile() else None
+        if fh is None:
+            raise MdAnalyzeError(f"Not recorded: {member} in the archive is not a regular file.")
+        h = hashlib.sha256()
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return {"sha256": h.hexdigest(),
+            "source": f"{member} inside {path.name}, whose SHA-256 matches md_job.archive (the "
+                      "md_job block predates the PSF hash)"}
+
+
+def record_context(uniprot_id, structure, pocket, folder, topology, stage) -> dict:
+    """Every check that can run BEFORE the analysis. Raises MdAnalyzeError with the reason."""
+    import json
+    from protein_mcp.common import parse_accession
+    from protein_mcp.files import choice, dock
+
+    accession, err = parse_accession(uniprot_id)
+    if err:
+        raise MdAnalyzeError(err.get("error") or f"{uniprot_id!r} is not a UniProt accession.")
+    path = choice.manifest_path(accession)
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise MdAnalyzeError(f"Not recorded: no readable manifest at {path}.") from None
+    prep = path.parent
+    try:
+        s, snap, origin = dock._resolve(manifest, structure, pocket)
+    except dock.DockError as exc:
+        raise MdAnalyzeError(f"Not recorded: {exc}", **(getattr(exc, "extra", {}) or {})) from None
+    pk = snap["pocket"]
+    pdb_id = s["pdb_id"].upper()
+    pocket_key = f"{pk['comp_id']} {pk['label_asym_id']}"
+    pkg_dir = prep / "md" / dock.dock_dir_name(pdb_id, pk["comp_id"], pk["label_asym_id"])
+    job = (s.get("md_job") or {}).get(pocket_key)
+    if not job:
+        raise MdAnalyzeError(
+            f"Not recorded: no md_job is recorded for {pdb_id} pocket {pocket_key}, so there is "
+            "no registered package to tie this trajectory to. Run build_md_job first.")
+    if not _inside_dir(folder, pkg_dir):
+        raise MdAnalyzeError(
+            f"Not recorded: the trajectory folder {Path(folder)} is not inside {pkg_dir}, the "
+            f"folder of {pdb_id} pocket {pocket_key}. Copy the files from the cluster under it "
+            "(for instance into a 'cluster' subfolder) and pass that path.",
+            expected_under=str(pkg_dir))
+    found = find_inputs(folder, topology, stage)
+    # the NAMD inputs of this stage and the restraint file they name decide `minimization` and
+    # `held`, hence the control's status, so they are tied to the record exactly like the PSF
+    stage_inps = [p for p in found["inputs"] if _stage_of(p) == found["stage"]]
+    held = restraints(found["inputs"], found["dcds"])
+    held.pop("_flags", None)
+    ref_file = None
+    if held.get("reference_file") and held.get("read_from"):
+        src = next((p for p in stage_inps if p.name == held["read_from"]), None)
+        ref_file = (src.parent / held["reference_file"]) if src else None
+    support = stage_inps + ([ref_file] if ref_file is not None and ref_file.is_file() else [])
+    outside = [str(p) for p in [found["psf"], *found["dcds"], *support]
+               if not _inside_dir(p, pkg_dir)]
+    if outside:
+        raise MdAnalyzeError(f"Not recorded: these files are outside {pkg_dir}: "
+                             + ", ".join(outside), expected_under=str(pkg_dir))
+    scheme = job.get("scheme") or {}
+    prod = scheme.get("prod_step")
+    equi = _stage_of(scheme["equi_prefix"]) if scheme.get("equi_prefix") else None
+    label = ("production" if prod and found["stage"] == prod else
+             "equilibration" if equi and found["stage"] == equi else None)
+    if label is None:
+        raise MdAnalyzeError(
+            f"Not recorded: stage {found['stage']!r} is neither the production stage "
+            f"({prod!r}) nor the equilibration stage ({equi!r}) that the recorded job names "
+            f"(md_job.scheme, read from {scheme.get('source') or 'no recorded source'}).")
+    reference = _psf_reference(job)
+    psf_sha = _sha256_file(found["psf"])
+    if psf_sha != reference["sha256"]:
+        raise MdAnalyzeError(
+            f"Not recorded: the topology {found['psf'].name} has SHA-256 {psf_sha}, and the PSF "
+            f"of the registered package has {reference['sha256']} ({reference['source']}). This "
+            "trajectory was not simulated from the system this pocket's job describes.",
+            psf_sha256=psf_sha, registered_psf_sha256=reference["sha256"])
+    return {
+        "accession": accession, "manifest_path": path, "created_at": manifest.get("created_at"),
+        "prep": prep, "pkg_dir": pkg_dir, "pdb_id": pdb_id, "pocket_key": pocket_key,
+        "selected_by": origin, "job_generated_at": job.get("generated_at"),
+        "label": label, "stage": found["stage"],
+        "label_source": (f"md_job.scheme names {prod!r} as production and {equi!r} as "
+                         f"equilibration ({scheme.get('source') or 'source not recorded'})"),
+        "psf": found["psf"], "psf_sha256": psf_sha, "psf_reference": reference,
+        "dcds": {d.name: {"path": d, "sha256": _sha256_file(d), "size_bytes": d.stat().st_size}
+                 for d in found["dcds"]},
+        "support": {str(p): {"path": p, "sha256": _sha256_file(p)} for p in support},
+        "restraint_file": held.get("reference_file"),
+    }
+
+
+def record_result(ctx: dict, out: dict, arguments: dict) -> dict:
+    """Write the series file and the manifest block, or say why not. Never raises."""
+    import copy
+    import json
+    from protein_mcp.common import utc_now
+    from protein_mcp.files import choice
+
+    def refused(why):
+        logger.warning("analyze_md result not recorded: %s", why)
+        return {"recorded": False, "why": "NOT RECORDED: " + why}
+
+    if not out.get("ok"):
+        return refused("the analysis itself was refused")
+    measured = out["trajectory"].get("files") or []
+    if sorted(measured) != sorted(ctx["dcds"]) or out["topology"]["file"] != ctx["psf"].name:
+        return refused("the files analysed are not the ones checked before the analysis")
+    try:
+        if _sha256_file(ctx["psf"]) != ctx["psf_sha256"]:
+            return refused(f"{ctx['psf'].name} changed while the analysis ran")
+        for name, d in [*ctx["dcds"].items(), *ctx["support"].items()]:
+            if not Path(d["path"]).is_file() or _sha256_file(d["path"]) != d["sha256"]:
+                return refused(f"{Path(name).name} changed while the analysis ran")
+        if (out["trajectory"].get("restraints") or {}).get("reference_file") != ctx["restraint_file"]:
+            return refused("the restraint file the analysis read is not the one checked before it")
+        current = json.loads(ctx["manifest_path"].read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return refused(f"a file or the manifest could not be re-read ({exc!r})")
+    if current.get("created_at") != ctx["created_at"]:
+        return refused("prepare_structures rewrote the manifest while this ran. Run analyze_md "
+                       "again.")
+    s = next((x for x in current.get("structures") or [] if x.get("pdb_id") == ctx["pdb_id"]),
+             None)
+    job = ((s or {}).get("md_job") or {}).get(ctx["pocket_key"]) or {}
+    if s is None or job.get("generated_at") != ctx["job_generated_at"]:
+        return refused("build_md_job rewrote this pocket's job while this ran, so the package "
+                       "checked is no longer the registered one. Run analyze_md again.")
+
+    frames = {f["file"]: f.get("frames") for f in out["trajectory"].get("per_file") or []}
+    prep = ctx["prep"].resolve()
+
+    def rel(p):
+        return Path(p).resolve().relative_to(prep).as_posix()
+
+    now = utc_now()
+    series_path = ctx["pkg_dir"] / SERIES_FILE.format(label=ctx["label"])
+    part = series_path.with_name(series_path.name + ".part")
+    full = {k: v for k, v in out.items() if k != "recording"}
+    header = {"generated_by": "analyze_md", "generated_at": now, "uniprot_id": ctx["accession"],
+              "pdb_id": ctx["pdb_id"], "pocket": ctx["pocket_key"], "stage_label": ctx["label"],
+              "note": "the full result of analyze_md WITH every per-frame series; the manifest "
+                      "keeps the summary and this file's SHA-256"}
+    try:
+        # written beside the old file and swapped in only AFTER the manifest: a failed manifest
+        # write must not leave the previous record pointing at a file that no longer matches
+        part.write_text(json.dumps({**header, "result": full}, ensure_ascii=False),
+                        encoding="utf-8")
+        series_sha = _sha256_file(part)
+        block = {
+            "generated_by": "analyze_md", "generated_at": now,
+            "stage_label": ctx["label"], "stage": ctx["stage"],
+            "stage_label_source": ctx["label_source"],
+            "selected_by": ctx["selected_by"],
+            "folder": rel(out["folder"]),
+            "topology": {"file": rel(ctx["psf"]), "sha256": ctx["psf_sha256"],
+                         "matches_registered_package": True,
+                         "reference": ctx["psf_reference"]},
+            "trajectories": [{"file": rel(d["path"]), "size_bytes": d["size_bytes"],
+                              "sha256": d["sha256"], "frames": frames.get(name)}
+                             for name, d in ctx["dcds"].items()],
+            "series_file": {"path": rel(series_path), "sha256": series_sha},
+            "inputs_read": [{"file": rel(d["path"]), "sha256": d["sha256"]}
+                            for d in ctx["support"].values()],
+            "inputs_read_note": "the NAMD inputs of this stage and the restraint file they name: "
+                                "they decide the minimization frames dropped and which atoms were "
+                                "held, hence the equilibration control's status",
+            "arguments": arguments,
+            "result": strip_series(copy.deepcopy(full)),
+        }
+        s.setdefault("md_analysis", {}).setdefault(ctx["pocket_key"], {})[ctx["label"]] = block
+        choice.write_manifest(ctx["manifest_path"], current)
+        part.replace(series_path)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        part.unlink(missing_ok=True)
+        logger.exception("Could not record the analysis")
+        return refused(f"the manifest or the series file could not be written ({exc!r})")
+    return {"recorded": True, "manifest": str(ctx["manifest_path"]),
+            "key": f"structures[{ctx['pdb_id']}].md_analysis[{ctx['pocket_key']}]"
+                   f"[{ctx['label']}]",
+            "stage_label": ctx["label"], "stage_label_source": ctx["label_source"],
+            "series_file": str(series_path), "series_sha256": series_sha,
+            "psf_check": f"{ctx['psf'].name} SHA-256 matches the registered package "
+                         f"({ctx['psf_reference']['source']})",
+            "replaced_only": f"this pocket's {ctx['label']} record; any other stage is kept"}

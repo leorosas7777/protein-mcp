@@ -612,9 +612,11 @@ async def experiment_report_checks(manifest_path: Path):
     check("ANTI-HALLUCINATION", "ChEMBL potency is not in the experiment record: every IC50/Ki/Kd line is the caveat",
           mentions and all("not comparable" in l for l in mentions) and "CHEMBL" not in md, mentions)
     check("REGRESSION", "molecular dynamics and ADMET are declared not run, with the step that would fill them",
-          "Not run." in md.split("## 2. Molecular dynamics")[1] and "Phase 3 step 4" in md
-          and "Phase 3 step 7" in md and r["sections_not_run"][:2] == ["molecular dynamics (Phase 3 step 4)",
-                                                                       "ADMET (Phase 3 step 7)"], r["sections_not_run"])
+          "Not run." in md.split("## 2. Molecular dynamics")[1] and "analyze_md" in md
+          and "analyze_admet" in md
+          and r["sections_not_run"][:2] == ["molecular dynamics (no analyze_md result in the manifest)",
+                                            "ADMET (no analyze_admet result in the manifest)"],
+          r["sections_not_run"])
     research = await server.build_report("P15056")
     sec6 = (Path(research["markdown_path"]).read_text(encoding="utf-8")
             .split("## 6. Structure preparation (Phase 2)")[1].split("## 7. Methods")[0]) if research.get("ok") else ""

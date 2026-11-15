@@ -156,10 +156,16 @@ def charmm_gui_system(delivered: Path, *, with_ligand=True, fill_gaps=True, expa
 
 
 def make_archive(tmp: Path, delivered: Path, name="job.tgz", *, job="charmm-gui-9418739369",
-                 uploaded=None, anisou_garbage=False, ligand_sdf=None, **kw):
-    """A .tgz with the files check_charmm_gui_output reads, in the real layout."""
+                 uploaded=None, anisou_garbage=False, ligand_sdf=None,
+                 psf="PSF\n\n       1 !NTITLE\n REMARKS fixture\n", **kw):
+    """A .tgz with the files check_charmm_gui_output reads, in the real layout.
+
+    `psf` is the text of namd/step3_input.psf (None leaves it out): build_md_job hashes it and
+    analyze_md compares a trajectory's topology with that hash."""
     root = tmp / "build" / job
     (root / "namd").mkdir(parents=True, exist_ok=True)
+    if psf is not None:
+        (root / "namd" / "step3_input.psf").write_text(psf, encoding="ascii")
     (root / "lig").mkdir(exist_ok=True)
     system = charmm_gui_system(delivered, **kw)
     (root / "step1_pdbreader.pdb").write_text(system, encoding="ascii")

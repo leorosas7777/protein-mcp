@@ -40,7 +40,9 @@ Use logging (goes to stderr) instead.
 """
 import asyncio
 import logging
+import os
 import re
+import sys
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -329,13 +331,20 @@ async def build_experiment_report(uniprot_id: str) -> dict:
     runs recorded in dossiers/<accession>/prep/manifest.json, with the
     provenance of each one (PDB entry, resolution, pocket, box, SHA-256 of the
     mmCIF, receptor chains and, where it applies, the literal reason recorded by
-    select_structure), and the ADMET results recorded by analyze_admet. The
-    molecular dynamics section is present and says "not run": no tool writes it
-    yet.
+    select_structure), the ADMET results recorded by analyze_admet, and in
+    section 2 the molecular dynamics recorded by analyze_md (called with
+    uniprot_id): per pocket, the configuration quoted from build_md_package and
+    build_md_job, then each analysed run (production, equilibration) headed by
+    its equilibration control, with its metrics, hydrogen bonds, RMSF, plots
+    drawn from the recorded series file, and the offered reading. With no MD
+    recorded, section 2 says "not run".
 
     Rules for using the result:
     - Give the user `pdf_path` (and `markdown_path`), and name the runs in
-      `docking_runs` and the compounds in `admet_compounds` as they come.
+      `docking_runs`, the MD runs in `md_runs` (each with its equilibration
+      control status) and the compounds in `admet_compounds` as they come. When
+      an MD control is NOT MET, NO EVIDENCE or CANNOT BE ASSESSED, say so before
+      anything else about that run.
     - `sections` is the document's own inventory, read back from what was
       written: each entry has its `number`, `title` and `status`, which is
       either "has content" or "DECLARED HOLE (not run)" with the sentence the
@@ -918,6 +927,8 @@ async def build_md_job(
     (one SLURM array task per system, rebuilt from the manifest with every system whose archive
     passed the checks); `verified.not_checked`, repeated as it comes, because a check that could
     not run is a real gap; and `modelled_not_experimental` wherever the filled gaps are discussed.
+    The manifest's md_job block also keeps the SHA-256 of the archive's namd/step3_input.psf
+    (`psf`): analyze_md refuses to record a trajectory whose topology is not that file.
 
     For a longer run, give both places in `edit_to_change_the_length`: CHUNKS in run_md.slurm, or
     the chunk length in the production input. For that second one give BOTH lines it names, with
@@ -968,6 +979,9 @@ async def analyze_md(
     reference_frame: int = -1,
     include_series: bool = False,
     stage: str = "",
+    uniprot_id: str = "",
+    structure: str = "",
+    pocket: str = "",
 ) -> dict:
     """Phase 3: measure a FINISHED molecular dynamics trajectory that the user has brought back
     from their cluster, and report five metrics with the selection and the criterion behind each.
@@ -1129,12 +1143,34 @@ async def analyze_md(
 
     `include_series` defaults to false and returns only the summary of each series. Pass true
     when the user wants the per-frame values, for a plot or to see when something changed.
+
+    RECORDING. With `uniprot_id` (and `structure`/`pocket` as in build_md_package; with neither,
+    the user's choice recorded by select_structure is used) the result is also written to the
+    dossier, so build_experiment_report can show it: one record per stage, under
+    md_analysis[<pocket>]["production"] or ["equilibration"], and the per-frame series in
+    prep/md/<pocket folder>/analysis_<stage>.json, whose SHA-256 the manifest keeps. Recording the
+    equilibration never touches the production record and vice versa; repeating a stage
+    replaces only that stage. Before anything is measured the tool REFUSES (`ok: false`, nothing
+    written, the reason in `error`) when: the folder is not inside prep/md/<pocket folder>/; no
+    md_job is recorded for the pocket; the stage is neither the production nor the equilibration
+    stage the recorded job names; or the topology's SHA-256 differs from the PSF of the registered
+    package (`psf_sha256` against `registered_psf_sha256`). That last refusal means the trajectory
+    is not of the system this pocket's job describes: pass it on as such, never as a measurement
+    problem, and never retry it unchanged. The user can still measure the folder WITHOUT
+    `uniprot_id`; then nothing is written and `recording.recorded` is false. After a successful
+    measurement, `recording` says whether it was written; when `recorded` is false, `why` says
+    what changed meanwhile (a trajectory file, the manifest, the job), and the measurements in
+    the reply are NOT in the dossier: say so. "production" and "equilibration" are the labels the
+    recorded job gives those stages (`recording.stage_label_source`), not words this tool infers.
+    `reading.equilibration_control.status` is the equilibration control as one field (MET, NOT
+    MET, NO EVIDENCE when the backbone was held, or CANNOT BE ASSESSED); it belongs to the offered
+    reading and carries its threshold.
     """
     return md_analyze.analyze_md(
         folder, topology=topology or None, ligand_resname=ligand_resname,
         ligand_segid=ligand_segid, pocket_cutoff=pocket_cutoff, skip_frames=skip_frames,
         reference_frame=reference_frame, include_series=include_series,
-        stage=stage or None)
+        stage=stage or None, uniprot_id=uniprot_id, structure=structure, pocket=pocket)
 
 
 @mcp.tool()
@@ -1222,8 +1258,32 @@ async def analyze_admet(
     return admet.compact(await admet.analyze_admet(uniprot_id, structure, pocket, conformer, pose))
 
 
+def detach_stdin() -> None:
+    """Windows only: give the stdio transport a duplicate of stdin and point fd 0 at NUL.
+
+    The transport reads stdin with a blocking read in a worker thread. While that read is pending,
+    loading some native libraries on Windows waits for it to end: importing scipy.linalg (which
+    MDAnalysis imports on the first analyze_md call) took 20.2 s in two runs out of two when the
+    client wrote its next line at 20 s, about 0.5-1 s with no thread on stdin, and 0.55-0.69 s in
+    a probe doing what this function does (measured 2026-11-14; numpy and meeko blocked the same
+    way, only scipy.linalg was measured with the fix). In Claude Desktop that is a tool call that
+    never answers until another message arrives on stdin. After this, the transport reads its own
+    duplicate and fd 0 (and the process's standard input handle) is NUL, so a library that goes
+    through the standard input handle no longer meets the pending read; code that reached the
+    duplicate itself still would. Child processes inherit NUL as stdin, not the transport's pipe.
+    """
+    if sys.platform != "win32":
+        return
+    transport = os.dup(0)
+    nul = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(nul, 0)
+    os.close(nul)
+    sys.stdin = open(transport, "r", encoding="utf-8", errors="replace")
+
+
 def main():
     """Entry point of the `protein-mcp` script (pyproject.toml)."""
+    detach_stdin()
     mcp.run()  # stdio transport
 
 

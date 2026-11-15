@@ -163,6 +163,12 @@ class Doc:
         if rows:
             self.blocks.append(("table", headers, rows, widths))
 
+    def figure(self, build, caption):
+        """A vector figure, PDF only. `build(width_points)` returns a reportlab Drawing; the width
+        is the usable frame width, passed by the renderer, so no caller hard-codes points. The
+        Markdown gets the caption and says the figure is in the PDF."""
+        self.blocks.append(("figure", build, caption))
+
 
 # ------------------------------------------------------------ helpers
 def _first(entries, tool):
@@ -839,6 +845,8 @@ def render_markdown(doc: Doc) -> str:
             lines = ["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)]
             lines += ["| " + " | ".join(_md(c) for c in row) + " |" for row in rows]
             out.append("\n".join(lines))
+        elif b[0] == "figure":
+            out.append(f"<small>Figure (drawn in the PDF only): {_md([b[2]])}</small>")
     return "\n\n".join(out) + "\n"
 
 
@@ -904,6 +912,8 @@ def render_pdf(doc: Doc, path: Path, title: str, footer: str):
                 ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
             ]))
             flow += [t, Spacer(1, 5)]
+        elif b[0] == "figure":
+            flow += [b[1](width), Paragraph(_pdf([b[2]]), st["small"]), Spacer(1, 5)]
 
     def on_page(canvas, d):
         canvas.saveState()

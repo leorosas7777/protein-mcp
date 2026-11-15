@@ -450,6 +450,53 @@ def test_a_ligand_that_leaves_is_not_called_stable():
     print("ok  a ligand that walks 20 A is not described with the same words as one that holds")
 
 
+OLD_THRESHOLDS_SOURCE = (
+    "common conventions, pre-registered with a reason for each in ESTADO_PROYECTO.md section 7.2 "
+    "on 2026-11-11, before any production trajectory existed. No literature is cited because none "
+    "was consulted. The 2.0 A for the ligand RMSD matches the docking validation threshold of "
+    "section 7.1 BY CONVENTION, not by derivation: that one compares a calculated pose with a "
+    "crystal pose, this one asks whether a pose persists over time")
+
+
+def _source_is_self_contained(src: str, used: dict) -> bool:
+    """The public report prints this text: it must state each threshold and its reason itself,
+    name no internal document, and keep the two honesty clauses (no literature; equilibration
+    already measured)."""
+    # each threshold in ITS OWN sentence: the values repeat (0.5, 2.0, 2.0, 0.5), so a bare
+    # "0.5 A" anywhere would let one threshold vouch for another
+    own = (
+        "Backbone plateau: drift (last-quarter mean minus first-quarter mean) of at most "
+        f"{used['protein_plateau_angstrom']} A",
+        f"Ligand RMSD: at most {used['ligand_stable_angstrom']} A over the last quarter",
+        f"centre-of-mass distance: at most {used['com_stable_range_angstrom']} A",
+        f"Hydrogen-bond occupancy: at least {used['hbond_persistent_occupancy']} of the analysed frames",
+    )
+    reasons = ("thermal noise", "BY CONVENTION, not by derivation", "persists over time",
+               "dissociation", "a different system", "not a value transferable",
+               "not a fraction of time", "with those numbers in view")
+    internal = ("ESTADO_PROYECTO", "HISTORIAL", "section 7.", "thesis", "the user")
+    return ("No literature is cited" in src and "2026-11-11" in src
+            and "after a restrained equilibration" in src
+            and all(s in src for s in own) and all(r in src for r in reasons)
+            and not any(w in src for w in internal))
+
+
+def _source_mutants(src: str):
+    """The regressions the reviewer found the first version of the check let through
+    (2026-11-15): each must fail."""
+    yield "hbond 0.5 -> 0.6", src.replace("at least 0.5 of", "at least 0.6 of")
+    yield "COM 2.0 -> 3.0", src.replace("distance: at most 2.0 A", "distance: at most 3.0 A")
+    yield "plateau 0.5 -> 1.0", src.replace("of at most 0.5 A", "of at most 1.0 A")
+    yield "no 'different system'", src.replace("a different system", "another system")
+    yield "no 'not transferable'", src.replace("is not a value transferable to this one", "applies")
+    yield "no 'BY CONVENTION'", src.replace("BY CONVENTION, not by derivation", "deliberately")
+    yield "no drift definition", src.replace(
+        "drift (last-quarter mean minus first-quarter mean) of", "drift of")
+    yield "internal doc", src + " (see HISTORIAL_PROYECTO.md)"
+    yield "thesis", src.replace("the author's earlier simulations", "the user's thesis")
+    yield "no equilibration caveat", src.replace(", so they were chosen with those numbers in view", "")
+
+
 def test_the_reading_is_marked_as_offered_and_names_its_thresholds():
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
@@ -462,8 +509,14 @@ def test_the_reading_is_marked_as_offered_and_names_its_thresholds():
     assert "conventions and not measurements" in reading["disclaimer"]
     # the thresholds must point at their pre-registration and must NOT claim a source that was
     # never consulted: an earlier version attributed them to "the literature" with no citation
-    assert "section 7.2" in reading["thresholds_source"], reading["thresholds_source"]
-    assert "No literature is cited" in reading["thresholds_source"]
+    src = reading["thresholds_source"]
+    assert _source_is_self_contained(src, reading["thresholds_used"]), src
+    # control: the 2026-11-12 text pointed at an internal Spanish document instead of stating the
+    # reasons, and must fail the same check
+    assert not _source_is_self_contained(OLD_THRESHOLDS_SOURCE, reading["thresholds_used"])
+    for label, mutant in _source_mutants(src):
+        assert mutant != src, f"mutant {label!r} changed nothing: the check would pass by construction"
+        assert not _source_is_self_contained(mutant, reading["thresholds_used"]), label
     assert "literature" not in reading["disclaimer"]
     for name, value in reading["thresholds_used"].items():
         assert any(str(value) in n for n in reading["offered"]), f"{name} is not shown to the reader"

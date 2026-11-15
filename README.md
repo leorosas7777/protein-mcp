@@ -6,6 +6,8 @@ The intended reader of the output is a drug-discovery analyst. The design goal i
 
 **[See a sample report: BRAF V600E (PDF, 9 pages)](docs/sample_report/report_P15056.pdf)**, also available as [Markdown](docs/sample_report/report_P15056.md). It was generated from live APIs with the code in this repository.
 
+**[See a sample experiment record: BRAF / vemurafenib (PDF, 16 pages)](docs/sample_report/experiments_P15056.pdf)**, also available as [Markdown](docs/sample_report/experiments_P15056.md): re-docking, molecular dynamics (one 10 ns production run, a single trajectory of 100 frames) and ADMET for the same target. The production run's equilibration control is NOT MET, and the record states it before any figure of that run.
+
 ## Design principles
 
 - **Links come from the source.** Every URL is built from an identifier that the database returned, and tests check this against the saved records. The sample report has 281 links (176 unique), all backed by its dossier.

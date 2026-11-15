@@ -18,6 +18,7 @@ a CONFIRM hole is left in it.
 
 Run: uv run python tests/test_md_run.py
 """
+import hashlib
 import json
 import re
 import shutil
@@ -327,6 +328,14 @@ def test_build_writes_a_script_tied_to_the_archive():
     assert result["recorded_in_manifest"]
     record = json.loads((run_dir / "job.json").read_text(encoding="utf-8"))
     assert record["archive"]["sha256"] == dock.sha256(archive)
+    # the PSF NAMD reads is hashed from the archive, so analyze_md can refuse another system's
+    psf_bytes = (run_dir / "system" / "namd" / "step3_input.psf").read_bytes()
+    with tarfile.open(archive) as tar:
+        in_archive = tar.extractfile(f"{JOB}/namd/step3_input.psf").read()
+    assert psf_bytes == in_archive
+    assert record["psf"]["sha256"] == hashlib.sha256(in_archive).hexdigest(), record["psf"]
+    assert block["psf"] == record["psf"], block.get("psf")
+    assert block["psf"]["file"] == "system/namd/step3_input.psf"
     assert record["verified"]["checks"]["ligand_atoms_in_namd_system"] == 52
     readme = (run_dir / "README.md").read_text(encoding="utf-8")
     assert "10 chunks x 1.0 ns = **10.0 ns**" in readme
@@ -991,7 +1000,22 @@ def test_a_cluster_that_reports_no_account_leaves_the_line_out():
     assert "CONFIRM placeholders" not in done.stderr, done.stderr
 
 
+def test_an_archive_without_a_psf_records_no_hash():
+    """Control: with no namd/step3_input.psf there is nothing to hash, and the record says so
+    instead of carrying a hash of something else (analyze_md then falls back to the archive)."""
+    prep, delivered = test_build_writes_what_charmm_gui_needs()
+    package = json.loads((delivered.parent / "package.json").read_text(encoding="utf-8"))
+    tmp = Path(tempfile.mkdtemp())
+    archive = archive_with_namd_scheme(tmp, delivered, package["to_model"], psf=None)
+    result = md_run.build_md_job(ACC, str(archive), "3OG7", POCKET, site_report=SITE_REPORT)
+    assert result["ok"], result
+    record = json.loads((Path(result["run_dir"]) / "job.json").read_text(encoding="utf-8"))
+    assert record["psf"]["sha256"] is None and record["psf"]["file"] is None, record["psf"]
+    assert "no namd/step3_input.psf" in record["psf"]["source"]
+
+
 def main():
+    test_an_archive_without_a_psf_records_no_hash()
     test_readme_scheme_reads_the_real_loop()
     test_a_readme_that_is_not_the_known_shape_is_refused()
     test_input_values_carry_their_line()

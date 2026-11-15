@@ -1274,7 +1274,7 @@ def _record_in_manifest(path: Path, manifest: dict, pdb_id: str, pocket_key: str
     try:
         s = next(x for x in current["structures"] if x.get("pdb_id") == pdb_id)
         block = s.setdefault("md_job", {})
-        block[pocket_key] = {k: job[k] for k in ("generated_by", "generated_at", "archive",
+        block[pocket_key] = {k: job[k] for k in ("generated_by", "generated_at", "archive", "psf",
                                                  "job_id", "job_folder", "site",
                                                  "verified", "scheme", "inputs", "inputs_edited",
                                                  "slurm", "to_confirm", "files")}
@@ -1361,6 +1361,14 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
         if new_dir.is_dir():
             shutil.rmtree(new_dir)
         new_dir.mkdir(parents=True)
+        # the topology NAMD will read, hashed from the verified tree before it moves: analyze_md
+        # refuses to record a trajectory whose PSF is not this one (decided 2026-11-12)
+        psf_file = job / "namd" / "step3_input.psf"
+        psf_record = ({"file": "system/namd/step3_input.psf", "sha256": dock.sha256(psf_file),
+                       "source": "hashed by build_md_job from the verified archive"}
+                      if psf_file.is_file() else
+                      {"file": None, "sha256": None,
+                       "source": "the archive holds no namd/step3_input.psf"})
         shutil.move(str(job), str(new_dir / "system"))
         mine = system_entry("system/namd", f"{pdb_id} {pocket_key}", scheme, values)
         parsed = parse_site_report(site_report)
@@ -1373,6 +1381,7 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
             "generated_by": "build_md_job", "generated_at": utc_now(), "uniprot_id": accession,
             "pdb_id": pdb_id, "pocket": pocket_key, "selected_by": origin,
             "archive": {"path": str(archive_path), "sha256": dock.sha256(archive_path)},
+            "psf": psf_record,
             # the folder name as it comes, and the numeric id only when the name really carries
             # one: "charmm-gui-9418739369" is a folder, 9418739369 is the job
             "job_folder": verified["checks"].get("job_id"),

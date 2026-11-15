@@ -67,8 +67,12 @@ def test_no_runs():
     assert "Not run. No docking run is recorded in prep/manifest.json" in md
     assert f'dock_ligand("{ACC}", structure, pocket)' in md
     assert "docking (no run in the manifest)" in r["sections_not_run"]
-    # the two sections that no tool fills yet are present and say so, with the step that would
-    assert "## 2. Molecular dynamics" in md and "Phase 3 step 4" in md
+    # with no MD block in the manifest, section 2 says so and names the tool that records a run
+    assert "## 2. Molecular dynamics" in md
+    sec2 = md.split("## 2. Molecular dynamics")[1].split("## 3.")[0]
+    assert "Not run. No molecular dynamics package, job or analysis is recorded" in sec2, sec2
+    assert f'analyze_md(folder, uniprot_id="{ACC}"' in sec2, sec2
+    assert "molecular dynamics (no analyze_md result in the manifest)" in r["sections_not_run"]
     # Section 3 exists from the start and declares the gap by naming the tool that fills it.
     # It must NOT call anything PREDICTED: nothing analyze_admet writes comes from a trained
     # model (ESTADO 7.3), and the placeholder used to promise "PREDICTED values".
@@ -77,7 +81,7 @@ def test_no_runs():
     assert "PREDICTED" not in md and "predicted" not in md
     # H5: the pending line does not contradict the two sections declared not run
     assert "Preparation steps still pending in the manifest:" in md
-    assert "Molecular dynamics (section 2) has not been run" in md
+    assert "Molecular dynamics (section 2): no analysed run is recorded." in md
     assert "nothing listed" not in md
     return prep
 
@@ -365,6 +369,39 @@ def test_open_pdf_error():
     assert md_path.read_bytes() == before, "the Markdown was replaced although the PDF could not be written"
 
 
+def test_the_cluster_install_path_stays_out_of_the_report():
+    """2026-11-15, the user's decision: the shareable report names the NAMD release, not where the
+    cluster installs it. The full path stays in the manifest."""
+    from protein_mcp import experiment_report as er
+    from protein_mcp.report import Doc
+
+    real = "/software/local/apps/NAMD_3.0.3_Linux-x86_64-multicore-CUDA/namd3"
+    job = {"site": {"namd_binary": {"value": real, "mark": "CONFIRMED"}}}
+
+    def cluster_row(tail):
+        saved = er._binary_tail
+        er._binary_tail = tail
+        try:
+            doc = Doc()
+            er._md_config(doc, {}, job)
+        finally:
+            er._binary_tail = saved
+        rows = [r for b in doc.blocks if b[0] == "table" for r in b[2]]
+        return next(r[1] for r in rows if r[0] == "Cluster job")
+
+    def clean(text):
+        return "/software" not in text and "local/apps" not in text and \
+            "NAMD_3.0.3_Linux-x86_64-multicore-CUDA/namd3" in text and "full path in the manifest" in text
+
+    row = cluster_row(er._binary_tail)
+    assert clean(row), row
+    # control: without the function the install path is printed, and the same check must fail
+    assert not clean(cluster_row(lambda v: v))
+    assert er._binary_tail(None) is None and er._binary_tail("CONFIRM") == "CONFIRM"
+    assert er._binary_tail("namd3") == "namd3"
+    print("ok  the report names the NAMD release, not the cluster's install path")
+
+
 def main():
     record = make_fake_vina(Path(tempfile.mkdtemp()))
     prep = test_no_runs()
@@ -377,6 +414,7 @@ def main():
     test_research_report_gains_one_line_without_figures()
     test_the_section_inventory_is_read_from_the_document()
     test_open_pdf_error()
+    test_the_cluster_install_path_stays_out_of_the_report()
     assert calls(record), "the Vina stand-in was never called: the run was not real"
     print(json.dumps({"pages": build()["pages"], "runs": len(build()["docking_runs"]),
                       "top_pose_rmsd": rec["redocking"]["top_pose_rmsd_angstrom"]}))
