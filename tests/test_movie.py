@@ -497,6 +497,34 @@ print(" protein-mcp: render failed: out of memory at state 4")
     print("a half-finished render is not turned into a video OK")
 
 
+def test_the_window_session_quotes_the_control_too(prep: Path):
+    """The window and the video read the same control from the same record. Without it in the
+    result, the tool that opens the trajectory cannot say that what moves on screen is
+    premature, and on 2026-11-19 in Claude Desktop it had to go and look for it."""
+    r = asyncio.run(viewer.open_md_in_pymol(ACC, start=False))
+    assert r["ok"], r
+    assert r["equilibration_control"]["status"] == "NOT MET"
+    assert r["equilibration_control"]["drift_angstrom"] == 1.3534
+    assert r["equilibration_control"]["threshold_angstrom"] == 0.5
+    assert "not measured here" in r["equilibration_control"]["note"]
+    # one reading, not two that could drift apart
+    assert movie._control is viewer.equilibration_control
+
+    # a record with no control says so, and does not invent a passing one
+    def drop(man):
+        res = man["structures"][0]["md_analysis"][MD_KEY]["production"]["result"]
+        res["reading"].pop("equilibration_control")
+    saved = patch_manifest(prep, drop)
+    try:
+        r = asyncio.run(viewer.open_md_in_pymol(ACC, start=False))
+        assert r["equilibration_control"] == {
+            "status": "no record",
+            "note": "analyze_md recorded no equilibration control for this run."}
+    finally:
+        (prep / "manifest.json").write_bytes(saved)
+    print("the window session quotes the control too OK")
+
+
 def test_without_pymol_the_movie_is_refused(prep: Path):
     saved_find = viewer.find_pymol
     viewer.find_pymol = lambda: {"found": False, "source": None, "error": "PyMOL not found: ..."}
@@ -553,6 +581,7 @@ def main():
         test_nothing_is_rendered_from_a_file_that_changed(prep, root)
         test_a_failed_render_and_a_failed_encode_are_reported(prep, root)
         test_a_half_finished_render_is_not_turned_into_a_video(prep, root)
+        test_the_window_session_quotes_the_control_too(prep)
         test_without_pymol_the_movie_is_refused(prep)
         test_two_matching_runs_are_refused(prep)
     print("ALL OK")

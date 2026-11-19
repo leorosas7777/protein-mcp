@@ -498,6 +498,22 @@ def md_records(manifest: dict) -> list:
     return out
 
 
+def equilibration_control(rec: dict) -> dict:
+    """The equilibration control of one analysed run, quoted from the record of analyze_md.
+
+    Never recomputed here, and never left out: on a run whose control failed, everything the
+    window or the video shows is premature, and the tool that opens it must be able to say so
+    without a second call.
+    """
+    ctrl = ((rec.get("result") or {}).get("reading") or {}).get("equilibration_control")
+    if not isinstance(ctrl, dict):
+        return {"status": "no record",
+                "note": "analyze_md recorded no equilibration control for this run."}
+    return {"status": ctrl.get("status"), "drift_angstrom": ctrl.get("drift_angstrom"),
+            "threshold_angstrom": ctrl.get("threshold_angstrom"), "segid": ctrl.get("segid"),
+            "note": "Quoted from the analyze_md record of this run, not measured here."}
+
+
 def build_trajectory_scene(prep: Path, rec: dict, every: int, max_states: int,
                            play: bool = True) -> dict:
     """Operations for one analysed trajectory, and what they will show.
@@ -696,6 +712,7 @@ async def open_md_in_pymol(uniprot_id: str, structure: str = "", pocket: str = "
         "frames_recorded": scene["frames_recorded"], "states_mounted": scene["states"],
         "mounted": f"every {every} frame(s), at most {max_states} states",
         "shows": scene["note"], "ligand_selection": scene["ligand_selection"],
+        "equilibration_control": equilibration_control(rec),
         "available": listed,
         "not_a_measurement": "This is the trajectory itself, not a measurement of it. Every figure "
                              "about this run is in the experiment record; watching a pose move is "

@@ -113,16 +113,9 @@ def _tail_lines(path: Path, n: int = 12) -> list:
         return []
 
 
-def _control(rec: dict) -> dict:
-    """The equilibration control of this run, quoted from the record. Never recomputed."""
-    reading = ((rec.get("result") or {}).get("reading") or {})
-    ctrl = reading.get("equilibration_control")
-    if not isinstance(ctrl, dict):
-        return {"status": "no record",
-                "note": "analyze_md recorded no equilibration control for this run."}
-    return {"status": ctrl.get("status"), "drift_angstrom": ctrl.get("drift_angstrom"),
-            "threshold_angstrom": ctrl.get("threshold_angstrom"), "segid": ctrl.get("segid"),
-            "note": "Quoted from the analyze_md record of this run, not measured here."}
+# the window session and the video quote the same control from the same record: it lives in
+# files.viewer so there is one reading of it and not two that could drift apart
+_control = viewer.equilibration_control
 
 
 async def render_md_movie(uniprot_id: str, structure: str = "", pocket: str = "", stage: str = "",

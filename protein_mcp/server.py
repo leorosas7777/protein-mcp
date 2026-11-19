@@ -623,9 +623,9 @@ async def open_md_in_pymol(
       frame is not the whole trajectory.
     - `files_refused` lists any trajectory left out because it is missing or no
       longer matches its hash. Report it; do not describe it as shown.
-    - A movie is NOT a measurement. Say so, and name the equilibration control
-      of that run (in the experiment record) before describing what moves: on a
-      run whose control is NOT MET, everything seen is premature.
+    - A movie is NOT a measurement. Say so, and give `equilibration_control`,
+      which is quoted from the analyze_md record of that run, BEFORE describing
+      what moves: if it reads NOT MET, everything seen is premature.
     - The cartoon's secondary structure is assigned by PyMOL from the
       coordinates (`shows` says so): a PSF carries none, and it is not read
       from any source. Do not present a helix or a sheet there as a fact of the
