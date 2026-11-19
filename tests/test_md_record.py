@@ -314,25 +314,41 @@ def test_the_report_heads_each_run_with_its_control_and_draws_from_the_file():
     # 5.1: the configuration table, quoted from md_package and md_job
     m = manifest()
     job = next(x for x in m["structures"] if x["pdb_id"] == "3OG7")["md_job"][POCKET]
-    for fact in ("Starting pose", "of docking run 032_regenerated", job["job_id"],
-                 job["psf"]["sha256"], "Production as written", "Equilibration as written",
-                 "whether the cluster ran these inputs unchanged is not recorded"):
+    # the hashes left section 2 for the audit trail at the end; the set-up a reader interprets
+    # stays here, and the trail must carry the run's name so it can be found again
+    audit = md.index("## 5. Reproducibility and audit trail")
+    assert job["psf"]["sha256"] in md[audit:] and job["psf"]["sha256"] not in sec
+    assert job["job_id"] in md[audit:]
+    assert "### MD set-up · 3OG7 pocket 032 C" in md[audit:]
+    assert "### MD production · 3OG7 pocket 032 C" in md[audit:]
+    for fact in ("Which pose is being simulated", "of docking run 032_regenerated",
+                 "The run the figures come from (production)",
+                 "Settling the system before measuring (equilibration)",
+                 "Whether the cluster ran those inputs unchanged is not recorded here"):
         assert fact in sec, fact
+    # which compound the trajectory belongs to has to be said before any of its figures
+    assert "SIMULATED AND MEASURED: 3OG7 pocket 032 C" in sec
+    assert sec.index("SIMULATED AND MEASURED") < sec.index("EQUILIBRATION CONTROL")
 
     # each run: its own heading, the control line FIRST, then the figures, all said to be its own
-    prod = sec.split("#### Production run")[1].split("#### Equilibration run")[0]
-    equi = sec.split("#### Equilibration run")[1]
+    prod_h = "#### The run the results come from (production)"
+    equi_h = "#### The run that settled the system first (equilibration)"
+    prod = sec.split(prod_h)[1].split(equi_h)[0]
+    equi = sec.split(equi_h)[1]
     for block_, label in ((prod, "production"), (equi, "equilibration")):
-        first = block_.split("\n\n", 2)[1]
+        first = block_.split("\n\n", 2)[2]
         assert first.startswith("EQUILIBRATION CONTROL: "), first[:200]
         assert block_.index("EQUILIBRATION CONTROL") < block_.index("Ligand heavy-atom RMSD")
-        assert f"comes from the {label} run only" in block_
-        assert "PROPORTION OF ANALYSED FRAMES" in block_ and "never a fraction of time" in block_
+        # the figure must name its own run ON the picture, not only in the caption
+        assert f"come from the {label} run named in the banner above them" in block_
+        assert "NOT a fraction of time" in block_ and "faster than frames are stored" in block_
         assert "Figure (drawn in the PDF only)" in block_
         assert "READING OFFERED, NOT MEASURED" in block_
         assert "None" not in block_.replace("Nonetheless", ""), "a missing value printed as None"
     rec = block()["production"]
-    assert rec["trajectories"][0]["sha256"] in prod and rec["topology"]["sha256"] in prod
+    # the trajectory and topology hashes belong to the audit trail, not to the run's own text
+    for h in (rec["trajectories"][0]["sha256"], rec["topology"]["sha256"]):
+        assert h in md[audit:] and h not in prod, h
     assert "All 4 analysed frames plotted" in prod
 
     # every table width is a FRACTION of the frame (the defect of step 7: points cut the PDF)
@@ -389,11 +405,14 @@ def test_a_record_from_another_version_reads_no_record():
     s["md_job"][POCKET].pop("psf")
     choice.write_manifest(choice.manifest_path(ACC), m)
     doc, *_ = experiment_report.build_document(ACC, report.load_manifest(ACC), "t")
-    sec = _sec2(report.render_markdown(doc))
-    prod = sec.split("#### Production run")[1].split("#### Equilibration run")[0]
+    full = report.render_markdown(doc)
+    sec = _sec2(full)
+    prod = (sec.split("#### The run the results come from (production)")[1]
+               .split("#### The run that settled the system first (equilibration)")[0])
     assert "EQUILIBRATION CONTROL: NOT RECORDED" in prod, prod[:600]
     assert "Plots omitted: no series file is recorded" in prod
-    assert "not recorded by the version of build_md_job" in sec
+    # the PSF note is part of the set-up audit, so it is in section 5 and not in section 2
+    assert "not recorded by the version of build_md_job" in full
     assert "None" not in sec, [l for l in sec.splitlines() if "None" in l][:3]
     # control: with the 'no record' helper switched off, the same manifest does print None
     real = experiment_report._v

@@ -175,7 +175,13 @@ def _ligand_block(doc, run: dict):
     doc.bullets(items)
 
 
-def _receptor_block(doc, run: dict):
+def _receptor_items(run: dict) -> list:
+    """Receptor preparation and the pre-flight checks, as reproducibility lines.
+
+    These used to open each run with two headings of their own. They say how the receptor was
+    protonated and that the ligand really was inside the box before Vina started -- worth keeping,
+    never worth reading first (user request 2026-11-18).
+    """
     rec = run.get("receptor") or {}
     items = [f"Meeko mk_prepare_receptor {rec.get('options') or NO_RECORD}; exit code {_v(rec.get('exit_code'))}"
              + (f"; {_num(rec['seconds'])} s" if rec.get("seconds") is not None else ""),
@@ -190,22 +196,20 @@ def _receptor_block(doc, run: dict):
              f"Residue identifiers: {rec.get('residue_ids') or NO_RECORD}"]
     if rec.get("warning"):
         items.append(f"Warning: {rec['warning']}")
-    doc.h(4, "Receptor preparation")
-    doc.bullets(items)
     guard = run.get("guard") or {}
     if guard:
-        doc.h(4, "Checks run before Vina was started")
-        doc.bullets([f"Ligand atoms inside the box: {guard.get('ligand_atoms_in_box') or NO_RECORD}",
-                     f"Ligand centroid inside the box: {_v(guard.get('ligand_centroid_in_box'))}",
-                     f"Receptor atoms within 8 Å of the box centre: "
-                     f"{_v(guard.get('receptor_atoms_within_8A_of_box_centre'))}; closest at "
-                     f"{_num(guard.get('closest_receptor_atom_to_box_centre_angstrom')) or NO_RECORD} Å"]
-                    + ([guard["note"]] if guard.get("note") else []))
+        items += [f"Checked before Vina started: ligand atoms inside the box "
+                  f"{guard.get('ligand_atoms_in_box') or NO_RECORD}; ligand centroid inside the box "
+                  f"{_v(guard.get('ligand_centroid_in_box'))}; receptor atoms within 8 Å of the box "
+                  f"centre {_v(guard.get('receptor_atoms_within_8A_of_box_centre'))}, closest at "
+                  f"{_num(guard.get('closest_receptor_atom_to_box_centre_angstrom')) or NO_RECORD} Å"]
+        if guard.get("note"):
+            items.append(guard["note"])
+    return items
 
 
-def _vina_block(doc, run: dict):
+def _vina_items(run: dict) -> list:
     v = run.get("vina") or {}
-    doc.h(4, "AutoDock Vina run")
     params = ", ".join(f"{k} {v.get(k)}" for k in ("exhaustiveness", "seed", "num_modes", "energy_range",
                                                    "min_rmsd", "scoring") if k in v)
     items = [f"Vina {v.get('version') or NO_RECORD} (executable SHA-256 {v.get('executable_sha256') or NO_RECORD})",
@@ -218,7 +222,114 @@ def _vina_block(doc, run: dict):
         items.append(f"CPU time: {_num(v['cpu_seconds'])} s on {_v(v.get('logical_cpus'))} logical CPUs "
                      f"({_num(v.get('cpu_per_wall_second')) or NO_RECORD} s of CPU per second of wall clock); "
                      "a measurement of this machine, not of the docking")
-    doc.bullets(items)
+    return items
+
+
+def _repro(audit: list, title: str, items: list):
+    """Collect one audit entry. It is NOT printed here: section 5 prints them all at the end.
+
+    Nothing measured is dropped from this document -- a hash, a Meeko option or a guard check is
+    what lets someone else repeat the run, and removing it would break the audit. But none of it
+    helps anyone INTERPRET a result, so the whole audit trail leaves the reading path and becomes
+    an appendix (user request 2026-11-18: "todo aquello que sirva para auditar los experimentos
+    vaya hasta el final... al principio solo los datos que le sirven al investigador para
+    interpretar"). The entry keeps the heading it had, so a reader who wants the trail of one
+    run finds it under that run's name.
+    """
+    kept = [i for i in items if i]
+    if kept:
+        audit.append({"title": title, "items": kept})
+
+
+def _score_span(run: dict) -> str:
+    """How far apart the poses of ONE run score. Never a comparison between runs."""
+    scores = [p.get("vina_score_kcal_mol") for p in run.get("poses") or []
+              if p.get("vina_score_kcal_mol") is not None]
+    if not scores:
+        return "no pose carries a score"
+    if len(scores) == 1:
+        return f"a single pose at {_num(min(scores), '{:.2f}')} kcal/mol"
+    return (f"{len(scores)} poses spanning {_num(min(scores), '{:.2f}')} to "
+            f"{_num(max(scores), '{:.2f}')} kcal/mol")
+
+
+def _rmsd_sentence(xd: dict) -> str:
+    """The T1 anchor in prose: the number, the bar, and whether it settles anything."""
+    rng = (xd.get("within_criterion_with_bar") or {}).get("range_angstrom") or []
+    decides = (xd.get("within_criterion_with_bar") or {}).get("decides")
+    ref = (xd.get("reference_pose") or {}).get("from") or NO_RECORD
+    crit = _num(xd.get("criterion_angstrom")) or NO_RECORD
+    bar = _num((xd.get("reference_pose_uncertainty") or {}).get("shift_angstrom")) or NO_RECORD
+    top = _num(xd.get("top_pose_rmsd_angstrom"), "{:.4f}") or NO_RECORD
+    out = (f"Its best-scoring pose sits {top} Å from the crystallographic pose of this same compound "
+           f"in {ref}, brought into this receptor by superposing the two proteins. The criterion "
+           f"written down in advance is {crit} Å. ")
+    if len(rng) == 2 and decides is False:
+        out += (f"But that superposition moves the reference pose by ±{bar} Å, so the measurement "
+                f"really spans {_num(rng[0])}-{_num(rng[1])} Å, which falls on BOTH sides of the "
+                "criterion. This run therefore does NOT decide whether the pose was reproduced, and "
+                "must not be reported as a pass.")
+    elif len(rng) == 2:
+        out += (f"With the ±{bar} Å uncertainty of that superposition the measurement spans "
+                f"{_num(rng[0])}-{_num(rng[1])} Å, which stays on one side of the criterion, so it "
+                "does settle the question.")
+    else:
+        out += "The uncertainty of that superposition is not recorded, so the criterion settles nothing."
+    return out
+
+
+def _pose_summary(doc, run: dict):
+    """One paragraph a reader can act on, before any table.
+
+    Replaces a list of disconnected bullets (user request 2026-11-18). Every figure in it is
+    quoted from the manifest; the paragraph adds sentences, never numbers.
+    """
+    lig = run.get("ligand") or {}
+    cd = run.get("compound_docking") or {}
+    rd = run.get("redocking") or {}
+    xd = run.get("cross_docking") or {}
+    if cd:
+        who = f"{_v(lig.get('name'))} ({_v(lig.get('compound_id'))})"
+        le = _num(cd.get("ligand_efficiency_kcal_mol_per_heavy_atom"), "{:.4f}") or NO_RECORD
+        text = (f"{who}, a compound the researcher selected, was docked into this pocket's box with "
+                f"the box, the receptor and the Vina settings left exactly as they were for every "
+                f"other compound of the set. Vina returned {_score_span(run)}; the best of them scores "
+                f"{_num(cd.get('top_pose_score_kcal_mol'), '{:.3f}') or NO_RECORD} kcal/mol. Over its "
+                f"{_v(cd.get('heavy_atoms'))} heavy atoms that is {le} kcal/mol per atom. It is "
+                "printed because the raw score grows with the number of atoms, so a bigger molecule "
+                "scores better for being bigger; it is NOT used to re-order the set and no threshold "
+                "says which of two values is better, because this project has measured none. ")
+        text += _rmsd_sentence(xd) if xd else (
+            "There is no RMSD for this run, and that is a property of the experiment rather than a "
+            "missing value: " + (cd.get("rmsd_not_applicable") or NO_RECORD)
+            + " The score is a hypothesis about where this compound would sit, not a reproduced pose.")
+        if cd.get("box_limited"):
+            fit = cd.get("box_fit") or {}
+            text += (" This run is marked box_limited: the compound clears the tightest axis of the box "
+                     f"by only {_num(fit.get('min_clearance_angstrom')) or NO_RECORD} Å, so Vina never "
+                     "explored the orientations it explored for the others. Its score is not comparable "
+                     "with theirs, and it is not ranked with them.")
+        doc.p(text)
+        return
+    crit = _num(rd.get("criterion_angstrom")) or NO_RECORD
+    top = _num(rd.get("top_pose_rmsd_angstrom"), "{:.4f}") or NO_RECORD
+    text = (f"The crystal ligand {_v(lig.get('comp_id'))} of this pocket was re-docked into its own "
+            f"receptor, which is a test of the set-up and not of the method: the answer is already in "
+            f"the crystal. Vina returned {_score_span(run)}. ")
+    verdict = rd.get("within_criterion")
+    if verdict is None:
+        # a missing field is a missing field. Reading it as False would turn "the manifest does
+        # not say" into "this run failed", which is the one substitution this project forbids.
+        text += (f"The best-scoring pose lands {top} Å from the crystallographic pose, against a "
+                 f"criterion of {crit} Å. Whether it is within the criterion: {NO_RECORD} -- this "
+                 "manifest does not record the verdict, which is not the same as failing it.")
+    else:
+        text += (f"The best-scoring pose lands {top} Å from the crystallographic pose against a "
+                 f"criterion of {crit} Å, so this set-up "
+                 + ("reproduces" if verdict else "does NOT reproduce")
+                 + " a pose it already knew. That says the box, the receptor and the scoring run as "
+                   "intended; it says nothing about a compound the crystal does not contain.")
+    doc.p(text)
 
 
 def _cross_docking_items(xd: dict) -> list:
@@ -272,49 +383,44 @@ def _compound_poses_block(doc, run: dict, count: str):
     cd = run.get("compound_docking") or {}
     fit = cd.get("box_fit") or {}
     xd = run.get("cross_docking") or {}
-    doc.h(4, "Poses (calculated)")
+    doc.h(4, "Result")
+    _pose_summary(doc, run)
     if xd:
         doc.p(f"{count}. Both columns are calculated. The RMSD is NOT against a pose of this "
               f"structure: it is against the crystallographic pose of this same compound in "
               f"{xd.get('reference_pose', {}).get('from') or NO_RECORD}, carried here by a protein "
-              f"superposition, and it travels with the error bar below.", small=True)
+              f"superposition, and it travels with the error bar given above.", small=True)
         doc.table(["Mode", "Vina score (kcal/mol, calculated)",
                    "RMSD to the reference pose (Å, calculated)"],
                   [[p.get("mode"), _num(p.get("vina_score_kcal_mol"), "{:.2f}") or NO_RECORD,
                     _num(p.get("rmsd_to_reference_pose_angstrom"), "{:.4f}") or NO_RECORD]
                    for p in run.get("poses") or []], (0.08, 0.3, 0.32))
     else:
-        doc.p(f"{count}. The scores are calculated values of this run. There is NO RMSD column: "
-              + (cd.get("rmsd_not_applicable") or "no reference pose."), small=True)
+        doc.p(f"{count}. The scores are calculated values of this run, listed in the order Vina "
+              "returned them. There is no RMSD column, for the reason given above.", small=True)
         doc.table(["Mode", "Vina score (kcal/mol, calculated)"],
                   [[p.get("mode"), _num(p.get("vina_score_kcal_mol"), "{:.2f}") or NO_RECORD]
                    for p in run.get("poses") or []], (0.08, 0.3))
+    doc.p(f"Scope of this run: {cd.get('scope') or NO_RECORD}"
+          + (" That line is the state of the run AT DOCKING TIME, when no pose of this compound had "
+             "been brought into this frame; the reference pose was added afterwards by "
+             "cross_dock_rmsd, from another crystal." if xd else ""), small=True)
     items = [
-        f"Top-pose score: {_num(cd.get('top_pose_score_kcal_mol'), '{:.3f}') or NO_RECORD} kcal/mol; heavy atoms: "
-        f"{_v(cd.get('heavy_atoms'))}; ligand efficiency: "
-        f"{_num(cd.get('ligand_efficiency_kcal_mol_per_heavy_atom'), '{:.4f}') or NO_RECORD} kcal/mol per heavy atom",
-    ]
-    items += _cross_docking_items(xd) if xd else [
-        f"RMSD: not applicable. {cd.get('rmsd_not_applicable') or NO_RECORD}",
-        f"Pass/fail criterion: none. {cd.get('not_a_control_reason') or NO_RECORD}"]
-    items += [
         f"Box fit against the pocket's unchanged box: clearance "
         f"{_num(fit.get('min_clearance_angstrom')) or NO_RECORD} Å in the tightest axis (box axis "
         f"{_num(fit.get('limiting_box_axis_angstrom')) or NO_RECORD} Å, compound extent "
         f"{_num(fit.get('limiting_ligand_extent_angstrom')) or NO_RECORD} Å), declared minimum "
         f"{_num(fit.get('threshold_angstrom')) or NO_RECORD} Å; measured as: {fit.get('method') or NO_RECORD}",
         f"Parameters as pre-registered for the set: {_v(cd.get('parameters_as_preregistered'))}",
-        f"Scope: {cd.get('scope') or NO_RECORD}"
-        + (" (that line is the state of this run AT DOCKING TIME, when no pose of this compound had "
-           "been brought into this frame; the reference pose above was added afterwards by "
-           "cross_dock_rmsd, from another crystal)" if xd else ""),
         cd.get("ligand_efficiency_note") or NO_RECORD,
     ]
+    if not xd:
+        items.append(f"Pass/fail criterion: none. {cd.get('not_a_control_reason') or NO_RECORD}")
     if cd.get("box_limited"):
-        items.insert(4, cd.get("box_limited_note") or "box_limited")
+        items.insert(0, cd.get("box_limited_note") or "box_limited")
     if cd.get("note"):
         items.append(cd["note"])
-    doc.bullets(items)
+    return (_cross_docking_items(xd) if xd else []) + items
 
 
 def _poses_block(doc, run: dict):
@@ -326,7 +432,8 @@ def _poses_block(doc, run: dict):
                 else ""))
     if "compound_docking" in run:
         return _compound_poses_block(doc, run, count)
-    doc.h(4, "Poses (calculated)")
+    doc.h(4, "Result")
+    _pose_summary(doc, run)
     doc.p(f"{count}. Both columns are calculated values of this run; the RMSD is against the crystal pose of this "
           f"same pocket (method: {rd.get('rmsd_method') or NO_RECORD}).", small=True)
     doc.table(["Mode", "Vina score (kcal/mol, calculated)", "RMSD to the crystal pose (Å, calculated)"],
@@ -334,28 +441,31 @@ def _poses_block(doc, run: dict):
                 _num(p.get("rmsd_to_crystal_pose_angstrom"), "{:.4f}") or NO_RECORD]
                for p in run.get("poses") or []], (0.08, 0.3, 0.32))
     nc = rd.get("rmsd_negative_control") or {}
-    items = [f"Top-pose RMSD: {_num(rd.get('top_pose_rmsd_angstrom'), '{:.4f}') or NO_RECORD} Å; criterion "
-             f"<= {_num(rd.get('criterion_angstrom')) or NO_RECORD} Å; within the criterion: "
-             f"{_v(rd.get('within_criterion'))}",
-             f"Pre-registered control run: {_v(rd.get('is_preregistered_control'))}",
+    doc.p(f"Scope of this run: {rd.get('scope') or NO_RECORD}", small=True)
+    items = [f"Pre-registered control run: {_v(rd.get('is_preregistered_control'))}",
              f"RMSD method: {rd.get('rmsd_method') or NO_RECORD}",
              "Negative control of this run, measured with the same function as the poses: the crystal pose "
              f"against itself gave {_num(nc.get('crystal_vs_itself_angstrom')) or NO_RECORD} Å and the crystal "
              f"pose moved 5 Å gave {_num(nc.get('crystal_moved_5A_angstrom')) or NO_RECORD} Å; "
-             f"passed: {_v(nc.get('passed'))}",
-             f"Scope: {rd.get('scope') or NO_RECORD}"]
+             f"passed: {_v(nc.get('passed'))}"]
     if rd.get("note"):
         items.append(rd["note"])
-    doc.bullets(items)
+    return items
 
 
-def _files_block(doc, run: dict):
-    rows = [[name, f.get("path"), f.get("sha256")] for name, f in sorted((run.get("files") or {}).items())]
-    doc.h(4, "Files written (paths relative to the prep folder)")
-    doc.table(["Name", "Path", "SHA-256"], rows, (0.22, 0.36, 0.42))
+def _files_items(run: dict) -> list:
+    """Each written file with its hash, as one line. The hash is for the audit, not the reader.
+
+    A reader interpreting a docking result never needs a SHA-256 (user question 2026-11-18). It is
+    kept because it is what proves the file on disk is the file this run wrote -- the manifest, the
+    MD package and analyze_md all check against it -- so it moves to the reproducibility block
+    instead of taking a table column in the reading path.
+    """
+    return [f"{name}: {f.get('path') or NO_RECORD} (SHA-256 {f.get('sha256') or NO_RECORD})"
+            for name, f in sorted((run.get("files") or {}).items())]
 
 
-def _docking(doc, m: dict, accession: str):
+def _docking(doc, m: dict, accession: str, audit: list):
     doc.h(2, "1. Molecular docking (AutoDock Vina)")
     runs = _run_rows(m)
     structures = m.get("structures") or []
@@ -393,13 +503,14 @@ def _docking(doc, m: dict, accession: str):
         if run.get("replaced_run_computed_at"):
             doc.p(f"Replaced an earlier run of the same pocket and conformer, recorded "
                   f"{run['replaced_run_computed_at']}; only this one is kept in the manifest.", small=True)
+        # the result first, then what it was run on, then the audit trail. The reader who only
+        # wants the answer stops after the first paragraph (user request 2026-11-18).
+        extra = _poses_block(doc, run)
+        _ligand_block(doc, run)
         doc.h(4, "Provenance")
         _provenance(doc, s, block, run, m, key)
-        _ligand_block(doc, run)
-        _receptor_block(doc, run)
-        _vina_block(doc, run)
-        _poses_block(doc, run)
-        _files_block(doc, run)
+        _repro(audit, f"Docking · {s.get('pdb_id')} · pocket {key} · run {run_id}",
+               _vina_items(run) + _receptor_items(run) + (extra or []) + _files_items(run))
         if run.get("note"):
             doc.p(f"{run.get('values') or 'calculated'}: {run['note']}", small=True)
     return len(runs)
@@ -415,7 +526,7 @@ def _admet_rows(m: dict) -> list:
     return out
 
 
-def _admet(doc, m: dict, accession: str) -> int:
+def _admet(doc, m: dict, accession: str, audit: list) -> int:
     doc.h(2, "3. ADMET")
     rows = _admet_rows(m)
     if not rows:
@@ -427,26 +538,33 @@ def _admet(doc, m: dict, accession: str) -> int:
     for s, key, block in rows:
         ident = block.get("compound_identity") or {}
         look = block.get("chembl_lookup") or {}
-        doc.h(3, f"{s.get('pdb_id')} · pocket {key} · {ident.get('comp_id') or NO_RECORD}")
+        # A compound of the researcher's selection has no comp_id: it is not a ligand of any
+        # crystal, so that field is NOT APPLICABLE rather than missing. Printing "no record" in
+        # the heading said the opposite -- and said it in the most visible place in the section,
+        # about compounds whose ADMET was in fact retrieved in full.
+        who = ident.get("comp_id") or ident.get("name") or ident.get("compound_id")
+        doc.h(3, f"{s.get('pdb_id')} · pocket {key} · {who or NO_RECORD}")
         doc.p(f"Recorded {_v(block.get('generated_at'))} by {_v(block.get('generated_by'))}. "
               f"{block.get('selection') or ''}", small=True)
 
-        doc.h(4, "Compound identity")
-        doc.table(["Field", "Value"], [
-            ["InChIKey (computed here with RDKit)", ident.get("inchikey") or NO_RECORD],
-            ["Read from", ident.get("source") or NO_RECORD],
-            ["File", ident.get("source_file") or NO_RECORD],
-            ["SHA-256 of that file", ident.get("source_sha256") or NO_RECORD],
-            ["Docking run", ident.get("run_id") or "none (crystallographic ligand)"],
-            ["Agreement between the files", ident.get("identity_check") or NO_RECORD],
-            ["Heavy atoms (SDF / manifest pocket)",
-             f"{(block.get('calculated_properties') or {}).get('rdkit', {}).get('heavy_atoms', NO_RECORD)}"
-             f" / {_v(ident.get('heavy_atoms_in_manifest_pocket'))}"],
-            ["ChEMBL molecules with this exact InChIKey", _v(look.get("matches"))],
-        ], (0.38, 0.62))
+        # The identity block used to open the compound with an eight-row table of files, hashes
+        # and run ids. None of it is read when judging a compound (user request 2026-11-18): it
+        # answers "is this the same molecule the docking used", which is a yes/no, so the yes/no
+        # stays here and the evidence for it moves to the reproducibility block at the end.
+        repro = [
+            f"InChIKey (computed here with RDKit): {ident.get('inchikey') or NO_RECORD}",
+            f"Read from {ident.get('source') or NO_RECORD}, file {ident.get('source_file') or NO_RECORD} "
+            f"(SHA-256 {ident.get('source_sha256') or NO_RECORD})",
+            f"Docking run: {ident.get('run_id') or 'none (crystallographic ligand)'}",
+            f"Agreement between the files: {ident.get('identity_check') or NO_RECORD}",
+            f"Heavy atoms, SDF against the manifest's pocket: "
+            f"{(block.get('calculated_properties') or {}).get('rdkit', {}).get('heavy_atoms', NO_RECORD)}"
+            f" / {_v(ident.get('heavy_atoms_in_manifest_pocket'))}",
+            f"ChEMBL molecules with this exact InChIKey: {_v(look.get('matches'))}",
+        ]
 
         rec = block.get("chembl_record") or {}
-        doc.h(4, "ChEMBL record (facts of the entry, not measurements)")
+        doc.h(4, "What ChEMBL holds on this compound")
         # "no record" and "the lookup never completed" are different statements and only the
         # first is a fact about ChEMBL. Printing "No record." for a failed lookup was the report
         # saying zero where the tool said UNKNOWN (reviewer finding 2026-11-12; real case:
@@ -465,28 +583,39 @@ def _admet(doc, m: dict, accession: str) -> int:
                   small=True)
         else:
             fields = rec.get("fields") or {}
-            doc.p(Lines([Link(f"ChEMBL {rec['chembl_id']}", rec.get("link")),
-                         f" · name in ChEMBL: {rec.get('pref_name') or 'unnamed (no pref_name)'}"]),
-                  small=True)
             minus_one = rec.get("fields_minus_one") or []
             false_flags = rec.get("boolean_fields_false") or []
-            doc.table(["Field", "Value"],
-                      [[f, f"{_v(fields.get(f))} (-1, see below)" if f in minus_one
-                        else f"{_v(fields.get(f))} (default, see below)" if f in false_flags
-                        else _v(fields.get(f))] for f in
-                       ("max_phase", "first_approval", "withdrawn_flag", "black_box_warning",
-                        "oral", "parenteral", "topical", "molecule_type", "therapeutic_flag",
-                        "usan_stem", "first_in_class")]
-                      + [["ATC", ", ".join(rec.get("atc_classifications") or []) or NO_RECORD]],
-                      (0.38, 0.62))
+            # The eleven-field table is an entry dump; what a reader acts on is how far this
+            # compound got clinically and whether anything is flagged against it. That becomes a
+            # sentence, and the full table moves to the reproducibility block.
+            phase, approved = fields.get("max_phase"), fields.get("first_approval")
+            how_far = ("an approved drug" if phase is not None and float(phase or 0) >= 4
+                       else f"in clinical phase {_v(phase)}" if phase not in (None, "", -1)
+                       else "not recorded as having reached any clinical phase")
+            flags = [name for name, key in (("withdrawn somewhere", "withdrawn_flag"),
+                                            ("carries a black-box warning", "black_box_warning"))
+                     if fields.get(key) in (True, 1, "1")]
+            atc = ", ".join(rec.get("atc_classifications") or [])
+            line = Lines([Link(f"ChEMBL {rec['chembl_id']}", rec.get("link")),
+                          f" is {rec.get('pref_name') or 'unnamed in ChEMBL (no pref_name)'}, {how_far}"
+                          + (f", first approved {approved}" if approved not in (None, "", -1) else "")
+                          + ". "
+                          + ("Flagged: " + " and ".join(flags) + ". " if flags else
+                             "Nothing is flagged against it in the two safety fields ChEMBL carries "
+                             "(withdrawn, black-box warning), which is the absence of a flag and not "
+                             "a safety statement. ")
+                          + (f"ATC: {atc}." if atc else "No ATC classification.")])
+            doc.p(line)
             if minus_one or false_flags:
-                doc.p(rec.get("defaults_note") or "", small=True)
-                if minus_one:
-                    doc.p("Returned as -1: " + ", ".join(minus_one) + ".", small=True)
-                if false_flags:
-                    doc.p("Returned as False: " + ", ".join(false_flags) + ". On an entry with "
-                          "nothing annotated every one of these is False, so none of them is "
-                          "evidence that the compound lacks that property.", small=True)
+                doc.p("Some of those fields come back as -1 or False on an entry with nothing "
+                      "annotated, so neither value means the compound lacks the property. "
+                      + (rec.get("defaults_note") or ""), small=True)
+            repro.append("ChEMBL entry fields: " + "; ".join(
+                f"{f} {_v(fields.get(f))}"
+                + (" (-1, a default)" if f in minus_one else " (False, a default)" if f in false_flags else "")
+                for f in ("max_phase", "first_approval", "withdrawn_flag", "black_box_warning",
+                          "oral", "parenteral", "topical", "molecule_type", "therapeutic_flag",
+                          "usan_stem", "first_in_class")))
 
         meas = block.get("measured_adme") or {}
         doc.h(4, "Measured ADME (retrieved from ChEMBL)")
@@ -622,6 +751,7 @@ def _admet(doc, m: dict, accession: str) -> int:
                   (0.12, 0.38, 0.12, 0.38))
         for note in block.get("notes") or []:
             doc.p(note, small=True)
+        _repro(audit, f"ADMET · {s.get('pdb_id')} · pocket {key} · {who or NO_RECORD}", repro)
     return len(rows)
 
 
@@ -643,81 +773,107 @@ def _md_runs(m: dict) -> list:
             for label in MD_STAGES if isinstance(ana.get(label), dict)]
 
 
+def _compound_name(m: dict, pocket_key: str) -> str:
+    """The researcher's name for the compound a pocket key ends in, from ligand_choice.
+
+    A key like 'TXV U CHEMBL1229517' says which compound was simulated only to someone who has
+    memorised the ChEMBL ids. The name is in the manifest; it is looked up and never invented.
+    """
+    for c in ((m.get("ligand_choice") or {}).get("compounds") or []):
+        cid = str(c.get("id") or "")
+        if cid and pocket_key.upper().endswith(cid.upper()):
+            return f"{c.get('name') or cid} ({cid}" + (f", level {c['level']}" if c.get("level") else "") + ")"
+    return ""
+
+
+def _md_subject(m: dict, pocket_key: str) -> str:
+    """What was actually simulated here, in words: a selected compound, or the crystal ligand."""
+    name = _compound_name(m, pocket_key)
+    if name:
+        return f"{name}, on its DOCKED pose -- no crystal ever held this compound in this pocket"
+    return f"{pocket_key.split()[0]}, the crystallographic ligand of this pocket, on its re-docked pose"
+
+
 def _site_value(site: dict, name: str):
     field = site.get(name) or {}
     return field.get("gres") or field.get("value") if isinstance(field, dict) else None
 
 
-def _md_config(doc, package: dict, job: dict):
+def _md_config(doc, package: dict, job: dict, audit: list, where: str):
     """Subtask 5.1: the configuration as recorded by build_md_package and build_md_job, quoted."""
-    rows = []
+    rows, rows_audit = [], []
     if package:
         pose = package.get("pose") or {}
-        rows.append(["Starting pose",
+        rmsd = pose.get("rmsd_to_crystal_pose_angstrom")
+        rows.append(["Which pose is being simulated",
                      f"pose {_v(pose.get('index'))} (Vina mode {_v(pose.get('mode'))}) of docking run "
-                     f"{_v(package.get('run_id'))}; Vina score {_v(pose.get('vina_score_kcal_mol'))} "
-                     f"kcal/mol and RMSD to the crystal pose "
-                     f"{_v(pose.get('rmsd_to_crystal_pose_angstrom'))} Å, both calculated",
-                     "md_package"])
+                     f"{_v(package.get('run_id'))}, scoring {_v(pose.get('vina_score_kcal_mol'))} kcal/mol"
+                     + (f"; it sits {_v(rmsd)} Å from the crystal pose" if rmsd is not None else
+                        "; it has no RMSD, because no crystal holds this compound in this pocket")])
         gaps = package.get("to_model")
-        rows.append(["Gaps left for CHARMM-GUI to build",
-                     ", ".join(f"{g.get('chain')} {g.get('first')}-{g.get('last')} ({g.get('kind')})"
-                               for g in gaps) if gaps else ("none" if gaps == [] else NO_RECORD),
-                     f"md_package (gaps read from {_v(package.get('missing_residues_source'))})"])
+        rows.append(["Parts of the protein CHARMM-GUI was asked to build",
+                     ", ".join(f"chain {g.get('chain')} {g.get('first')}-{g.get('last')} ({g.get('kind')})"
+                               for g in gaps) if gaps else
+                     ("none: nothing was missing" if gaps == [] else NO_RECORD)])
+        rows_audit.append(f"Gaps read from {_v(package.get('missing_residues_source'))}")
     else:
-        rows.append(["Package for CHARMM-GUI", "no md_package recorded for this pocket", "—"])
+        rows.append(["Package for CHARMM-GUI", "none recorded for this pocket"])
     if job:
         checks = (job.get("verified") or {}).get("checks") or {}
         closest = checks.get("closest_modelled_run_to_ligand") or {}
         built = checks.get("modelled_runs_present")
-        rows.append(["Residues built in the system CHARMM-GUI returned",
+        rows.append(["Parts it actually built, in the system it returned",
                      (", ".join(built) if built else ("none" if built == [] else NO_RECORD))
-                     + (f"; closest to the ligand: {closest.get('run')} at "
-                        f"{_v(closest.get('min_distance_angstrom'))} Å" if closest else ""),
-                     "md_job (archive checks)"])
-        arch, psf = job.get("archive") or {}, job.get("psf") or {}
-        rows.append(["CHARMM-GUI job", f"{_v(job.get('job_id'))} (folder {_v(job.get('job_folder'))}); "
-                                       f"archive SHA-256 {_v(arch.get('sha256'))}", "md_job"])
-        rows.append(["Topology (step3_input.psf) SHA-256",
-                     psf.get("sha256") or (f"none: {psf['source']}" if psf.get("source") else
-                                           "not recorded by the version of build_md_job that "
-                                           "wrote this job"), "md_job"])
+                     + (f"; the closest of them, {closest.get('run')}, sits "
+                        f"{_v(closest.get('min_distance_angstrom'))} Å from the ligand" if closest else "")])
         sysm = checks.get("system") or {}
         ions = sysm.get("ions") or {}
-        rows.append(["System",
-                     f"box side {_v(sysm.get('box_side_angstrom'))} Å; {_v(sysm.get('waters'))} "
-                     "waters; ions " + (", ".join(f"{k} {v}" for k, v in ions.items()) or NO_RECORD)
-                     + f"; {_v(sysm.get('temperature_kelvin'))} K; time step "
-                       f"{_v(sysm.get('timestep_fs'))} fs; cutoff {_v(sysm.get('cutoff_angstrom'))} Å",
-                     "md_job (archive checks)"])
+        rows.append(["The box that was simulated",
+                     f"{_v(sysm.get('box_side_angstrom'))} Å per side, {_v(sysm.get('waters'))} waters, "
+                     + ("ions " + ", ".join(f"{k} {v}" for k, v in ions.items()) if ions else "no ions recorded")
+                     + f", at {_v(sysm.get('temperature_kelvin'))} K"])
         inp, slurm = job.get("inputs") or {}, job.get("slurm") or {}
         val = lambda k: _v((inp.get(k) or {}).get("value") if isinstance(inp.get(k), dict)  # noqa: E731
                            else inp.get(k))
-        rows.append(["Equilibration as written",
-                     f"{_v(inp.get('equilibration_input'))}: minimize {val('equilibration_minimize')} "
-                     f"steps, then run {val('equilibration_run')} steps", "md_job"])
-        rows.append(["Production as written",
-                     f"{_v(inp.get('production_input'))}: {_v(slurm.get('chunks'))} chunk(s) × "
-                     f"{_v(inp.get('nanoseconds_per_chunk'))} ns = {_v(slurm.get('nanoseconds_total'))} "
-                     f"ns; dcdfreq {val('dcdfreq')} steps", "md_job"])
-        edited = job.get("inputs_edited")
-        rows.append(["Inputs edited by build_md_job",
-                     "none" if edited == [] else (", ".join(str(e.get("file") or e) for e in edited)
-                                                  if edited else NO_RECORD), "md_job"])
+        rows.append(["Settling the system before measuring (equilibration)",
+                     f"{val('equilibration_minimize')} steps of minimization, then "
+                     f"{val('equilibration_run')} steps of restrained dynamics "
+                     f"({_v(inp.get('equilibration_input'))})"])
+        rows.append(["The run the figures come from (production)",
+                     f"{_v(slurm.get('nanoseconds_total'))} ns in total, written as "
+                     f"{_v(slurm.get('chunks'))} chunk(s) of {_v(inp.get('nanoseconds_per_chunk'))} ns, "
+                     f"with a frame stored every {val('dcdfreq')} steps ({_v(inp.get('production_input'))})"])
+        rows.append(["Time step and cutoff",
+                     f"{_v(sysm.get('timestep_fs'))} fs per step; non-bonded cutoff "
+                     f"{_v(sysm.get('cutoff_angstrom'))} Å"])
         site = job.get("site") or {}
-        rows.append(["Cluster job",
-                     f"partition {_v(_site_value(site, 'partition'))}; GPUs "
-                     f"{_v(_site_value(site, 'gpus'))}; time limit {_v(_site_value(site, 'time'))}; "
-                     f"NAMD {_v(_binary_tail(_site_value(site, 'namd_binary')))}",
-                     "md_job (each value's mark and source are in the manifest)"])
+        rows.append(["Where it ran",
+                     f"partition {_v(_site_value(site, 'partition'))}, GPUs "
+                     f"{_v(_site_value(site, 'gpus'))}, time limit {_v(_site_value(site, 'time'))}, "
+                     f"NAMD {_v(_binary_tail(_site_value(site, 'namd_binary')))}"])
+        arch, psf = job.get("archive") or {}, job.get("psf") or {}
+        edited = job.get("inputs_edited")
+        rows_audit += [
+            f"CHARMM-GUI job {_v(job.get('job_id'))}, folder {_v(job.get('job_folder'))}; archive "
+            f"SHA-256 {_v(arch.get('sha256'))}",
+            "Topology step3_input.psf SHA-256 "
+            + (psf.get("sha256") or (f"none: {psf['source']}" if psf.get("source") else
+                                     "not recorded by the version of build_md_job that wrote this job")),
+            "Inputs edited by build_md_job: "
+            + ("none" if edited == [] else (", ".join(str(e.get("file") or e) for e in edited)
+                                            if edited else NO_RECORD)),
+            "Each cluster value carries its own mark and source in the manifest",
+        ]
     else:
-        rows.append(["Simulation job", "no md_job recorded for this pocket", "—"])
-    doc.h(4, "Configuration (as recorded when the package and the job were written)")
-    doc.table(["Field", "Value", "Recorded by"], rows, (0.24, 0.56, 0.2))
-    doc.p("Quoted from the md_package and md_job blocks of the manifest. They record what was WRITTEN; "
-          "whether the cluster ran these inputs unchanged is not recorded there. Each analysed run below "
-          "names its own NAMD input, and its time axis comes from the trajectory, not from this table.",
+        rows.append(["Simulation job", "none recorded for this pocket"])
+    doc.h(4, "How this simulation was set up")
+    doc.table(["", "As written"], rows, (0.34, 0.66))
+    doc.p("Every row is quoted from what build_md_package and build_md_job WROTE. Whether the cluster "
+          "ran those inputs unchanged is not recorded here: each analysed run below names the NAMD input "
+          "it actually read, and its time axis comes from the trajectory rather than from this table.",
           small=True)
+    if rows_audit:
+        _repro(audit, f"MD set-up · {where}", rows_audit)
 
 
 def _binary_tail(value):
@@ -799,7 +955,7 @@ def _sample(values, times, stride):
     return [(times[i] / 1000.0, values[i]) for i in idx]
 
 
-def _md_figure(full: dict, stride: int):
+def _md_figure(full: dict, stride: int, header: str = ""):
     """A builder for four panels drawn from the recorded series (reportlab.graphics, vector)."""
     palette = ["#1f4e8c", "#c0504d", "#2e7d32", "#7b1fa2", "#8a6d1d", "#00838f"]
     prot = full.get("protein_rmsd") or {}
@@ -831,8 +987,16 @@ def _md_figure(full: dict, stride: int):
 
         font = report._font()[0]
         cols, ph, top = 2, 150, 34
+        # a banner INSIDE the drawing: with one figure per stage, two groups of four panels sat
+        # side by side in the document with nothing on them saying which run they came from
+        # (user request 2026-11-18). The caption said it; the picture did not.
+        head = 16 if header else 0
         pw = width / cols
-        d = Drawing(width, 2 * (ph + top))
+        d = Drawing(width, 2 * (ph + top) + head)
+        if header:
+            d.add(String(0, 2 * (ph + top) + 4, header, fontName=font, fontSize=8.5))
+            d.add(Line(0, 2 * (ph + top), width, 2 * (ph + top), strokeColor=colors.HexColor("#555555"),
+                       strokeWidth=0.6))
         for n, (title, lines) in enumerate(panels):
             x0 = (n % cols) * pw
             y0 = (1 - n // cols) * (ph + top)
@@ -872,37 +1036,52 @@ def _md_figure(full: dict, stride: int):
     return build
 
 
-def _md_stage(doc, prep: Path, label: str, rec: dict):
+STAGE_TITLE = {
+    "production": "The run the results come from (production)",
+    "equilibration": "The run that settled the system first (equilibration)",
+}
+STAGE_WHY = {
+    "production": ("This is the free simulation. Nothing is held in place, so what moves here is the "
+                   "system's own behaviour and these are the figures to read."),
+    "equilibration": ("This run exists to let the box settle, and parts of the system are held in "
+                      "place by springs while it does. A number measured on a held atom describes "
+                      "the spring, not the molecule, so the figures here are kept for completeness "
+                      "and are not evidence about the pose."),
+}
+
+
+def _md_stage(doc, prep: Path, label: str, rec: dict, audit: list, subject: str = ""):
     res = rec.get("result") or {}
     traj = res.get("trajectory") or {}
     inputs = ", ".join(traj.get("stage_inputs") or []) or "no NAMD input of this stage was found"
-    doc.h(4, f"{label.capitalize()} run (stage {_v(rec.get('stage'))}; input {inputs})")
+    doc.h(4, STAGE_TITLE.get(label, label.capitalize()))
+    doc.p(STAGE_WHY.get(label, ""), small=True)
     doc.p(_control_line(res))
-    doc.p(f"Recorded {_v(rec.get('generated_at'))} by {_v(rec.get('generated_by'))}. Every figure under "
-          f"this heading comes from the {label} run only. The word '{label}' is the label the recorded "
-          f"job gives this stage: {_v(rec.get('stage_label_source'))}.", small=True)
+    doc.p(f"{_v(traj.get('frames_note'))}, one every {_v(traj.get('dt_ps'))} ps, covering "
+          f"{_v(traj.get('span_ns'))} ns between the first and the last of them. "
+          f"Restraints: {_v((traj.get('restraints') or {}).get('note'))}", small=True)
 
     top, lig, pocket = rec.get("topology") or {}, res.get("ligand") or {}, res.get("pocket") or {}
     restr = traj.get("restraints") or {}
     held = restr.get("held") or {}
     com = res.get("com_distance") or {}
-    items = [f"Trajectory {t.get('file')}: {_v(t.get('frames'))} frames, {_v(t.get('size_bytes'))} bytes, "
+    repro = [f"Trajectory {t.get('file')}: {_v(t.get('frames'))} frames, {_v(t.get('size_bytes'))} bytes, "
              f"SHA-256 {_v(t.get('sha256'))}" for t in rec.get("trajectories") or []]
-    items += [
+    repro += [
+        f"Recorded {_v(rec.get('generated_at'))} by {_v(rec.get('generated_by'))}; the stage is called "
+        f"'{label}' because {_v(rec.get('stage_label_source'))}; NAMD input {inputs}; stage "
+        f"{_v(rec.get('stage'))}",
         f"Topology {_v(top.get('file'))}, SHA-256 {_v(top.get('sha256'))}"
         + (f"; equal to the PSF of the registered package ({(top.get('reference') or {}).get('source')})"
            if top.get("matches_registered_package") else ""),
-        f"{_v(traj.get('frames_note'))}; frame spacing {_v(traj.get('dt_ps'))} ps; span {_v(traj.get('span_ns'))} "
-        "ns between the first and the last analysed frame",
         f"Minimization: {_v(traj.get('minimization_note'))}",
-        f"Restraints: {_v(restr.get('note'))}",
         f"Held atoms among those measured: ligand heavy atoms: "
         f"{_v((held.get('ligand_heavy') or {}).get('note'))}; protein backbone: "
         f"{_v((held.get('protein_backbone') or {}).get('note'))}",
-        f"Ligand: {_v(lig.get('selection'))}; {_v(lig.get('dropped_note'))}",
-        f"Pocket: {_v(pocket.get('selection'))} ({_v(pocket.get('criterion'))}): "
+        f"Ligand selection: {_v(lig.get('selection'))}; {_v(lig.get('dropped_note'))}",
+        f"Pocket selection: {_v(pocket.get('selection'))} ({_v(pocket.get('criterion'))}): "
         + (", ".join(pocket.get("residues") or []) or NO_RECORD),
-        f"Built residues in the pocket: {_v(pocket.get('modelled_residues_in_pocket_note'))}",
+        f"Built residues inside that pocket: {_v(pocket.get('modelled_residues_in_pocket_note'))}",
         f"Periodic images: {_v(com.get('pbc_corrected_frames'))} of {_v(com.get('n'))} frames re-imaged; "
         f"non-rectangular boxes {_v(com.get('non_orthorhombic_frames'))}; frames without a box "
         f"{_v(com.get('frames_without_box'))}; frames with the pocket split across the box "
@@ -910,9 +1089,8 @@ def _md_stage(doc, prep: Path, label: str, rec: dict):
         "Arguments: " + (", ".join(f"{k} {v}" for k, v in (rec.get("arguments") or {}).items()
                                    if v not in (None, "")) or NO_RECORD),
     ]
-    doc.bullets(items)
 
-    doc.h(4, f"Measured over the {label} run (calculated)")
+    doc.h(4, "What the trajectory shows")
     prot = res.get("protein_rmsd") or {}
     rows, split = [], False
     for seg, ser in sorted((prot.get("per_segment") or {}).items()):
@@ -940,6 +1118,13 @@ def _md_stage(doc, prep: Path, label: str, rec: dict):
           "mean. Each protein segment is superposed on itself; segments are never fitted together. "
           f"Reference: {_v(prot.get('reference'))}.", small=True)
     if split:
+        doc.p("HOW TO READ THE SPLIT ROWS. 'Observed' residues were present in the structure that was "
+              "uploaded to CHARMM-GUI, so their coordinates come from the crystal. 'Built' residues "
+              "were absent and CHARMM-GUI invented a conformation for them: they can move a long way "
+              "without the protein doing anything interesting. 'Post hoc' means the split was looked "
+              "at only AFTER the pre-registered control had already failed, so it is a second look at "
+              "a result, not a test planned in advance, and it cannot turn a failed control into a "
+              "passed one.", small=True)
         doc.p("The 'observed only' and 'built only' rows are an analysis added on 2026-11-12 AFTER the "
               "pre-registered full-backbone control failed on this project's first production run. Its "
               "reason (residues CHARMM-GUI built are a guess, not a measurement) does not depend on the "
@@ -953,11 +1138,17 @@ def _md_stage(doc, prep: Path, label: str, rec: dict):
         doc.p("Too few frames for a plateau statement: " + "; ".join(warnings), small=True)
 
     pairs = hb.get("pairs") or []
-    doc.h(4, f"Hydrogen bonds, {label} run")
-    doc.p(f"{_v(hb.get('pairs_found'))} ligand–protein pair(s) met the criterion in at least one analysed "
-          f"frame. Criterion: {_v(hb.get('criterion'))}. The share is a PROPORTION OF ANALYSED FRAMES, "
-          "never a fraction of time: hydrogen bonds break and re-form faster than a frame is stored.",
-          small=True)
+    doc.h(4, "Which contacts the ligand keeps (hydrogen bonds)")
+    doc.p("HOW TO READ THIS TABLE. One row is one donor-acceptor pair that satisfied the geometric "
+          "criterion in at least one stored frame. The last column is the share of the stored frames "
+          "in which it did: 1.00 means the contact was present every time a frame was written, 0.10 "
+          "means it appeared in one frame out of ten. It is NOT a fraction of time -- hydrogen bonds "
+          "form and break far faster than frames are stored, so a bond that flickers between two "
+          "frames is invisible here. A high share says a contact is persistent in this trajectory; it "
+          "does not say the contact is strong, and with no apo simulation it cannot say the contact "
+          "holds the ligand in place.", small=True)
+    doc.p(f"{_v(hb.get('pairs_found'))} pair(s) met the criterion in at least one frame. "
+          f"Criterion: {_v(hb.get('criterion'))}.", small=True)
     doc.table(["Donor", "Hydrogen", "Acceptor", "Frames present / analysed", "Share of analysed frames"],
               [[p.get("donor"), p.get("hydrogen"), p.get("acceptor"),
                 f"{_v(p.get('frames_present'))} / {_v(p.get('frames_analysed'))}",
@@ -965,9 +1156,15 @@ def _md_stage(doc, prep: Path, label: str, rec: dict):
               (0.26, 0.12, 0.26, 0.18, 0.18))
 
     rmsf = res.get("rmsf") or {}
-    doc.h(4, f"Pocket flexibility (RMSF), {label} run")
-    doc.p(f"{_v(rmsf.get('selection'))}. {_v(rmsf.get('criterion'))}. With no apo simulation, a flexible "
-          "residue cannot be attributed to the ligand.", small=True)
+    doc.h(4, "How much each pocket residue moved (RMSF)")
+    doc.p("HOW TO READ THIS TABLE. RMSF is how far one residue wandered from its own average "
+          "position across the trajectory, in Å. A small value means that residue stayed put; a "
+          "large one means it moved a lot, which can be a flexible loop, a side chain with nothing "
+          "to hold it, or a residue CHARMM-GUI built. Rows are not ranked and there is no threshold: "
+          "the useful comparison is between residues of the same pocket in the same run. Because no "
+          "simulation of this pocket WITHOUT the ligand was run, a residue that barely moves cannot "
+          "be credited to the ligand holding it.", small=True)
+    doc.p(f"{_v(rmsf.get('selection'))}. {_v(rmsf.get('criterion'))}.", small=True)
     doc.table(["Residue", "RMSF (Å)"],
               [[r.get("residue"), _num4(r.get("rmsf_angstrom"))] for r in rmsf.get("per_residue") or []],
               (0.3, 0.2))
@@ -981,25 +1178,37 @@ def _md_stage(doc, prep: Path, label: str, rec: dict):
         stride = max(1, -(-n // MAX_PLOT_POINTS))
         sampling = (f"all {n} analysed frames plotted" if stride == 1 else
                     f"every {stride}th of {n} analysed frames plotted, and the last one")
-        doc.figure(_md_figure(full, stride),
-                   f"{label.capitalize()} run, stage {_v(rec.get('stage'))}: drawn from "
-                   f"{(rec.get('series_file') or {}).get('path')}, whose SHA-256 matches the manifest; "
-                   f"nothing is recomputed. {sampling.capitalize()}. Solid lines are full segments, dashed "
-                   "lines the observed residues only (post hoc, not pre-registered). The hydrogen-bond "
-                   "panel counts bonds per stored frame, a sample, not a fraction of time; its count "
-                   "is recorded without times, so it is placed on the ligand series' time axis (same "
-                   "analysed frames, same length), and left out if the lengths differ.")
+        held_note = "restrained: parts of the system were held by springs" if held else "nothing held"
+        banner = (f"{label.upper()} RUN"
+                  + (f"  ·  {subject}" if subject else "")
+                  + f"  ·  {_v(traj.get('span_ns'))} ns  ·  {held_note}")
+        doc.figure(_md_figure(full, stride, banner),
+                   f"These four panels all come from the {label} run named in the banner above them, "
+                   f"and from no other run. Drawn from {(rec.get('series_file') or {}).get('path')}, "
+                   f"whose SHA-256 matches the manifest; nothing is recomputed. {sampling.capitalize()}. "
+                   "In the first panel a SOLID line is a whole protein segment (the pre-registered "
+                   "control) and a DASHED line of the same colour is that same segment counting only "
+                   "the residues that came from the crystal, leaving out the ones CHARMM-GUI built; "
+                   "that dashed line was added after the control had already failed, so it is a second "
+                   "look and not a planned test. The hydrogen-bond panel counts bonds per stored frame, "
+                   "a sample, not a fraction of time; its count is recorded without times, so it is "
+                   "placed on the ligand series' time axis (same analysed frames, same length), and "
+                   "left out if the lengths differ.")
 
     reading = res.get("reading") or {}
-    doc.h(4, f"Offered reading of the {label} run (not measured)")
-    doc.p(f"{_v(reading.get('status'))}. {_v(reading.get('disclaimer'))} Thresholds: "
-          + (", ".join(f"{k} {v}" for k, v in (reading.get("thresholds_used") or {}).items()) or NO_RECORD)
-          + f". Source of the thresholds: {_v(reading.get('thresholds_source'))}.", small=True)
+    doc.h(4, "What this can and cannot be read as")
+    doc.p(f"{_v(reading.get('status'))}. {_v(reading.get('disclaimer'))}", small=True)
     doc.bullets(list(reading.get("offered") or []))
-    doc.p("Not measured: " + " ".join(res.get("not_measured") or [NO_RECORD]), small=True)
+    doc.p("Not measured here: " + " ".join(res.get("not_measured") or [NO_RECORD]), small=True)
+    repro += [
+        "Thresholds used in the reading above: "
+        + (", ".join(f"{k} {v}" for k, v in (reading.get("thresholds_used") or {}).items()) or NO_RECORD),
+        f"Where those thresholds come from: {_v(reading.get('thresholds_source'))}",
+    ]
+    _repro(audit, f"MD {label} · {subject or NO_RECORD}", repro)
 
 
-def _md(doc, m: dict, accession: str, prep: Path) -> int:
+def _md(doc, m: dict, accession: str, prep: Path, audit: list) -> int:
     doc.h(2, "2. Molecular dynamics")
     rows = _md_rows(m)
     if not rows:
@@ -1009,20 +1218,41 @@ def _md(doc, m: dict, accession: str, prep: Path) -> int:
               "analysis; build this record again after it.")
         return 0
     runs = _md_runs(m)
-    names = ", ".join(f"{s.get('pdb_id')} {k} {label}" for s, k, label, _r in runs) or "none"
-    doc.p(f"{len(rows)} pocket{'' if len(rows) == 1 else 's'} with a molecular dynamics record; "
-          f"{len(runs)} analysed run{'' if len(runs) == 1 else 's'} ({names}). " + MD_VOCABULARY,
-          small=True)
+    # Which compound was simulated has to be the first thing said. With seven pockets carrying a
+    # package and one carrying a trajectory, a reader otherwise cannot tell which numbers below
+    # describe a simulation and which describe a folder that was written and never run (user
+    # request 2026-11-18).
+    simulated = {(s.get("pdb_id"), k) for s, k, _l, _r in runs}
+    done = [f"{s.get('pdb_id')} pocket {k} -- {_md_subject(m, k)}" for s, k, *_ in rows
+            if (s.get("pdb_id"), k) in simulated]
+    waiting = [(_compound_name(m, k).split(" (")[0] + f" [{s.get('pdb_id')} {k}]")
+               if _compound_name(m, k) else f"{s.get('pdb_id')} {k}"
+               for s, k, *_ in rows if (s.get("pdb_id"), k) not in simulated]
+    lead = (f"Of the {len(rows)} pocket{'' if len(rows) == 1 else 's'} that carry a molecular dynamics "
+            f"record, {len(simulated)} ha{'s' if len(simulated) == 1 else 've'} a trajectory that was "
+            f"actually run and measured ({len(runs)} analysed stage{'' if len(runs) == 1 else 's'} in "
+            "all, since a simulation is analysed stage by stage).")
+    if done:
+        lead += " SIMULATED AND MEASURED: " + "; ".join(done) + "."
+    if waiting:
+        lead += (" Package written but NO trajectory analysed, so nothing below is measured for "
+                 + ("it" if len(waiting) == 1 else "them") + ": " + "; ".join(waiting) + ".")
+    doc.p(lead)
+    doc.p(MD_VOCABULARY, small=True)
     for s, key, package, job, analysis in rows:
-        doc.h(3, f"{s.get('pdb_id')} · pocket {key}")
-        _md_config(doc, package, job)
+        subject = _compound_name(m, key)
+        doc.h(3, f"{s.get('pdb_id')} · pocket {key}" + (f" · {subject.split(' (')[0]}" if subject else ""))
+        doc.p(f"What is simulated here: {_md_subject(m, key)}.", small=True)
+        where = (f"{s.get('pdb_id')} pocket {key}"
+                 + (f" · {subject.split(' (')[0]}" if subject else ""))
+        _md_config(doc, package, job, audit, where)
         recorded = [lab for lab in MD_STAGES if isinstance(analysis.get(lab), dict)]
         if not recorded:
             doc.p("No trajectory analysis is recorded for this pocket. Run analyze_md on the folder "
                   f"brought back from the cluster with uniprot_id=\"{accession}\" to record one.",
                   small=True)
         for label in recorded:
-            _md_stage(doc, prep, label, analysis[label])
+            _md_stage(doc, prep, label, analysis[label], audit, subject=where)
     return len(runs)
 
 
@@ -1051,6 +1281,31 @@ def _methods(doc, m: dict):
              "plotted series is quoted from what it recorded."))
 
 
+def _audit_section(doc, audit: list):
+    """Section 5: the whole audit trail, after everything a reader interprets.
+
+    Collected by _repro while sections 1-3 are written, so the order here follows the order of
+    the runs above and each entry keeps the name of the run it belongs to. Nothing is summarised
+    and nothing is dropped: this is the part that lets someone else repeat the work.
+    """
+    doc.h(2, "5. Reproducibility and audit trail")
+    if not audit:
+        doc.p("Nothing to record: no run above wrote files, hashes or tool options into the manifest.")
+        return
+    doc.p(f"{len(audit)} block{'' if len(audit) == 1 else 's'}, one per run of sections 1 to 3, in the "
+          "order those runs appear. This is the material needed to REPEAT or AUDIT the work: file "
+          "paths and their SHA-256, the options each tool was given, the checks that ran before it, "
+          "the superposition behind a cross-docking RMSD, the raw database fields and the thresholds "
+          "a reading used. Not one line of it is needed to interpret a result, which is why it is "
+          "here and not above; not one line of it is optional, which is why it is here at all. "
+          "A hash is what proves "
+          "the file on disk is the file the run wrote -- analyze_md refuses to measure a trajectory "
+          "whose topology does not match it.")
+    for entry in audit:
+        doc.h(3, entry["title"])
+        doc.bullets(entry["items"])
+
+
 def build_document(accession: str, m: dict, generated: str, prep: Path = None) -> tuple:
     """(Doc, number of docking runs recorded, number of ADMET results recorded).
 
@@ -1067,10 +1322,18 @@ def build_document(accession: str, m: dict, generated: str, prep: Path = None) -
           "from, quoted from the manifest. No value in this document is a prediction: nothing here comes from a "
           "trained model. Measured potency against the target (ChEMBL activities) is not part of this document; it "
           f"is in the research report, report_{accession}.pdf. Interpretation is not part of either.", small=True)
-    n = _docking(doc, m, accession)
-    _md(doc, m, accession, prep or choice.manifest_path(accession).parent)
-    n_admet = _admet(doc, m, accession)
+    doc.p("HOW THIS DOCUMENT IS ORDERED. Sections 1 to 3 hold what a researcher reads to interpret "
+          "the experiments: what was run, on what, and what came out. Section 4 states the methods "
+          "and the limits. Everything needed to REPEAT or AUDIT a run -- file paths and hashes, tool "
+          "options, pre-flight checks, raw database fields, the thresholds behind a reading -- is in "
+          "section 5 at the end, grouped by run. Nothing was deleted to get it out of the way.",
+          small=True)
+    audit = []
+    n = _docking(doc, m, accession, audit)
+    _md(doc, m, accession, prep or choice.manifest_path(accession).parent, audit)
+    n_admet = _admet(doc, m, accession, audit)
     _methods(doc, m)
+    _audit_section(doc, audit)
     return doc, n, n_admet
 
 

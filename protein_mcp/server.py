@@ -49,12 +49,12 @@ from mcp.server.fastmcp import FastMCP
 
 logging.basicConfig(level=logging.INFO)
 
-from protein_mcp import experiment_report, report, target_profile  # noqa: E402
+from protein_mcp import console, experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
 from protein_mcp.files import (  # noqa: E402
     admet, choice, control, crossdock, dock, interfaces, ligand_choice, md_analyze, md_package,
-    md_run, prepare, viewer,
+    md_run, movie, prepare, viewer,
 )
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
@@ -366,6 +366,51 @@ async def build_experiment_report(uniprot_id: str) -> dict:
 
 
 @mcp.tool()
+async def build_console_page(uniprot_id: str) -> dict:
+    """Build an interactive single-file HTML console of the dossier and the experiments, beside the PDFs (Phase 3, step 10).
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+
+    A companion to the two PDFs, not a replacement: report_<accession>.pdf and
+    experiments_<accession>.pdf stay the archivable record, and the page links
+    to both. What the page adds is everything the documents have to summarise --
+    every association the dossier holds instead of the ten of the report (which
+    is itself what get_protein_profile examined, not every association that
+    exists), every natural variant, every ADME row -- folded away until the
+    reader opens it, and the three phases of one compound on one screen.
+
+    Every value is quoted from the dossier JSON files and from
+    prep/manifest.json. The page does arithmetic on what it quotes -- the span
+    of the recorded scores, the scales of the plots -- and it applies NO
+    threshold and gives no verdict: this project has measured no interpretable
+    difference between two Vina scores, so nothing here orders the compounds.
+
+    Rules for using the result:
+    - Give the user `file` and say it opens by double-clicking: it needs no
+      server and no network, and nothing in it is fetched when it is opened.
+    - `dossier_files_read` names the file each panel was read from. With a
+      mutation filter a dossier holds more than one file per tool and they do
+      not hold the same rows: say which one the page shows.
+    - `embedded_3d.poses_not_embedded` lists the poses the 3D view refused
+      because their file no longer matches the SHA-256 in the manifest. Report
+      it; the page cannot draw them.
+    - `holds` counts what went in. If `docking_runs` is 0 the page has no
+      experiment panels, and if `md_stages_measured` is 0 no trajectory was
+      measured: say that rather than describing plots that are not there.
+    - `documents_missing` lists the PDFs that do not exist yet, whose buttons
+      are shown disabled. Offer build_report and build_experiment_report for
+      them; do not claim the page links to a document it does not.
+    - The page cannot start PyMOL: a web page cannot run a program on the
+      machine that opens it, so its buttons copy the open_in_pymol call. If the
+      user wants the structure opened, call open_in_pymol yourself.
+    - Per-variant counts in the variants table are deliberately empty and
+      labelled as never retrieved. Do not fill them in from anywhere.
+    """
+    return await asyncio.to_thread(console.build_console_page, uniprot_id)
+
+
+@mcp.tool()
 async def prepare_structures(
     uniprot_id: str, mutation: str = "", pdb_ids: list[str] | None = None, include_alphafold: bool = True
 ) -> dict:
@@ -545,6 +590,143 @@ async def open_in_pymol(
       may not be available.
     """
     return await viewer.open_in_pymol(uniprot_id, pdb_ids, include_alphafold, start)
+
+
+@mcp.tool()
+async def open_md_in_pymol(
+    uniprot_id: str, structure: str = "", pocket: str = "", stage: str = "",
+    every: int = 1, max_states: int = 200, start: bool = True
+) -> dict:
+    """Open an analysed molecular-dynamics trajectory in PyMOL and play it as a movie (Phase 3, step 10b). Use it ONLY when the user asks to see or play a trajectory.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+        structure: PDB ID of the run, e.g. "3OG7". Empty = any, if only one matches.
+        pocket: Pocket key of the run, e.g. "032 C". Empty = any.
+        stage: "production" or "equilibration". Empty = any.
+        every: Mount one frame in `every`; 1 = all of them.
+        max_states: Cap on the states mounted. It is a cap, not a statement
+            about how long the simulation was.
+        start: False = only write the .pml.
+
+    It opens ONLY a trajectory analyze_md already recorded, and checks the
+    SHA-256 of the topology and of each DCD against the manifest BEFORE loading
+    anything: a file that changed on disk is not the one that was measured. The
+    session keeps protein + ligand and drops the solvent, and superposes every
+    state on the backbone of the first, so what moves on screen is the ligand
+    inside its pocket and not the whole box drifting.
+
+    Rules for using the result:
+    - If several runs match, the tool refuses and lists them in `available`.
+      Ask the user which one; never pick one.
+    - Say what `mounted` and `states_mounted` report: a movie of every 10th
+      frame is not the whole trajectory.
+    - `files_refused` lists any trajectory left out because it is missing or no
+      longer matches its hash. Report it; do not describe it as shown.
+    - A movie is NOT a measurement. Say so, and name the equilibration control
+      of that run (in the experiment record) before describing what moves: on a
+      run whose control is NOT MET, everything seen is premature.
+    - The cartoon's secondary structure is assigned by PyMOL from the
+      coordinates (`shows` says so): a PSF carries none, and it is not read
+      from any source. Do not present a helix or a sheet there as a fact of the
+      structure.
+    - If PyMOL is not found, `pymol.found` is false and only the .pml was
+      written. Give its path; do not claim a window opened.
+    """
+    return await viewer.open_md_in_pymol(uniprot_id, structure, pocket, stage, every,
+                                         max_states, start)
+
+
+@mcp.tool()
+async def open_poses_in_pymol(
+    uniprot_id: str, structure: str = "", pocket: str = "", compounds: list[str] | None = None,
+    start: bool = True
+) -> dict:
+    """Open the docked poses of one pocket together in PyMOL, one colour per compound (Phase 3, step 10b). Use it when the user asks to SEE or COMPARE where the docked compounds sit.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+        structure: PDB ID of the pocket, e.g. "8C7Y". Empty = any, if only one matches.
+        pocket: Pocket key, e.g. "TXV U". Empty = any.
+        compounds: ChEMBL IDs, compound names or run ids to show. Empty = every
+            run of that pocket, including the crystallographic re-docking.
+        start: False = only write the .pml.
+
+    One receptor and one object per docking run, all in the frame of that
+    crystal. Every pose file is checked against the SHA-256 its docking run
+    recorded before it is loaded. State 1 of each object is the top-scoring
+    pose; the rest of that run's poses are in the same object, on the state
+    slider.
+
+    Rules for using the result:
+    - The colour says WHICH compound, nothing else. Never read it as a ranking.
+    - Give the user `selection` ("N of M docking runs of this pocket") and name
+      what `files_refused` left out; do not describe a pose that was refused.
+    - Each run carries its own score and, only where one exists, an RMSD and a
+      ligand efficiency: a crystallographic re-docking has an RMSD and no
+      ligand efficiency, a compound run has the efficiency and, unless
+      cross_dock_rmsd measured one, no RMSD. Print what is there and say "not
+      applicable" for the rest, never "no record". A run marked `box_limited`
+      does not compare with the others: say so where its score appears.
+    - `colors_repeat` true means there are more runs than colours and two
+      compounds share one: say it instead of letting the colour identify them.
+    - A Vina score is not an affinity, and this set has no negative control, so
+      the session orders nothing. Quote `not_a_measurement`.
+    - If several pockets match, the tool refuses and lists them: ask the user,
+      never pick one. Poses of two pockets are in different frames.
+    - If PyMOL is not found, only the .pml was written: give its path and do not
+      claim a window opened.
+    """
+    return await viewer.open_poses_in_pymol(uniprot_id, structure, pocket, compounds, start)
+
+
+@mcp.tool()
+async def render_md_movie(
+    uniprot_id: str, structure: str = "", pocket: str = "", stage: str = "", every: int = 0,
+    width: int = 960, height: int = 720, fps: int = 12, keep_frames: bool = False
+) -> dict:
+    """Render an analysed molecular-dynamics trajectory to an .mp4 file beside the reports (Phase 3, step 10c). Use it when the user asks for a VIDEO or a file they can share; open_md_in_pymol is for watching it here.
+
+    Args:
+        uniprot_id: UniProt accession, e.g. "P15056".
+        structure: PDB ID of the run, e.g. "3OG7". Empty = any, if only one matches.
+        pocket: Pocket key of the run, e.g. "032 C". Empty = any.
+        stage: "production" or "equilibration". Empty = any.
+        every: Render one frame in `every`. 0 = chosen by the tool so that the
+            call comes back quickly; 1 = every recorded frame.
+        width, height: Frame size in pixels. Bigger is slower, roughly linearly.
+        fps: Frames per second of the video. It is a playback speed, not a
+            property of the simulation.
+        keep_frames: True keeps the PNG frames beside the .pml.
+
+    It renders ONLY a trajectory analyze_md already recorded, and checks the
+    SHA-256 of the topology and of each DCD before PyMOL is started. PyMOL draws
+    one ray-traced image per state in batch mode and ffmpeg encodes them, which
+    takes about 1 to 3 seconds per frame on this machine: the call blocks until
+    it is done.
+
+    Rules for using the result:
+    - Give the user `file` and say what it is: `frames` images at `fps` frames
+      per second, `seconds_long` seconds of video. Those seconds are playback,
+      NEVER simulated time.
+    - Say what `mounted` and `sampling` report. With the default the tool picks
+      the sampling itself, so the video is one frame in N of the trajectory.
+    - `equilibration_control` is quoted from the analyze_md record. If it reads
+      NOT MET, say so before describing anything that moves in the video: the
+      figures of that run are premature and so is the video.
+    - A video is not a measurement. Quote `not_a_measurement`; do not describe
+      binding, stability or an interaction as shown by it.
+    - `embedded_in_the_file` is what was written into the .mp4 metadata, so
+      the file carries its run, its sampling and that control wherever it is
+      sent. The cartoon's secondary structure is PyMOL's own assignment from
+      the coordinates, not a fact from a source.
+    - If it fails, `log_tail` holds the last lines of the PyMOL or ffmpeg log,
+      and `frames_written` of `states_asked_for` says how far it got. Report
+      them instead of guessing a cause. A render that stopped half way writes
+      no video on purpose.
+    """
+    return await movie.render_md_movie(uniprot_id, structure, pocket, stage, every, width,
+                                       height, fps, keep_frames)
 
 
 @mcp.tool()

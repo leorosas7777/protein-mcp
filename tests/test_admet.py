@@ -773,8 +773,8 @@ def test_a_truncated_lookup_says_so_in_the_selection_and_the_report():
             assert "UNKNOWN, not zero" in meas["note"]
             assert "TRUNCATED" in res["selection"] and "LOWER BOUND" in res["selection"]
             assert "TRUNCATED" in meas["note"]
-            md = _render_section_three(prep)
-            assert "TRUNCATED" in md and "LOWER BOUND" in md
+            sec, _md = _render_section_three(prep)
+            assert "TRUNCATED" in sec and "LOWER BOUND" in sec
     finally:
         chembl.MAX_ADME_ROWS = old_cap
 
@@ -787,18 +787,32 @@ def _render_section_three(prep: Path) -> str:
     res = er.build_experiment_report("P15056")
     assert res.get("ok"), res
     md = Path(res["markdown_path"]).read_text(encoding="utf-8")
-    return md[md.index("## 3. ADMET"):md.index("## 4.")]
+    return md[md.index("## 3. ADMET"):md.index("## 4.")], md
 
 
 def test_the_report_section_three_is_rendered_from_the_block():
     with tempfile.TemporaryDirectory() as tmp:
         _mod, prep, res = run_tool(Path(tmp))
-        sec = _render_section_three(prep)
+        sec, md = _render_section_three(prep)
     assert "Not run" not in sec, "the section must have content, not the declared gap"
     assert VEM_KEY in sec and "CHEMBL1229517" in sec
-    for heading in ("Compound identity", "ChEMBL record", "Measured ADME",
+    for heading in ("What ChEMBL holds on this compound", "Measured ADME",
                     "Calculated properties", "Property rules"):
         assert heading in sec, heading
+    # the identity evidence is not deleted: it leaves section 3 entirely and lives in the audit
+    # trail at the end of the document, under the name of the compound it belongs to
+    audit = md.index("## 5. Reproducibility and audit trail")
+    heads = [l for l in md[audit:].splitlines() if l.startswith("### ADMET ·")]
+    assert heads, "the audit trail has no ADMET block"
+    # never the comp_id placeholder: a compound of the selection has no comp_id, and printing
+    # 'no record' there says the datum is missing when it is simply not applicable
+    assert not any(h.rstrip().endswith("· no record") for h in heads), heads
+    for moved in ("InChIKey (computed here with RDKit)", "Agreement between the files",
+                  "ChEMBL entry fields: max_phase"):
+        assert moved in md[audit:], moved
+        assert moved not in sec, f"{moved} stayed in the reading path"
+    # the clinical status itself stays in the reading path, as a sentence
+    assert "is VEMURAFENIB, an approved drug, first approved 2011." in sec
     # the two clearance rows, with their incompatible units, each printed once and unconverted
     assert "uL.min-1.(10^6cells)-1" in sec and "ml kg-1" in sec
     assert "6.61" in sec and "12.0" in sec and "9.3" not in sec
@@ -817,7 +831,7 @@ def test_the_report_never_calls_an_excluded_row_not_adme():
     used to tell the analyst they were "NOT ADME"."""
     with tempfile.TemporaryDirectory() as tmp:
         _mod, prep, _res = run_tool(Path(tmp))
-        sec = _render_section_three(prep)
+        sec, _md = _render_section_three(prep)
     assert "NOT ADME" not in sec, "the report claims the source's data is not ADME"
     assert "that are not ADME" not in sec
     assert "NOT on this project's allowlist" in sec
@@ -853,9 +867,12 @@ def test_the_record_defaults_are_marked_in_the_tool_and_the_report():
         assert len(rec["fields_minus_one"]) == 7, rec["fields_minus_one"]
         assert "oral" in rec["boolean_fields_false"] and "withdrawn_flag" in rec["boolean_fields_false"]
         assert rec["fields"]["oral"] is False, "the raw value must be kept"
-        sec = _render_section_three(prep)
-    assert "(default, see below)" in sec and "(-1, see below)" in sec
-    assert "none of them is evidence" in sec
+        sec, md = _render_section_three(prep)
+    # the raw fields with their default marks live in the audit trail; the warning about reading
+    # them as findings stays in the reading path, where the sentence about the compound is
+    audit = md.index("## 5. Reproducibility and audit trail")
+    assert "(False, a default)" in md[audit:] and "(-1, a default)" in md[audit:]
+    assert "neither value means the compound lacks the property" in sec
     # and no invented name reached the document
     for name in ("VEMURAFENIB", "PLX-4032", "ZELBORAF"):
         assert name not in sec, name
@@ -898,7 +915,7 @@ def test_a_compound_absent_from_chembl_is_not_reported_as_a_failed_lookup():
         assert res["measured_adme"]["no_chembl_entry"] is True
         assert "has no ChEMBL entry" in res["selection"]
         assert "FAILED" not in res["selection"]
-        sec = _render_section_three(prep)
+        sec, _md = _render_section_three(prep)
     assert "no ChEMBL molecule has this exact" in sec
     assert "the ChEMBL lookup did not complete" not in sec
 
@@ -920,7 +937,7 @@ def test_a_calculated_value_in_the_measured_block_is_flagged():
         assert pka["calculated_wording_found"] == ["calculated"]
         assert cl["description_says_value_was_calculated"] is False
         assert "say in their own assay description that the value was CALCULATED" in res["selection"]
-        sec = _render_section_three(prep)
+        sec, _md = _render_section_three(prep)
     assert "[depositor says calculated]" in sec
 
 
@@ -1200,7 +1217,7 @@ def test_a_budget_spent_before_any_query_is_unknown_not_zero_rows():
         chembl.fetch_adme_activities = spent_fetch
         try:
             res2 = run(admet_mod.analyze_admet("P15056", "3OG7", "032 C"))
-            sec = _render_section_three(Path(tmp) / "dossiers" / "P15056" / "prep")
+            sec, _md = _render_section_three(Path(tmp) / "dossiers" / "P15056" / "prep")
         finally:
             chembl.fetch_adme_activities = real_fetch
             chembl._get = original

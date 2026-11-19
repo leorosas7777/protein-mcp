@@ -15,6 +15,7 @@ so the process is checked after LAUNCH_CHECK_SECONDS.
 Imports common and dossier (via files.prepare.prep_dir). Never touches the network.
 """
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -34,7 +35,19 @@ LOG_TAIL_LINES = 8
 OPS = frozenset({
     "load", "load_cgo", "hide", "show", "color", "set_color", "select", "group", "enable",
     "disable", "align", "orient", "deselect", "bg_color",
+    # trajectory sessions (step 10b). load_traj mounts a DCD on a topology already loaded;
+    # create/delete build the small object and drop the solvent; mset/mplay/set drive the movie;
+    # intra_fit removes the whole-system drift so the ligand's own motion is what is seen.
+    "load_traj", "create", "delete", "mset", "mplay", "set", "intra_fit", "zoom",
+    # a PSF carries no secondary structure, so a trajectory draws as loops until dss assigns it
+    "dss",
 })
+
+# NOT derived from OPS any more. LIVE_OPS is the surface the chat control can reach in a RUNNING
+# window, and it was security-probed as a fixed list on 2026-10-28; adding a trajectory function
+# to OPS must not silently widen it. Anything new stays out until it is probed the same way.
+_LIVE_EXCLUDED = {"load", "load_cgo", "set_color", "align",
+                  "load_traj", "create", "delete", "mset", "mplay", "set", "intra_fit", "dss"}
 
 # Functions the chat control (files.control, step 4b) may call in a RUNNING session; the receiver
 # started by the .pml rejects anything else. Validated in PyMOL 3.2 on 2026-10-28: cmd.load runs
@@ -43,8 +56,7 @@ OPS = frozenset({
 # text RGB with PyMOL's safe_list_eval (the reviewer reported a sandbox escape, not reproduced
 # here) and align takes a matrix file: neither is needed live (reset keeps the session's colours
 # and AlphaFold stays where it was aligned), so both are out too.
-LIVE_OPS = frozenset((OPS - {"load", "load_cgo", "set_color", "align"})
-                     | {"zoom", "center", "get_names", "count_atoms"})
+LIVE_OPS = frozenset((OPS - _LIVE_EXCLUDED) | {"zoom", "center", "get_names", "count_atoms"})
 CONTROL_FILE = "control.json"
 _LISTENING = "protein-mcp: control listening"
 
@@ -348,15 +360,25 @@ def _pmcp_receiver(control, session, live):
 '''
 
 
-def render_pml(ops, header, control=None) -> str:
+def render_pml(ops, header, control=None, tail=None) -> str:
     """ASCII .pml: comment header + one python block with a _do(<function>, ...) call per operation.
-    control = (control.json path, session id) also starts the chat-control receiver."""
-    lines = [f"# {line}".encode("ascii", "backslashreplace").decode() for line in header]
+    control = (control.json path, session id) also starts the chat-control receiver.
+    tail = extra python lines appended after the scene, for a batch session that has to do
+    something no single cmd call expresses (the frame loop of the renderer). They are code, not
+    data, so a caller builds them from a constant template with ascii()-written arguments; this
+    function does not and cannot check them."""
+    # PyMOL splits a line on ";" BEFORE deciding it is a comment, so a semicolon in the header
+    # is run as a command ("Error: ambiguous command", measured here 2026-11-19). It is a
+    # comment, so the character is simply dropped rather than the sentence rewritten.
+    lines = [f"# {line}".replace(";", ",").encode("ascii", "backslashreplace").decode()
+             for line in header]
     lines += ["python", *_RUNNER]
     for fn, args in ops:
         if fn not in OPS:
             raise ValueError(f"PyMOL function not allowed: {fn!r}")
         lines.append(f"_do({', '.join(ascii(a) for a in [fn, *args])})")
+    if tail:
+        lines += list(tail)
     if control:
         lines += _RECEIVER.strip("\n").splitlines()
         lines.append("try:")
@@ -436,6 +458,471 @@ async def launch(command, pml: Path, log_path: Path) -> dict:
         out["hint"] = ("This PyMOL has no Qt: install PyQt5 or PySide6 in the same Python environment "
                        "(pip/uv pip install PyQt5).")
     return out
+
+
+# CHARMM-GUI names the ligand it builds `segi HETA` / `resn LIG`, measured on the real topology
+# of this project (3OG7 032 C: 52 atoms, 33 of them heavy). It is a convention of the builder, not
+# of the file format, so the session states the assumption and still shows the protein if it
+# matches nothing.
+LIGAND_SELECTION = "segi HETA or resn LIG"
+MAX_TRAJ_STATES = 200          # states actually mounted; a cap, not a statement about the run
+
+
+def _hash_problem(path: Path, recorded):
+    """None when the file still has the SHA-256 recorded for it, else why it cannot be used.
+
+    A file with NO recorded hash and a file whose hash changed are refused alike, but they are
+    not the same fact and the reason must not say the second when it is the first (the reviewer
+    found this same invention on 2026-11-12 with md_job.psf).
+    """
+    if not recorded:
+        return "no SHA-256 was recorded for it, so there is nothing to check it against"
+    if hashlib.sha256(path.read_bytes()).hexdigest() != recorded:
+        return "no longer has the SHA-256 that was recorded for it"
+    return None
+
+
+def md_records(manifest: dict) -> list:
+    """(structure, pocket key, stage label, record) for every analysis analyze_md recorded."""
+    out = []
+    for s in manifest.get("structures") or []:
+        analyses = s.get("md_analysis")
+        if not isinstance(analyses, dict):
+            continue
+        for key, stages in sorted(analyses.items()):
+            if not isinstance(stages, dict):
+                continue
+            for label, rec in sorted(stages.items()):
+                if isinstance(rec, dict) and rec.get("trajectories"):
+                    out.append((s, key, label, rec))
+    return out
+
+
+def build_trajectory_scene(prep: Path, rec: dict, every: int, max_states: int,
+                           play: bool = True) -> dict:
+    """Operations for one analysed trajectory, and what they will show.
+
+    The files come from the md_analysis block analyze_md wrote, and each one is checked against
+    the SHA-256 recorded there BEFORE anything is loaded: a trajectory that changed on disk is
+    not the trajectory that was measured, and opening it would show something no figure in the
+    experiment record describes.
+
+    The session keeps protein + ligand and deletes the full system, because the solvent is most
+    of the file and nothing here looks at it: on this project's own run that is 8 768 atoms
+    instead of 139 989.
+    """
+    topology = (rec.get("topology") or {}).get("file")
+    psf = _file(prep, topology)
+    if psf is None:
+        return {"error": f"the topology {topology or 'recorded for this run'} is missing from prep/"}
+    problem = _hash_problem(psf, (rec.get("topology") or {}).get("sha256"))
+    if problem:
+        return {"error": f"the topology {topology} {problem}, so it cannot be shown as the "
+                         "topology that was measured"}
+    checked = [{"file": topology, "role": "topology"}]
+    problems = []
+
+    ops = [("bg_color", ["black"]), ("hide", ["everything"]),
+           ("load", [psf.as_posix(), "system"])]
+    frames, mounted = 0, 0
+    for entry in rec.get("trajectories") or []:
+        path = _file(prep, entry.get("file"))
+        if path is None:
+            problems.append({"file": entry.get("file"), "reason": "missing from prep/"})
+            continue
+        problem = _hash_problem(path, entry.get("sha256"))
+        if problem:
+            problems.append({"file": entry.get("file"), "reason": problem})
+            continue
+        # the cap is what is LEFT, not the whole cap again: cmd.load_traj applies `max` to its
+        # own call, so passing the full cap per file would mount up to max states per file
+        room = int(max_states) - mounted
+        if room <= 0:
+            problems.append({"file": entry.get("file"),
+                             "reason": f"the cap of {max_states} states was already reached"})
+            continue
+        # positional, in cmd.load_traj's own order: filename, object, state, format, interval,
+        # average, start, stop, max (read from PyMOL 3.2.0a with inspect, not assumed).
+        # state=0 APPENDS after the last state; state=1 overwrites from the first one, so with
+        # a production written in several DCDs only the last file survived while the tool
+        # reported the sum (measured in PyMOL 3.2 on 2026-11-19: two loads at state=1 left 3
+        # states, at state=0 left 6).
+        ops.append(("load_traj", [path.as_posix(), "system", 0, "", int(every), 1, 1, -1, room]))
+        checked.append({"file": entry.get("file"), "role": "trajectory",
+                        "frames_recorded": entry.get("frames")})
+        frames += entry.get("frames") or 0
+        # every `every`-th frame is mounted, so a file of N frames gives ceil(N / every) states,
+        # never N: counting them as N would make the movie claim frames that were not loaded
+        n = entry.get("frames")
+        mounted += min(room, -(-int(n) // int(every)) if n else room)
+    if not any(fn == "load_traj" for fn, _ in ops):
+        return {"error": "no trajectory of this run can be opened: "
+                         + "; ".join(f"{p['file']}: {p['reason']}" for p in problems)}
+
+    keep = f"system and (polymer or ({LIGAND_SELECTION}))"
+    states = max(1, min(int(max_states), mounted or int(max_states)))
+    ops += [
+        ("create", ["traj", keep, 0, 0]),
+        ("delete", ["system"]),
+        # the topology has no secondary structure (a PSF carries none), so without this the
+        # protein draws as loops everywhere. It is PyMOL's own assignment from the coordinates
+        # of the state shown, and the result says so: it is not read from any source.
+        ("dss", ["traj"]),
+        ("hide", ["everything"]),
+        ("show", ["cartoon", "traj and polymer"]),
+        ("color", ["grey70", "traj and polymer and elem C"]),
+        ("show", ["sticks", f"traj and ({LIGAND_SELECTION})"]),
+        ("color", ["yellow", f"traj and ({LIGAND_SELECTION}) and elem C"]),
+        ("hide", ["everything", "traj and hydro"]),
+        # every state is fitted on the protein backbone of the first one, so what moves on screen
+        # is the ligand inside the pocket and not the whole box drifting through space
+        ("intra_fit", ["traj and polymer and name CA", 1]),
+        ("orient", [f"traj and ({LIGAND_SELECTION})"]),
+        ("zoom", [f"traj and ({LIGAND_SELECTION})", 8.0]),
+        ("set", ["movie_fps", 12]),
+        # frame N is state N from here on, which is what the renderer steps through
+        ("mset", [f"1 -{states}"]),
+    ]
+    if play:
+        ops.append(("mplay", []))
+    return {"ops": ops, "files_checked": checked, "files_refused": problems,
+            "frames_recorded": frames, "states": states,
+            "ligand_selection": LIGAND_SELECTION,
+            "secondary_structure": "assigned by PyMOL (dss) from the coordinates: a PSF carries "
+                                   "none, and nothing here reads it from a source",
+            "note": "Protein and ligand only: the solvent and the ions come in with the topology "
+                    "and are dropped straight after, because nothing here looks at them. Every "
+                    "state is superposed on the backbone of the first, and the cartoon's "
+                    "secondary structure is PyMOL's own assignment from the coordinates."}
+
+
+def read_manifest(accession: str):
+    """(manifest, None) or (None, the refusal to return). One reader for every session tool."""
+    prep = prep_dir(accession)
+    try:
+        return json.loads((prep / "manifest.json").read_text(encoding="utf-8")), None
+    except FileNotFoundError:
+        return None, {"ok": False, "error": f"No preparation manifest for {accession}: run "
+                                            "prepare_structures first."}
+    except (OSError, ValueError) as exc:
+        log.exception("Could not read the manifest of %s", accession)
+        return None, {"ok": False, "error": f"Could not read the manifest: {exc}"}
+
+
+def select_md_record(manifest: dict, structure: str, pocket: str, stage: str):
+    """((structure, pocket key, stage label, record), every run listed) or (None, the refusal).
+
+    Shared by the tool that opens a trajectory and the one that renders it: which run is chosen
+    changes what the user sees, so an ambiguous request is refused with the list, never guessed.
+    """
+    records = md_records(manifest)
+    listed = [f"{s.get('pdb_id')} | {key} | {label}" for s, key, label, _r in records]
+    if not records:
+        return None, {"ok": False, "available": [],
+                      "error": "No analysed trajectory is recorded for this accession. The chain "
+                               "is build_md_package, CHARMM-GUI, build_md_job, the cluster, and "
+                               "then analyze_md with uniprot_id, which records the analysis this "
+                               "tool reads."}
+    wanted = [(s, key, label, rec) for s, key, label, rec in records
+              if (not structure or (s.get("pdb_id") or "").upper() == structure.strip().upper())
+              and (not pocket or key.upper() == pocket.strip().upper())
+              and (not stage or label.lower() == stage.strip().lower())]
+    if not wanted:
+        return None, {"ok": False, "available": listed,
+                      "error": "No recorded trajectory matches that structure, pocket and stage."}
+    if len(wanted) > 1:
+        return None, {"ok": False,
+                      "available": [f"{s.get('pdb_id')} | {key} | {label}"
+                                    for s, key, label, _r in wanted],
+                      "error": f"{len(wanted)} recorded trajectories match. Name one with "
+                               "structure, pocket and stage."}
+    return (wanted[0], listed), None
+
+
+async def open_md_in_pymol(uniprot_id: str, structure: str = "", pocket: str = "",
+                           stage: str = "", every: int = 1, max_states: int = MAX_TRAJ_STATES,
+                           start: bool = True) -> dict:
+    """Open an analysed trajectory in PyMOL and play it. Only a run analyze_md already recorded."""
+    accession, error = parse_accession(uniprot_id)
+    if error:
+        return error
+    prep = prep_dir(accession)
+    manifest, refusal = read_manifest(accession)
+    if refusal:
+        return refusal
+
+    chosen, refusal = select_md_record(manifest, structure, pocket, stage)
+    if refusal:
+        return {**refusal, "uniprot_id": accession}
+    (s, key, label, rec), listed = chosen
+
+    scene = build_trajectory_scene(prep, rec, max(1, int(every)), max(1, int(max_states)))
+    if scene.get("error"):
+        return {"ok": False, "uniprot_id": accession, "error": scene["error"],
+                "run": f"{s.get('pdb_id')} {key} {label}", "available": listed}
+
+    folder = prep / "pymol"
+    pml = folder / f"trajectory_{s.get('pdb_id')}_{key.replace(' ', '_')}_{label}.pml"
+    header = [
+        f"PyMOL trajectory session for {accession}, written by protein-mcp open_md_in_pymol "
+        f"at {utc_now()}.",
+        f"Run: {s.get('pdb_id')} pocket {key}, stage {label}, as recorded by analyze_md.",
+        "Every file was checked against the SHA-256 analyze_md recorded before this was written.",
+        f"Ligand selection: {scene['ligand_selection']} (CHARMM-GUI's own naming).",
+        f"Mounted: every {every} frame(s), at most {max_states} states.",
+        "The movie plays protein + ligand only; the solvent is dropped after loading.",
+    ]
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        pml.write_text(render_pml(scene["ops"], header), encoding="ascii", newline="\n")
+    except OSError as exc:
+        log.exception("Could not write %s", pml)
+        return {"ok": False, "error": f"Could not write {pml}: {exc}"}
+
+    pymol = find_pymol()
+    if start and pymol["found"]:
+        pymol.update(await launch(pymol["command"], pml, folder / "launch.log"))
+        pymol["log_path"] = str(folder / "launch.log")
+    else:
+        pymol["launched"] = False
+        if not start:
+            pymol["note"] = "start=False: the session file was written, PyMOL was not started."
+
+    return {
+        "ok": True, "uniprot_id": accession,
+        "run": f"{s.get('pdb_id')} pocket {key}, stage {label}",
+        "pml_path": str(pml), "pymol": pymol,
+        "files_checked": scene["files_checked"], "files_refused": scene["files_refused"],
+        "frames_recorded": scene["frames_recorded"], "states_mounted": scene["states"],
+        "mounted": f"every {every} frame(s), at most {max_states} states",
+        "shows": scene["note"], "ligand_selection": scene["ligand_selection"],
+        "available": listed,
+        "not_a_measurement": "This is the trajectory itself, not a measurement of it. Every figure "
+                             "about this run is in the experiment record; watching a pose move is "
+                             "not evidence that it is right, and the equilibration control of that "
+                             "run still applies to everything seen here.",
+    }
+
+
+# One colour per docked compound. Picked to be told apart on the black background and NOT to
+# carry any meaning: the colour says which compound, never how good it is.
+POSE_COLORS = ["yellow", "cyan", "magenta", "salmon", "palegreen", "orange", "slate", "wheat",
+               "deepteal", "lightpink"]
+
+
+def docking_blocks(manifest: dict) -> list:
+    """(structure, pocket key, block) for every pocket that has at least one docking run."""
+    out = []
+    for s in manifest.get("structures") or []:
+        blocks = s.get("docking")
+        if not isinstance(blocks, dict):
+            continue
+        for key, block in sorted(blocks.items()):
+            if isinstance(block, dict) and (block.get("runs") or {}):
+                out.append((s, key, block))
+    return out
+
+
+def build_poses_scene(manifest: dict, prep: Path, s: dict, key: str, block: dict,
+                      compounds=None) -> dict:
+    """The receptor of one pocket with the top pose of each of its docking runs, side by side.
+
+    Every pose file is checked against the SHA-256 the docking run recorded before it is loaded:
+    a file that changed is not the pose Vina wrote, and a picture of it would illustrate a score
+    that no longer belongs to it.
+
+    The whole SDF of a run is loaded, so the object holds every pose Vina kept and PyMOL shows
+    state 1, which is the top-scoring one -- the pose the experiment record is about. The object
+    panel's state slider walks the others, and the result says so rather than hiding them.
+    """
+    pdb = s.get("pdb_id")
+    prepared = s.get("prepared") or {}
+    receptor_rec = prepared.get("receptor") or {}
+    receptor = _file(prep, receptor_rec.get("path"))
+    if receptor is None:
+        return {"error": f"the cleaned receptor of {pdb} is not in prep/: run prepare_structures"}
+
+    rec = _name("rec", pdb)
+    ops = [("bg_color", ["black"]), ("hide", ["everything"]),
+           ("load", [receptor.as_posix(), rec]), ("show", ["cartoon", rec]),
+           ("color", ["grey70", f"{rec} and elem C"]),
+           ("show", ["spheres", f"{rec} and inorganic"])]
+    members, runs, refused = [rec], [], []
+
+    wanted = {c.strip().upper() for c in compounds} if compounds else None
+    seen = []
+    for i, (run_id, run) in enumerate(sorted((block.get("runs") or {}).items())):
+        ligand = run.get("ligand") or {}
+        cd = run.get("compound_docking") or {}
+        rd = run.get("redocking") or {}
+        cid = ligand.get("compound_id") or ligand.get("comp_id") or ""
+        # the ChEMBL id when the record has no name (CHEMBL525191 has none), never the run id
+        # dressed up as a compound
+        name = ligand.get("name") or cid or run_id
+        seen.append(run_id)
+        if wanted is not None and not ({str(cid).upper(), str(name).upper(), run_id.upper()}
+                                       & wanted):
+            continue
+        sdf_rec = next((f for n, f in (run.get("files") or {}).items() if n.endswith(".sdf")), None)
+        if not sdf_rec or not sdf_rec.get("path"):
+            refused.append({"run": run_id, "reason": "no pose SDF is recorded for this run"})
+            continue
+        path = _file(prep, sdf_rec["path"])
+        if path is None:
+            refused.append({"run": run_id, "file": sdf_rec["path"],
+                            "reason": "missing from prep/"})
+            continue
+        problem = _hash_problem(path, sdf_rec.get("sha256"))
+        if problem:
+            refused.append({"run": run_id, "file": sdf_rec["path"], "reason": problem})
+            continue
+        obj = _name("pose", cid or run_id)
+        colour = POSE_COLORS[len(runs) % len(POSE_COLORS)]
+        members.append(obj)
+        ops += [("load", [path.as_posix(), obj]), ("show", ["sticks", obj]),
+                ("color", [colour, f"{obj} and elem C"]),
+                ("hide", ["everything", f"{obj} and hydro"])]
+        runs.append({
+            "run": run_id, "object": obj, "color": colour,
+            "compound": name, "compound_id": ligand.get("compound_id"),
+            "level": ligand.get("level"),
+            "kind": "compound" if cd else "redocking" if rd else "unknown",
+            # a re-docking has no compound_docking block: its top-pose score is the score of
+            # pose 1 and its heavy-atom count is on the ligand. Reading only compound_docking
+            # printed "no record" for a score the manifest holds.
+            "top_pose_score_kcal_mol": cd.get("top_pose_score_kcal_mol") if cd else
+                                       ((run.get("poses") or [{}])[0].get("vina_score_kcal_mol")),
+            "ligand_efficiency": cd.get("ligand_efficiency_kcal_mol_per_heavy_atom"),
+            "heavy_atoms": cd.get("heavy_atoms") or ligand.get("heavy_atoms"),
+            "box_limited": bool(cd.get("box_limited")),
+            "rmsd_to_crystal_pose_angstrom": rd.get("top_pose_rmsd_angstrom"),
+            "rmsd_to_reference_pose_angstrom": (run.get("cross_docking") or {})
+                                               .get("top_pose_rmsd_angstrom"),
+            "poses_in_file": len(run.get("poses") or []),
+            "file": sdf_rec["path"],
+        })
+    if not runs:
+        return {"error": f"no pose of {pdb} pocket {key} can be opened",
+                "files_refused": refused, "runs_in_the_manifest": seen}
+
+    pocket = next((p for p in prepared.get("pockets") or []
+                   if " ".join(x for x in (p.get("comp_id"), p.get("label_asym_id")) if x) == key),
+                  None)
+    pocket_row = None
+    if pocket:
+        sel, n_sel, dropped = _selection(
+            rec, [(r.get("auth_asym_id"), r.get("auth_seq_id")) for r in pocket.get("residues") or []])
+        pocket_row = {"residues_in_the_manifest": len(pocket.get("residues") or []),
+                      "residues_selected": n_sel, "residues_not_selectable": dropped,
+                      "selection": None, "box_object": None}
+        if sel:
+            pocket_row["selection"] = _name("pocket", pdb, key.replace(" ", "_"))
+            ops += [("select", [pocket_row["selection"], sel]),
+                    ("show", ["sticks", f"{pocket_row['selection']} and (sidechain or name CA)"]),
+                    ("color", ["grey50", f"{pocket_row['selection']} and elem C"])]
+        cgo = _box_cgo(block.get("box") or pocket.get("box") or {})
+        if cgo:
+            pocket_row["box_object"] = _name("box", pdb, key.replace(" ", "_"))
+            members.append(pocket_row["box_object"])
+            ops.append(("load_cgo", [cgo, pocket_row["box_object"]]))
+
+    focus = " or ".join(r["object"] for r in runs)
+    ops += [("group", [_name("poses", pdb, key.replace(" ", "_")), " ".join(members)]),
+            ("orient", [focus]), ("zoom", [focus, 4.0]), ("deselect", [])]
+    return {
+        "ops": ops, "runs": runs, "files_refused": refused, "receptor_object": rec,
+        "receptor_file": receptor_rec.get("path"),
+        "receptor_sha256_recorded": bool(receptor_rec.get("sha256")),
+        "pocket": pocket_row, "runs_in_the_manifest": seen,
+        "note": "One receptor and one object per docking run, all in the frame of this crystal. "
+                "State 1 of each object is the top-scoring pose; the other poses Vina kept are "
+                "in the same object and the state slider walks them.",
+    }
+
+
+async def open_poses_in_pymol(uniprot_id: str, structure: str = "", pocket: str = "",
+                              compounds=None, start: bool = True) -> dict:
+    """Open the docked poses of one pocket together in PyMOL, one colour per compound."""
+    accession, error = parse_accession(uniprot_id)
+    if error:
+        return error
+    prep = prep_dir(accession)
+    manifest, refusal = read_manifest(accession)
+    if refusal:
+        return refusal
+
+    blocks = docking_blocks(manifest)
+    listed = [f"{s.get('pdb_id')} | {key} | {len(block.get('runs') or {})} run(s)"
+              for s, key, block in blocks]
+    if not blocks:
+        return {"ok": False, "uniprot_id": accession, "available": [],
+                "error": "No docking run is recorded for this accession: run dock_ligand first."}
+    wanted = [(s, key, block) for s, key, block in blocks
+              if (not structure or (s.get("pdb_id") or "").upper() == structure.strip().upper())
+              and (not pocket or key.upper() == pocket.strip().upper())]
+    if not wanted:
+        return {"ok": False, "uniprot_id": accession, "available": listed,
+                "error": "No docked pocket matches that structure and pocket."}
+    if len(wanted) > 1:
+        # the poses of two pockets are in different frames: showing them together would put two
+        # receptors on screen as if they were superposed, which they are not
+        return {"ok": False, "uniprot_id": accession,
+                "available": [f"{s.get('pdb_id')} | {key}" for s, key, _b in wanted],
+                "error": f"{len(wanted)} docked pockets match. Name one with structure and pocket."}
+    s, key, block = wanted[0]
+
+    scene = build_poses_scene(manifest, prep, s, key, block, compounds)
+    if scene.get("error"):
+        return {"ok": False, "uniprot_id": accession, "error": scene["error"],
+                "files_refused": scene.get("files_refused", []),
+                "runs_in_the_manifest": scene.get("runs_in_the_manifest", []), "available": listed}
+
+    folder = prep / "pymol"
+    pml = folder / f"poses_{s.get('pdb_id')}_{key.replace(' ', '_')}.pml"
+    header = [
+        f"PyMOL pose session for {accession}, written by protein-mcp open_poses_in_pymol "
+        f"at {utc_now()}.",
+        f"Pocket: {s.get('pdb_id')} {key}. {len(scene['runs'])} of "
+        f"{len(scene['runs_in_the_manifest'])} docking run(s) of this pocket.",
+        "Every pose file was checked against the SHA-256 its docking run recorded.",
+        "State 1 of each object is the top-scoring pose of that run.",
+        "The colour says which compound; it says nothing about the score.",
+    ]
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        pml.write_text(render_pml(scene["ops"], header), encoding="ascii", newline="\n")
+    except OSError as exc:
+        log.exception("Could not write %s", pml)
+        return {"ok": False, "error": f"Could not write {pml}: {exc}"}
+
+    pymol = find_pymol()
+    if start and pymol["found"]:
+        pymol.update(await launch(pymol["command"], pml, folder / "launch.log"))
+        pymol["log_path"] = str(folder / "launch.log")
+    else:
+        pymol["launched"] = False
+        if not start:
+            pymol["note"] = "start=False: the session file was written, PyMOL was not started."
+
+    return {
+        "ok": True, "uniprot_id": accession, "pocket": f"{s.get('pdb_id')} {key}",
+        "selection": f"{len(scene['runs'])} of {len(scene['runs_in_the_manifest'])} docking runs "
+                     f"of this pocket",
+        "pml_path": str(pml), "pymol": pymol,
+        "runs": scene["runs"], "files_refused": scene["files_refused"],
+        "pocket_residues": scene["pocket"], "receptor": {
+            "object": scene["receptor_object"], "file": scene["receptor_file"],
+            "sha256_recorded": scene["receptor_sha256_recorded"],
+            "note": "The cleaned receptor carries no SHA-256 in the manifest, so it is the only "
+                    "file here that is not checked before it is loaded."
+            if not scene["receptor_sha256_recorded"] else None},
+        "shows": scene["note"], "available": listed,
+        "colors_repeat": len(scene["runs"]) > len(POSE_COLORS),
+        "not_a_measurement": "Seeing where a compound sits is not evidence that it binds there. "
+                             "The scores beside each pose are calculated values of this project's "
+                             "docking runs, they are not affinities, and the set has no negative "
+                             "control, so nothing here orders the compounds.",
+    }
 
 
 async def open_in_pymol(uniprot_id: str, pdb_ids=None, include_alphafold=True, start=True) -> dict:

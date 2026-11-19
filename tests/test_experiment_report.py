@@ -114,7 +114,11 @@ def test_real_run(prep: Path):
     # calculated values, labelled, with the literal scope and the negative control of the run
     assert "| Vina score (kcal/mol, calculated) |" in md and "RMSD to the crystal pose (Å, calculated)" in md
     assert "| 1 | -11.35 | 0.5396 |" in md and "| 9 | -10.35 | 8.2993 |" in md
-    assert "Top-pose RMSD: 0.5396 Å; criterion <= 2 Å; within the criterion: True" in md
+    # the number, its criterion and the verdict now travel in the opening paragraph of the run
+    # instead of a bullet, but all three must still be there and must still agree
+    assert ("The best-scoring pose lands 0.5396 Å from the crystallographic pose against a "
+            "criterion of 2 Å, so this set-up reproduces a pose it already knew.") in md
+    assert "does NOT reproduce" not in md
     assert "Pre-registered control run: True" in md
     assert rec["redocking"]["scope"] in md and "not the accuracy of the method" in md
     assert ("the crystal pose against itself gave 0 Å and the crystal pose moved 5 Å gave 5 Å; "
@@ -128,11 +132,19 @@ def test_real_run(prep: Path):
     assert "Meeko mk_prepare_receptor --read_pdb --delete_bad_res_from_box_radius 8; exit code 0" in md
     assert "Deleted by Meeko (outside the box, so the pocket is unchanged): none" in md
     assert "Refused by Meeko (too close to the box, not deleted): none" in md
-    assert "Ligand atoms inside the box: " + rec["guard"]["ligand_atoms_in_box"] in md
+    assert ("Checked before Vina started: ligand atoms inside the box "
+            + rec["guard"]["ligand_atoms_in_box"]) in md
 
-    # files with their SHA-256, straight from the manifest
+    # files with their SHA-256, straight from the manifest. They moved out of the reading path
+    # into the reproducibility block, but not one of them may be dropped: the hash is what proves
+    # a file on disk is the file this run wrote.
+    audit = md.index("## 5. Reproducibility and audit trail")
+    assert md.index("## 4. Methods") < audit, "the audit trail must come after the methods"
+    assert "### Docking · 3OG7 · pocket 032 C · run 032_regenerated" in md[audit:]
     for name, f in rec["files"].items():
-        assert f"| {name} | {f['path']} | {f['sha256']} |" in md, name
+        assert f"{name}: {f['path']} (SHA-256 {f['sha256']})" in md[audit:], name
+        # and NOT in the reading path, which is the whole point of moving it
+        assert f["sha256"] not in md[:audit], f"{name}: a hash leaked into sections 1-4"
 
     # the Vina log in the dossier really has the header; the report does not copy it
     log = (prep / rec["files"][f"vina_032_regenerated.log"]["path"]).read_text(encoding="utf-8")
@@ -234,7 +246,10 @@ def test_missing_fields_and_earlier_choice():
     for bad in ("None", " Å, centre ()", "conformer ''"):
         assert bad not in md, (bad, [l for l in md.splitlines() if bad in l][:3])
     assert "created no record by no record" in md and "heavy atoms: no record" in md
-    assert "within the criterion: no record" in md and "box no record" in md
+    # an unrecorded verdict must print as unrecorded, and must NOT be rendered as a failure
+    assert "Whether it is within the criterion: no record" in md
+    assert "does NOT reproduce" not in md, "a missing verdict was turned into a failed one"
+    assert "box no record" in md
     # control: with the 'no record' helper switched off, the same manifest does print None
     real_v = experiment_report._v
     experiment_report._v = lambda x: x
@@ -323,8 +338,9 @@ def test_the_section_inventory_is_read_from_the_document():
     doc, _n, _n_admet = experiment_report.build_document(
         ACC, report.load_manifest(ACC), "2026-11-12T00:00:00Z")
     headings = [b[2] for b in doc.blocks if b[0] == "h" and b[1] == 2]
-    assert len(sections) == len(headings) == 4, (sections, headings)
-    assert [s["number"] for s in sections] == ["1", "2", "3", "4"], sections
+    assert len(sections) == len(headings) == 5, (sections, headings)
+    assert [s["number"] for s in sections] == ["1", "2", "3", "4", "5"], sections
+    assert "reproducibility" in sections[-1]["title"].lower(), "the audit trail must be the last section"
     assert [s["heading"] for s in sections] == headings
     by_number = {s["number"]: s for s in sections}
     assert "docking" in by_number["1"]["title"].lower()
@@ -348,7 +364,8 @@ def test_the_section_inventory_is_read_from_the_document():
     # while sections_not_run calls it empty is a contradiction the analyst would be handed, and
     # this is what catches a placeholder whose wording drifts away from the inventory's rule
     not_run = " ".join(r["sections_not_run"]).lower()
-    keyword = {"1": "docking", "2": "dynamics", "3": "admet", "4": "methods"}
+    keyword = {"1": "docking", "2": "dynamics", "3": "admet", "4": "methods",
+               "5": "reproducibility"}
     for s in sections:
         named = keyword[s["number"]] in not_run
         assert named == (s["status"] != "has content"), (s, r["sections_not_run"])
@@ -383,11 +400,11 @@ def test_the_cluster_install_path_stays_out_of_the_report():
         er._binary_tail = tail
         try:
             doc = Doc()
-            er._md_config(doc, {}, job)
+            er._md_config(doc, {}, job, [], "test pocket")
         finally:
             er._binary_tail = saved
         rows = [r for b in doc.blocks if b[0] == "table" for r in b[2]]
-        return next(r[1] for r in rows if r[0] == "Cluster job")
+        return next(r[1] for r in rows if r[0] == "Where it ran")
 
     def clean(text):
         return "/software" not in text and "local/apps" not in text and \

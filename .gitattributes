@@ -1,0 +1,4 @@
+# The vendored 3Dmol.js build and its licence files are identified by SHA-256 in
+# protein_mcp/assets/PROVENANCE.md, and the page embeds the bytes verbatim. Line-ending
+# conversion would change that hash on checkout, so these files are stored as-is.
+protein_mcp/assets/** -text

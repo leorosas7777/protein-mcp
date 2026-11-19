@@ -8,6 +8,7 @@ dependencies = [
     "MDAnalysis>=2.11.0",
     "gemmi>=0.7.5",
     "httpx>=0.28.1",
+    "imageio-ffmpeg>=0.8.1",
     "mcp[cli]<2",
     "meeko>=0.8.0,<0.9",
     "numpy>=2.5.4",
