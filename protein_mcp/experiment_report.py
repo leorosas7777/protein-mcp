@@ -129,7 +129,13 @@ def _provenance(doc, s: dict, block: dict, run: dict, m: dict, pocket_key: str):
         + (f"; {rec['chains_note']}" if rec.get("chains_note") else ""),
         f"Pocket {pocket_key}: box {_boxtext(block.get('box') or {})}; frame: "
         + ((block.get("box") or {}).get("frame") or NO_RECORD),
-        f"Crystal ligand pose {lig.get('sdf') or NO_RECORD}, SHA-256 {lig.get('sdf_sha256') or NO_RECORD}",
+        (f"Crystal ligand pose {lig.get('sdf') or NO_RECORD}, SHA-256 {lig.get('sdf_sha256') or NO_RECORD}"
+         if "compound_docking" not in run else
+         "Crystal ligand pose: not applicable, this run docked a compound of the researcher's selection and "
+         "not the crystal ligand of the pocket; the box and the receptor are the pocket's, unchanged"
+         + (f". A reference pose of the DOCKED compound does exist, in "
+            f"{(run['cross_docking'].get('reference_pose') or {}).get('from') or NO_RECORD}, and is "
+            "used for the RMSD below" if run.get("cross_docking") else "")),
         _choice_line(m, s.get("pdb_id"), pocket_key, run),
     ]
     mut = report._mutation_cell(s.get("construct") or {})
@@ -142,9 +148,17 @@ def _ligand_block(doc, run: dict):
     lig = run.get("ligand") or {}
     name = lig.get("name")
     syn = ", ".join(lig.get("synonyms") or []) or "no wwPDB synonym"
+    # step 6b: a compound of the user's selection is not an instance of this crystal, so the
+    # instance and chain of a pocket ligand do not exist for it and must not print as "no record"
+    first = (f"{lig.get('comp_id') or NO_RECORD} (instance {_v(lig.get('label_asym_id'))}, auth chain "
+             f"{_v(lig.get('auth_asym_id'))}); wwPDB synonyms: {syn}")
+    if "compound_docking" in run:
+        first = (f"{_v(lig.get('compound_id'))} ({_v(lig.get('name'))}), level {_v(lig.get('level'))}: a compound "
+                 f"of the researcher's selection, not a ligand of this crystal, so it has no instance, no auth "
+                 f"chain and no wwPDB synonym. InChIKey {_v(lig.get('inchikey'))}; selection recorded "
+                 f"{_v(lig.get('selection_recorded_at'))}")
     items = [
-        f"{lig.get('comp_id') or NO_RECORD} (instance {_v(lig.get('label_asym_id'))}, auth chain "
-        f"{_v(lig.get('auth_asym_id'))}); wwPDB synonyms: {syn}",
+        first,
         f"Chemical name: {report._clip(name, 300) if name else NO_RECORD}",
         f"SMILES: {lig.get('smiles') or NO_RECORD}; heavy atoms: {_v(lig.get('heavy_atoms'))}; "
         f"rotatable torsions: {_v(lig.get('rotatable_torsions'))}",
@@ -207,14 +221,112 @@ def _vina_block(doc, run: dict):
     doc.bullets(items)
 
 
+def _cross_docking_items(xd: dict) -> list:
+    """The T1 RMSD, and never the number on its own: the bar, the protein fit it came from, and
+    whether the criterion decides at all (ESTADO 7.4)."""
+    sup = xd.get("superposition") or {}
+    unc = xd.get("reference_pose_uncertainty") or {}
+    bar = unc.get("shift_angstrom")
+    rng = (xd.get("within_criterion_with_bar") or {}).get("range_angstrom") or []
+    nc = xd.get("rmsd_negative_control") or {}
+    geo = xd.get("reference_pose_geometry") or {}
+    ref = xd.get("reference_pose") or {}
+    decides = (xd.get("within_criterion_with_bar") or {}).get("decides")
+    return [
+        f"Top-pose RMSD: {_num(xd.get('top_pose_rmsd_angstrom'), '{:.4f}') or NO_RECORD} Å "
+        f"± {_num(bar) or NO_RECORD} Å (the error bar of the reference pose, not of the docking); "
+        f"criterion <= {_num(xd.get('criterion_angstrom')) or NO_RECORD} Å; within the criterion: "
+        f"{_v(xd.get('within_criterion'))}",
+        (f"With the bar the RMSD spans {_num(rng[0]) or NO_RECORD}-{_num(rng[1]) or NO_RECORD} Å, "
+         + ("which falls on BOTH sides of the criterion, so THIS RUN DOES NOT DECIDE whether the "
+            "pose was reproduced. It must not be reported as a pass."
+            if decides is False else "which falls on one side of the criterion, so it decides.")
+         if len(rng) == 2 else f"Bar: {NO_RECORD}"),
+        f"Reference pose: the crystallographic pose of this same compound in "
+        f"{ref.get('from') or NO_RECORD}, matched by {ref.get('matched_by') or NO_RECORD}",
+        f"Protein superposition: {sup.get('method') or NO_RECORD}; {sup.get('mobile') or NO_RECORD} "
+        f"on {sup.get('target') or NO_RECORD}, RMSD {_num(sup.get('rmsd_angstrom')) or NO_RECORD} Å "
+        f"over {_v(sup.get('pairs'))} CA pairs",
+        f"Error bar: {unc.get('why') or NO_RECORD}"
+        + ("" if unc.get("measured_here") else " (measured here: no)"),
+        unc.get("note") or NO_RECORD,
+        f"Where the reference pose lands in this receptor, checked by geometry and not by name: "
+        f"{geo.get('heavy_atoms_in_box') or NO_RECORD} heavy atoms inside the box, centroid "
+        f"{_num(geo.get('centroid_to_box_centre_angstrom')) or NO_RECORD} Å from the box centre and "
+        f"{_num(geo.get('centroid_to_pocket_ligand_centroid_angstrom')) or NO_RECORD} Å from the "
+        f"centroid of this pocket's own ligand",
+        f"RMSD method: {xd.get('rmsd_method') or NO_RECORD}",
+        "Negative control, measured with the same function as the poses: the reference pose "
+        f"against itself gave {_num(nc.get('crystal_vs_itself_angstrom')) or NO_RECORD} Å and moved "
+        f"5 Å gave {_num(nc.get('crystal_moved_5A_angstrom')) or NO_RECORD} Å; passed: "
+        f"{_v(nc.get('passed'))}",
+        xd.get("criterion_note") or NO_RECORD,
+        f"Scope of the RMSD: {xd.get('scope') or NO_RECORD}",
+    ]
+
+
+def _compound_poses_block(doc, run: dict, count: str):
+    """Step 6b: a compound run has scores and NO RMSD. The difference between "no record" (the
+    manifest lost it) and "not applicable" (there is no reference pose to measure against) is the
+    whole point, so the RMSD column is not printed at all and the reason is given instead."""
+    cd = run.get("compound_docking") or {}
+    fit = cd.get("box_fit") or {}
+    xd = run.get("cross_docking") or {}
+    doc.h(4, "Poses (calculated)")
+    if xd:
+        doc.p(f"{count}. Both columns are calculated. The RMSD is NOT against a pose of this "
+              f"structure: it is against the crystallographic pose of this same compound in "
+              f"{xd.get('reference_pose', {}).get('from') or NO_RECORD}, carried here by a protein "
+              f"superposition, and it travels with the error bar below.", small=True)
+        doc.table(["Mode", "Vina score (kcal/mol, calculated)",
+                   "RMSD to the reference pose (Å, calculated)"],
+                  [[p.get("mode"), _num(p.get("vina_score_kcal_mol"), "{:.2f}") or NO_RECORD,
+                    _num(p.get("rmsd_to_reference_pose_angstrom"), "{:.4f}") or NO_RECORD]
+                   for p in run.get("poses") or []], (0.08, 0.3, 0.32))
+    else:
+        doc.p(f"{count}. The scores are calculated values of this run. There is NO RMSD column: "
+              + (cd.get("rmsd_not_applicable") or "no reference pose."), small=True)
+        doc.table(["Mode", "Vina score (kcal/mol, calculated)"],
+                  [[p.get("mode"), _num(p.get("vina_score_kcal_mol"), "{:.2f}") or NO_RECORD]
+                   for p in run.get("poses") or []], (0.08, 0.3))
+    items = [
+        f"Top-pose score: {_num(cd.get('top_pose_score_kcal_mol'), '{:.3f}') or NO_RECORD} kcal/mol; heavy atoms: "
+        f"{_v(cd.get('heavy_atoms'))}; ligand efficiency: "
+        f"{_num(cd.get('ligand_efficiency_kcal_mol_per_heavy_atom'), '{:.4f}') or NO_RECORD} kcal/mol per heavy atom",
+    ]
+    items += _cross_docking_items(xd) if xd else [
+        f"RMSD: not applicable. {cd.get('rmsd_not_applicable') or NO_RECORD}",
+        f"Pass/fail criterion: none. {cd.get('not_a_control_reason') or NO_RECORD}"]
+    items += [
+        f"Box fit against the pocket's unchanged box: clearance "
+        f"{_num(fit.get('min_clearance_angstrom')) or NO_RECORD} Å in the tightest axis (box axis "
+        f"{_num(fit.get('limiting_box_axis_angstrom')) or NO_RECORD} Å, compound extent "
+        f"{_num(fit.get('limiting_ligand_extent_angstrom')) or NO_RECORD} Å), declared minimum "
+        f"{_num(fit.get('threshold_angstrom')) or NO_RECORD} Å; measured as: {fit.get('method') or NO_RECORD}",
+        f"Parameters as pre-registered for the set: {_v(cd.get('parameters_as_preregistered'))}",
+        f"Scope: {cd.get('scope') or NO_RECORD}"
+        + (" (that line is the state of this run AT DOCKING TIME, when no pose of this compound had "
+           "been brought into this frame; the reference pose above was added afterwards by "
+           "cross_dock_rmsd, from another crystal)" if xd else ""),
+        cd.get("ligand_efficiency_note") or NO_RECORD,
+    ]
+    if cd.get("box_limited"):
+        items.insert(4, cd.get("box_limited_note") or "box_limited")
+    if cd.get("note"):
+        items.append(cd["note"])
+    doc.bullets(items)
+
+
 def _poses_block(doc, run: dict):
     v, rd = run.get("vina") or {}, run.get("redocking") or {}
-    doc.h(4, "Poses (calculated)")
     n, asked = len(run.get("poses") or []), v.get("num_modes")
     count = (f"{n} poses returned (num_modes {asked})" if n == asked else
              f"{n} poses returned; num_modes {_v(asked)}, energy_range {_v(v.get('energy_range'))} kcal/mol"
              + ("; the manifest does not record why fewer were returned" if isinstance(asked, int) and n < asked
                 else ""))
+    if "compound_docking" in run:
+        return _compound_poses_block(doc, run, count)
+    doc.h(4, "Poses (calculated)")
     doc.p(f"{count}. Both columns are calculated values of this run; the RMSD is against the crystal pose of this "
           f"same pocket (method: {rd.get('rmsd_method') or NO_RECORD}).", small=True)
     doc.table(["Mode", "Vina score (kcal/mol, calculated)", "RMSD to the crystal pose (Å, calculated)"],
@@ -253,10 +365,25 @@ def _docking(doc, m: dict, accession: str):
               f"{accession}\", structure, pocket) and then dock_status to record one, and build this record again.")
         return 0
     docked_pockets = {(s.get("pdb_id"), key) for s, key, _b, _r, _run in runs}
+    n_comp = sum(1 for *_x, run in runs if "compound_docking" in run)
+    n_cross = sum(1 for *_x, run in runs if run.get("cross_docking"))
+    kinds = (f"{len(runs) - n_comp} re-docking{'' if len(runs) - n_comp == 1 else 's'} of the crystal ligand of a "
+             f"pocket into its own receptor (a reference pose in the same structure, and therefore an RMSD)")
+    if n_comp:
+        kinds += (f" and {n_comp} run{'' if n_comp == 1 else 's'} of a compound of the researcher's selection into "
+                  "a pocket's unchanged box, with no pass/fail criterion; the levels T1 and T3 are not comparable "
+                  "with each other and are not ranked together")
+        kinds += (f". Of those, {n_cross} {'has' if n_cross == 1 else 'have'} an RMSD, measured against the "
+                  "crystallographic pose of the SAME compound in another structure of this target, carried over by "
+                  "a protein superposition and reported with the error bar of that superposition; the rest have no "
+                  "reference pose anywhere, so for them the RMSD is not applicable, which is not a missing value"
+                  if n_cross else
+                  ". None has a reference pose, so for all of them the RMSD is not applicable, which is not a "
+                  "missing value")
     doc.p(f"{len(runs)} docking run{'' if len(runs) == 1 else 's'} recorded, on {len(docked_pockets)} of the "
           f"{pockets} pockets computed in the "
-          f"manifest ({len({s.get('pdb_id') for s, *_ in runs})} of {len(structures)} structures). Re-docking of the "
-          "crystal ligand of a pocket into its own receptor: one ligand per run. " + VOCABULARY, small=True)
+          f"manifest ({len({s.get('pdb_id') for s, *_ in runs})} of {len(structures)} structures): {kinds}. One "
+          "ligand per run. " + VOCABULARY, small=True)
     doc.table(["PDB", "Pocket", "Run", "Recorded (UTC)", "Written by", "Started from"],
               [[s.get("pdb_id"), key, run_id, _v(run.get("computed_at")), run.get("generated_by") or NO_RECORD,
                 run.get("selected_by") or NO_RECORD] for s, key, _b, run_id, run in runs],

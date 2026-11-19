@@ -108,7 +108,7 @@ In Claude Desktop, go to *Settings → Developer → Edit Config* and add:
 }
 ```
 
-Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 19 tools should appear.
+Quit Claude Desktop from the system tray, reopen it, and start a new chat. The 21 tools should appear.
 
 > The tables above do not yet list the Phase 3 molecular-dynamics and ADMET tools
 > (`build_md_package`, `check_charmm_gui_output`, `build_md_job`, `analyze_md`, `analyze_admet`).

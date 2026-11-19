@@ -204,25 +204,39 @@ def _inchikey(mol) -> str:
     return key
 
 
-def _pick_run(s: dict, pocket_key: str, conformer: str):
+def _pick_run(s: dict, pocket_key: str, conformer: str, slug: str = ""):
     """(run_id, run) for this pocket, or (None, None) when no docking run exists.
 
     Not imported from md_package on purpose: there, no run is a hard error (nothing can be
     delivered to CHARMM-GUI without a pose), while here the crystallographic ligand is a valid
     fallback, because ADMET describes a compound and not a pose.
+
+    `slug` names one compound of step 6b. Without it the id is the one of steps 1-2.1, so the
+    dossiers written before 2026-11-18 keep resolving.
     """
     runs = ((s.get("docking") or {}).get(pocket_key) or {}).get("runs") or {}
     if not runs:
         return None, None
-    if conformer:
+    if slug:
+        run_id = dock.run_id_of(pocket_key.split()[0], (conformer or "regenerated").strip().lower(), slug)
+        if run_id not in runs:
+            raise AdmetError(f"No run '{run_id}' for this compound: dock it into this pocket first "
+                             f"(dock_ligand with compound). Available: {', '.join(sorted(runs))}.")
+    elif conformer:
         run_id = dock.run_id_of(pocket_key.split()[0], conformer.strip().lower())
         if run_id not in runs:
             raise AdmetError(f"No run '{run_id}'. Available: {', '.join(sorted(runs))}.")
     elif len(runs) == 1:
         run_id = next(iter(runs))
     else:
-        raise AdmetError(f"{len(runs)} docking runs for this pocket; name one with conformer "
-                         f"({', '.join(sorted(r.rsplit('_', 1)[-1] for r in runs))}).")
+        compounds = sorted(r["ligand"]["compound_id"] for r in runs.values()
+                           if (r.get("ligand") or {}).get("compound_id"))
+        raise AdmetError(
+            f"{len(runs)} docking runs for this pocket; name one with conformer "
+            f"({', '.join(sorted({r.split('_')[1] for r in runs}))})"
+            + (f", and with compound for a compound run ({', '.join(compounds)}). Without a "
+               "compound this would describe the crystallographic ligand, not the compound you "
+               "asked about." if compounds else "."))
     return run_id, runs[run_id]
 
 
@@ -236,7 +250,8 @@ def _crystal_sdf(s: dict, comp: str, label: str):
     return None, None
 
 
-def identity(prep: Path, s: dict, snap: dict, pocket_key: str, conformer: str, pose: int):
+def identity(prep: Path, s: dict, snap: dict, pocket_key: str, conformer: str, pose: int,
+             entry: dict = None):
     """(identity record, the RDKit molecule) for the compound ADMET describes.
 
     The docked pose is preferred: it is the molecule that went through docking and MD. The
@@ -249,9 +264,17 @@ def identity(prep: Path, s: dict, snap: dict, pocket_key: str, conformer: str, p
 
     comp, label = snap["pocket"]["comp_id"], snap["pocket"]["label_asym_id"]
     out = {"comp_id": comp, "pdb_id": snap["structure"], "pocket": pocket_key}
+    if entry:
+        # what this ADMET describes is the researcher's compound, NOT the crystal's ligand; saying
+        # comp_id here would name TXV for a run that never contained TXV
+        out = {"comp_id": None, "pdb_id": snap["structure"], "pocket": pocket_key,
+               "compound_id": entry["id"], "name": entry.get("name"), "level": entry.get("level"),
+               "compound_note": (f"A compound of the researcher's selection docked into the pocket "
+                                 f"of {comp}. It is not {comp} and it is not a ligand of this "
+                                 "crystal, so no crystallographic file of it exists here.")}
     keys, mols, files = {}, {}, {}
 
-    run_id, run = _pick_run(s, pocket_key, conformer)
+    run_id, run = _pick_run(s, pocket_key, conformer, entry["slug"] if entry else "")
     if run:
         rel = next((v["path"] for k, v in (run.get("files") or {}).items()
                     if k.endswith(".sdf")), None)
@@ -273,7 +296,10 @@ def identity(prep: Path, s: dict, snap: dict, pocket_key: str, conformer: str, p
         keys["docked_pose"] = _inchikey(poses[pose - 1])
         files["docked_pose"] = (rel, actual)
 
-    crystal_rel, _ = _crystal_sdf(s, comp, label)
+    # the crystallographic SDF of this pocket is ANOTHER compound when a compound run is read, so
+    # comparing the two InChIKeys would report a MISMATCH for two molecules that are correctly
+    # different. The check that applies here is against the SMILES the researcher recorded.
+    crystal_rel, _ = (None, None) if entry else _crystal_sdf(s, comp, label)
     if crystal_rel:
         try:
             path = _inside(prep, crystal_rel)
@@ -311,7 +337,25 @@ def identity(prep: Path, s: dict, snap: dict, pocket_key: str, conformer: str, p
     # "nothing to compare" must not cover the case where a second SDF EXISTED and was refused:
     # the comparison is this step's own guarantee, and saying "not applicable" would hide that
     # it was not performed (reviewer finding, 2026-11-11)
-    if len(keys) > 1:
+    if entry:
+        recorded = entry.get("inchikey")
+        got = keys["docked_pose"]
+        if recorded and recorded != got:
+            out["identity_check"] = "MISMATCH"
+            raise AdmetError(
+                f"The docked pose gives InChIKey {got}, but select_ligands recorded {recorded} for "
+                f"{entry['id']}: the pose and the recorded compound are not the same molecule. "
+                "ChEMBL was not queried; dock this compound again.", compound_identity=out)
+        out["inchikey_recorded_by_select_ligands"] = recorded
+        out["identity_check"] = (
+            f"the docked pose gives the same InChIKey as the SMILES the researcher recorded for "
+            f"{entry['id']}" if recorded else
+            "NOT COMPARED: select_ligands recorded no InChIKey for this compound")
+        out["crystallographic_comparison"] = (
+            f"not applicable: {comp} is the ligand of this crystal and this run docked another "
+            "compound, so there is no crystallographic file of it to compare against. This is not "
+            "a missing datum.")
+    elif len(keys) > 1:
         out["identity_check"] = "the docked pose and the crystallographic SDF give the same InChIKey"
     elif out.get("crystallographic_not_read"):
         out["identity_check"] = ("NOT COMPARED: the crystallographic SDF exists in the manifest but "
@@ -328,7 +372,7 @@ def identity(prep: Path, s: dict, snap: dict, pocket_key: str, conformer: str, p
 
 # ---- the tool ------------------------------------------------------------------------------
 async def analyze_admet(uniprot_id: str, structure: str = "", pocket: str = "",
-                        conformer: str = "", pose: int = 1) -> dict:
+                        conformer: str = "", pose: int = 1, compound: str = "") -> dict:
     """ADME records, measurements and calculated properties. See the module docstring."""
     accession, err = parse_accession(uniprot_id)
     if err:
@@ -343,7 +387,8 @@ async def analyze_admet(uniprot_id: str, structure: str = "", pocket: str = "",
     try:
         s, snap, origin = dock._resolve(manifest, structure, pocket)
         pocket_key = f"{snap['pocket']['comp_id']} {snap['pocket']['label_asym_id']}"
-        ident, mol = identity(prep, s, snap, pocket_key, conformer, pose)
+        entry = dock._compound(manifest, compound) if compound else None
+        ident, mol = identity(prep, s, snap, pocket_key, conformer, pose, entry)
     except (dock.DockError, AdmetError) as exc:
         out = {"ok": False, "uniprot_id": accession, "error": str(exc)}
         out.update(getattr(exc, "extra", {}) or {})
@@ -352,13 +397,24 @@ async def analyze_admet(uniprot_id: str, structure: str = "", pocket: str = "",
     desc = descriptors(mol)
     # identity check, not a property check: the pocket block records the heavy atoms of the
     # crystallographic instance, so a disagreement means the SDF is not that ligand
-    in_manifest = next((p.get("heavy_atoms") for p in
-                        ((s.get("prepared") or {}).get("pockets") or [])
-                        if p.get("comp_id") == snap["pocket"]["comp_id"]
-                        and p.get("label_asym_id") == snap["pocket"]["label_asym_id"]), None)
-    ident["heavy_atoms_in_manifest_pocket"] = in_manifest
-    ident["heavy_atoms_agree"] = (None if in_manifest is None
-                                  else in_manifest == desc["heavy_atoms"])
+    in_manifest = None if entry else next(
+        (p.get("heavy_atoms") for p in ((s.get("prepared") or {}).get("pockets") or [])
+         if p.get("comp_id") == snap["pocket"]["comp_id"]
+         and p.get("label_asym_id") == snap["pocket"]["label_asym_id"]), None)
+    if entry:
+        # the pocket's heavy-atom count belongs to the crystal ligand; against a compound it would
+        # disagree for the right reason, so the comparison does not apply
+        ident["heavy_atoms_in_manifest_pocket"] = None
+        ident["heavy_atoms_agree"] = None
+        ident["heavy_atoms_recorded_by_select_ligands"] = entry.get("heavy_atoms")
+        ident["heavy_atoms_check"] = (
+            "compared against the compound recorded by select_ligands, not against the pocket: "
+            f"SDF {desc['heavy_atoms']}, recorded {entry.get('heavy_atoms')}"
+            + ("" if entry.get("heavy_atoms") == desc["heavy_atoms"] else " -- THEY DISAGREE"))
+    else:
+        ident["heavy_atoms_in_manifest_pocket"] = in_manifest
+        ident["heavy_atoms_agree"] = (None if in_manifest is None
+                                      else in_manifest == desc["heavy_atoms"])
     if ident["heavy_atoms_agree"] is False:
         log.warning("heavy atoms differ for %s: SDF %s, manifest pocket %s",
                     pocket_key, desc["heavy_atoms"], in_manifest)
@@ -448,7 +504,9 @@ async def analyze_admet(uniprot_id: str, structure: str = "", pocket: str = "",
             "assay_type=F against a target, not ADME (decision of 2026-11-11).",
         ],
     }
-    warn = _record(path, manifest, snap["structure"], pocket_key, result, prep)
+    # one key per compound: a second analyze_admet for the same pocket must not erase the first
+    warn = _record(path, manifest, snap["structure"],
+                   f"{pocket_key} {entry['id']}" if entry else pocket_key, result, prep)
     if warn:
         result["manifest_warning"] = warn
     else:
@@ -476,8 +534,12 @@ def _name_status(found: dict) -> str:
 
 def _selection(ident, found, measured, desc) -> str:
     """Always say how the compound was selected and how much was found ('N of total')."""
-    who = f"{ident['comp_id']} of {ident['pdb_id']} pocket {ident['pocket']}, read from the " \
-          f"{ident['source']}"
+    who = (f"{ident.get('name') or ident['compound_id']} ({ident['compound_id']}), a compound of "
+           f"the researcher's selection docked into {ident['pdb_id']} pocket {ident['pocket']}, "
+           f"read from the {ident['source']}"
+           if ident.get("compound_id") else
+           f"{ident['comp_id']} of {ident['pdb_id']} pocket {ident['pocket']}, read from the "
+           f"{ident['source']}")
     tail = (f" RDKit: MW {desc['molecular_weight']}, cLogP {desc['clogp']}, "
             f"TPSA {desc['tpsa']}.")
     if found.get("lookup_failed"):
@@ -568,8 +630,11 @@ def main(argv=None) -> int:
     p.add_argument("--pocket", default="")
     p.add_argument("--conformer", default="")
     p.add_argument("--pose", type=int, default=1)
+    p.add_argument("--compound", default="", help="ChEMBL id, slug or name of a compound recorded "
+                                                  "by select_ligands (step 6b)")
     a = p.parse_args(argv)
-    res = asyncio.run(analyze_admet(a.uniprot_id, a.structure, a.pocket, a.conformer, a.pose))
+    res = asyncio.run(analyze_admet(a.uniprot_id, a.structure, a.pocket, a.conformer, a.pose,
+                                    a.compound))
     json.dump(res, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0 if res.get("ok") else 1

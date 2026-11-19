@@ -21,6 +21,13 @@ Measured in Phase 3 step 1 (ESTADO 8.3) and enforced here, before Vina is starte
 - RMSD with rdMolAlign.CalcRMS (in place, symmetry-corrected), never GetBestRMS, plus a
   permanent negative control (the crystal pose moved 5 Å must give 5 Å).
 
+Step 6b (2026-11-18) adds `compound`: instead of the pocket's own crystal ligand, dock a compound
+of the user's recorded selection (select_ligands) into that pocket, with the box UNCHANGED. Then
+there is no reference pose, so there is no RMSD and no pass/fail criterion; the extra gates are a
+single-component SMILES and a declared minimum clearance against the fixed box, and the run id
+carries the compound's slug so several compounds of one pocket cannot overwrite each other.
+Pre-registration: ESTADO 7.4.
+
 Results go to prep/dock/<PDB>_<comp>_<label>/ and to a `docking` block of the structure in the
 manifest (re-read before writing; refused if prepare_structures rebuilt it meanwhile).
 prepare_structures keeps a block only if the raw file and the box are the same (carry_over).
@@ -82,6 +89,28 @@ LOCK_NAME = ".dock_lock.json"  # one Vina at a time on this machine (12 cores, 8
 RUN_STATES = ("queued", "running", "finished", "failed", "stopped", "vanished")
 CALCULATED = ("Calculated by AutoDock Vina (scoring function 'vina'): a docking score is not a measured "
               "affinity and is not comparable with ChEMBL IC50/Ki/Kd values of the same dossier.")
+# ---- step 6b: a compound that is NOT the crystal ligand of the pocket (ESTADO 7.4)
+# Minimum clearance per axis between the box and the most extended conformer tried. Pre-registered
+# at 3.0 A on 2026-11-18, then lowered by the user the same day to dock sorafenib (1.99 A) instead
+# of refusing it: first to 2.0 A, which was an arithmetic mistake of mine (1.99 < 2.0 refuses it
+# just the same), and then to 1.5 A, chosen KNOWING that the only compound in play sits at 1.99 A.
+# The change and its motive are in ESTADO section 8, task 11. A run with less clearance than
+# BOX_LIMITED_MARGIN carries the box_limited flag below, and its score is not ranked with the rest.
+# The threshold is a convention of this project, not a measurement.
+MIN_BOX_CLEARANCE = 1.5        # A
+BOX_LIMITED_MARGIN = 3.0       # A: at or below this the run is flagged box_limited
+CLEARANCE_SEEDS = (42, 7, 1234, 99, 555)   # the 5 ETKDGv3 conformers measured on 2026-11-17
+BOX_LIMITED_NOTE = (
+    "box_limited: the clearance between the fixed box and this compound's most extended conformer is at or "
+    f"below {BOX_LIMITED_MARGIN:g} Å on one axis, so the compound fits but has little room to translate or "
+    "rotate there: the score measures the fit of the box as much as the fit of the pocket. This score is "
+    "reported but is NOT comparable with the other compounds of the set and must not be ranked with them.")
+SIZE_BIAS_NOTE = (
+    "The Vina score is approximately additive over atoms, so across a set with different heavy-atom counts a "
+    "raw score favours the larger compound for being larger. Ligand efficiency (score / heavy atoms) is "
+    "reported beside it and is NOT used to re-rank: no threshold for an interpretable difference is "
+    "pre-registered, because none has been measured in this project (ESTADO 7.4).")
+LEVELS = ("T1", "T3")          # T2 (declared inactive sample) is out of step 6b by the user's decision (a) 2
 
 _BAD_RES_RE = re.compile(r"Bad res (\S+?:\S+) is within radius of box edge \(([\d.]+) <=")
 _IGNORED_RE = re.compile(r"Ignored (\S+?:\S+): ([\d.]+) A outside box")
@@ -166,15 +195,23 @@ def read_sdf(path: Path):
     return mol
 
 
-def build_ligand(crystal, conformer: str, box: dict, seed: int):
+def build_ligand(crystal, conformer: str, box: dict, seed: int, provenance: str = "the crystal ligand's atoms and bonds"):
     """(molecule with H and 3D coordinates, record). 'crystal' keeps the crystal coordinates;
     'regenerated' keeps atoms and bonds only, embeds a new conformer (ETKDGv3 + MMFF) and moves
-    its centroid to the box centre (the translation is recorded)."""
+    its centroid to the box centre (the translation is recorded).
+
+    Step 6b: `crystal` may also be a molecule read from a SMILES (no coordinates at all), and then
+    only 'regenerated' makes sense; `provenance` names where the atoms and bonds came from, so the
+    record never says "crystal ligand" about a compound that is not in this crystal."""
     from rdkit import Chem
     from rdkit.Chem import AllChem
+    had_coords = crystal.GetNumConformers() > 0
     record = {"conformer": conformer, "smiles": Chem.MolToSmiles(Chem.RemoveHs(crystal)),
               "heavy_atoms": crystal.GetNumHeavyAtoms()}
     if conformer == "crystal":
+        if not had_coords:
+            raise DockError("conformer 'crystal' needs the crystal coordinates and this molecule was built "
+                            "from a SMILES: use conformer 'regenerated'.")
         mol = Chem.AddHs(crystal, addCoords=True)
         record["note"] = ("Crystal conformation with hydrogens added: biased in favour of reproducing the "
                           "crystal pose; not the pre-registered control.")
@@ -192,13 +229,70 @@ def build_ligand(crystal, conformer: str, box: dict, seed: int):
     for i, p in enumerate(pos + shift):
         conf.SetAtomPosition(i, p.tolist())
     record.update({
-        "method": f"RDKit ETKDGv3 (randomSeed {int(seed)}) from the crystal ligand's atoms and bonds, then "
+        "method": f"RDKit ETKDGv3 (randomSeed {int(seed)}) from {provenance}, then "
                   + ("MMFF94 minimisation" + (" (converged)" if mmff == 0 else " (not converged in the default iterations)")
                      if mmff is not None else "no MMFF minimisation (MMFF parameters missing)"),
         "translation_angstrom": [round(float(x), 3) for x in shift],
-        "note": "Crystal coordinates discarded; the conformer was moved to the box centre and the translation recorded.",
+        "note": ("Crystal coordinates discarded; " if had_coords else "No input coordinates (built from a SMILES); ")
+                + "the conformer was moved to the box centre and the translation recorded.",
     })
     return mol, record
+
+
+def box_clearance(smiles: str, box: dict, seeds=CLEARANCE_SEEDS) -> dict:
+    """Clearance between the fixed box and the most extended conformer tried, per axis.
+
+    The same count as the measurement of 2026-11-17 (dossiers/_step6b_prep/retrieval/fit_box.py):
+    for each seed, embed with ETKDGv3, minimise with MMFF when parameters exist, drop hydrogens,
+    project on the principal axes (SVD) and take the extent along each. Both the extents and the
+    box sizes are SORTED before subtracting, so the pairing is the most favourable one: this is a
+    BOUND ("it cannot be worse than this"), not the orientation Vina will use. The extents come
+    from free conformers, and the pocket may need a different one.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise DockError(f"RDKit could not read the SMILES: {smiles!r}")
+    sizes = sorted(float(x) for x in box["size"])
+    extents, failed = [], []
+    for sd in seeds:
+        m = Chem.AddHs(Chem.Mol(mol))
+        ps = AllChem.ETKDGv3()
+        ps.randomSeed = int(sd)
+        if AllChem.EmbedMolecule(m, ps) != 0:
+            failed.append(int(sd))
+            continue
+        if AllChem.MMFFHasAllMoleculeParams(m):
+            AllChem.MMFFOptimizeMolecule(m)
+        X = Chem.RemoveHs(m).GetConformer().GetPositions()
+        X = X - X.mean(axis=0)
+        P = X @ np.linalg.svd(X, full_matrices=False)[2].T
+        extents.append(sorted(float(P[:, k].max() - P[:, k].min()) for k in range(3)))
+    if not extents:
+        raise DockError(f"ETKDGv3 generated no conformer for the SMILES in {len(seeds)} attempts, so the "
+                        "clearance against the box could not be measured.")
+    worst = np.array(extents).max(axis=0)
+    margin = [round(sizes[k] - float(worst[k]), 2) for k in range(3)]
+    least = int(np.argmin(margin))
+    return {
+        "box_size_sorted_angstrom": [round(x, 2) for x in sizes],
+        "ligand_extent_sorted_angstrom": [round(float(x), 2) for x in worst],
+        "clearance_per_axis_angstrom": margin,
+        "min_clearance_angstrom": min(margin),
+        "limiting_box_axis_angstrom": round(sizes[least], 2),
+        "limiting_ligand_extent_angstrom": round(float(worst[least]), 2),
+        "fits": all(x > 0 for x in margin),
+        "meets_threshold": min(margin) >= MIN_BOX_CLEARANCE,
+        "threshold_angstrom": MIN_BOX_CLEARANCE,
+        "box_limited": min(margin) <= BOX_LIMITED_MARGIN,
+        "conformers_tried": len(extents),
+        "conformers_requested": len(seeds),
+        "seeds_without_conformer": failed,
+        "method": ("worst of the conformers tried (ETKDGv3 + MMFF when parameters exist), extents along the "
+                   "principal axes, box sizes and extents sorted before subtracting: a bound, not the "
+                   "orientation Vina uses"),
+    }
 
 
 def _in_box(pos, box):
@@ -531,6 +625,34 @@ def _resolve(manifest: dict, structure: str, pocket: str):
     return s, snap, origin
 
 
+def _compound(manifest: dict, compound: str) -> dict:
+    """The recorded entry of `compound` in the manifest's ligand_choice (step 6b).
+
+    Nothing is docked from a string typed in the chat: the user's selection is recorded first by
+    select_ligands, with their reason, and this only looks it up (ESTADO 7.4, decision (b) 1). That
+    is also why no ChEMBL id is resolved over the network here: this module has no network.
+    """
+    wanted = (compound or "").strip()
+    lc = manifest.get("ligand_choice") or {}
+    entries = lc.get("compounds") or []
+    if not entries:
+        raise DockError(
+            "Not docked: no compound selection is recorded in the manifest, so there is nothing to dock "
+            f"{wanted!r} from. Record the user's compounds and their reason with select_ligands first "
+            "(the selection is the researcher's and is written before docking, not after).")
+    low = wanted.lower()
+    hits = [e for e in entries if low in {str(e.get(k, "")).lower() for k in ("id", "slug", "name")} - {""}]
+    if not hits:
+        hits = [e for e in entries if wanted in {e.get("smiles"), e.get("canonical_smiles")} - {None}]
+    if not hits:
+        raise DockError(f"Not docked: {wanted!r} is not in the recorded selection.",
+                        recorded_compounds=[f"{e.get('id')} ({e.get('name') or 'no name'})" for e in entries])
+    if len({e["slug"] for e in hits}) > 1:
+        raise DockError(f"Not docked: {wanted!r} matches more than one recorded compound; name one.",
+                        matches=[e.get("id") for e in hits])
+    return hits[0]
+
+
 def _receptor_note(snap: dict):
     """The receptor is the whole cleaned receptor (all target chains); say so when the user chose fewer."""
     rec = list(snap.get("receptor_chains_auth") or [])
@@ -541,7 +663,9 @@ def _receptor_note(snap: dict):
     return None
 
 
-def _refusals(s: dict, snap: dict) -> None:
+def _refusals(s: dict, snap: dict, entry: dict = None) -> dict:
+    """The refusals that do not need Meeko or Vina. Returns the box-fit measurement when a
+    compound is docked (step 6b), None for the re-docking of the pocket's own crystal ligand."""
     pk = snap["pocket"]
     name = f"{snap['structure']} {pk['comp_id']} {pk['label_asym_id']}"
     if pk.get("large_box") or pk.get("spans_target_chains"):
@@ -559,12 +683,33 @@ def _refusals(s: dict, snap: dict) -> None:
     if (snap.get("receptor_format") or "pdb") != "pdb":
         raise DockError(f"Not docked: the cleaned receptor of {snap['structure']} is {snap['receptor_format']}, "
                         "not PDB; only the PDB path of Meeko (--read_pdb) is validated.")
-    if not pk.get("sdf"):
-        raise DockError(f"Not docked: pocket {name} has no crystal ligand SDF in the manifest.")
+    if entry is None:
+        if not pk.get("sdf"):
+            raise DockError(f"Not docked: pocket {name} has no crystal ligand SDF in the manifest.")
+        return None
+    # ---- step 6b: a compound that is not the crystal ligand of this pocket
+    smiles = entry.get("canonical_smiles") or entry.get("smiles") or ""
+    if "." in smiles:
+        raise DockError(f"Not docked: the SMILES of {entry.get('id')} has more than one component "
+                        f"({len(smiles.split('.'))} parts): a salt or a mixture is not docked.")
+    fit = box_clearance(smiles, pk["box"])
+    if not fit["fits"] or not fit["meets_threshold"]:
+        raise DockError(
+            f"Not docked: {entry.get('id')} ({entry.get('name') or 'no name'}) leaves "
+            f"{fit['min_clearance_angstrom']:g} Å of clearance in the tightest axis of the fixed box of pocket "
+            f"{name} (box axis {fit['limiting_box_axis_angstrom']:g} Å, compound extent "
+            f"{fit['limiting_ligand_extent_angstrom']:g} Å), below the declared minimum of "
+            f"{MIN_BOX_CLEARANCE:g} Å. The box is NOT enlarged for one compound: that would break the "
+            "comparability of the scores of the set (ESTADO 7.4).", box_fit=fit)
+    return fit
 
 
-def _files(prep: Path, s: dict, snap: dict) -> dict:
-    """Receptor, raw file and SDF, inside prep/ and with the SHA-256 the manifest records."""
+def _files(prep: Path, s: dict, snap: dict, need_sdf: bool = True) -> dict:
+    """Receptor, raw file and SDF, inside prep/ and with the SHA-256 the manifest records.
+
+    Step 6b: docking a compound of the user's selection does not read the pocket's crystal SDF (it
+    is another molecule), so it is not required and not hashed; everything else is checked the same.
+    """
     def inside(rel):
         p = (prep / str(rel)).resolve()
         if prep.resolve() not in p.parents or not p.is_file():
@@ -573,6 +718,8 @@ def _files(prep: Path, s: dict, snap: dict) -> dict:
     raw = inside(s["file"]["path"])
     if sha256(raw) != s["file"].get("sha256"):
         raise DockError(f"Not docked: raw/{raw.name} changed since the manifest (SHA-256): run prepare_structures again.")
+    if not need_sdf:
+        return {"receptor": inside(snap["receptor"]), "raw": raw, "sdf": None, "sdf_record": {}}
     inst = next((i for i in s.get("nonpolymer_instances") or [] if i.get("label_asym_id") == snap["pocket"]["label_asym_id"]), {})
     sdf = inst.get("sdf") or {}
     sdf_path = inside(sdf.get("path"))
@@ -612,12 +759,12 @@ def dock_dir_name(pdb: str, comp: str, label: str) -> str:
 
 async def dock_ligand(uniprot_id: str, structure: str = "", pocket: str = "", conformer: str = "regenerated",
                       exhaustiveness: int = DEFAULT_EXHAUSTIVENESS, seed: int = DEFAULT_SEED, progress=None,
-                      hooks=None) -> dict:
+                      hooks=None, compound: str = "") -> dict:
     accession, err = parse_accession(uniprot_id)
     if err:
         return err
     try:
-        return await _dock(accession, structure, pocket, conformer, exhaustiveness, seed, progress, hooks)
+        return await _dock(accession, structure, pocket, conformer, exhaustiveness, seed, progress, hooks, compound)
     except DockError as exc:
         out = {"ok": False, "uniprot_id": accession, "error": str(exc), **exc.extra}
         if isinstance(exc, DockStopped):
@@ -625,9 +772,10 @@ async def dock_ligand(uniprot_id: str, structure: str = "", pocket: str = "", co
         return out
 
 
-async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, progress, hooks=None) -> dict:
+async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, progress, hooks=None,
+                compound: str = "") -> dict:
     # the same validation and refusals the launching call (start_dock) already applied
-    inp = _inputs(accession, structure, pocket, conformer, exhaustiveness, seed)
+    inp = _inputs(accession, structure, pocket, conformer, exhaustiveness, seed, compound)
     path, manifest, prep = inp["manifest_path"], inp["manifest"], inp["prep"]
     s, snap, origin, files = inp["structure_record"], inp["snapshot"], inp["origin"], inp["files"]
     conformer = inp["conformer"]
@@ -635,7 +783,16 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
     pk = inp["pocket"]
     box = pk["box"]
     pdb, comp, label = inp["pdb"], inp["comp"], inp["label"]
-    crystal = read_sdf(files["sdf"])
+    entry, slug, fit = inp["compound"], inp["slug"], inp["box_fit"]
+    if entry is None:
+        crystal = read_sdf(files["sdf"])
+        provenance = "the crystal ligand's atoms and bonds"
+    else:
+        from rdkit import Chem
+        crystal = Chem.MolFromSmiles(entry.get("canonical_smiles") or entry["smiles"])
+        if crystal is None:
+            raise DockError(f"RDKit could not read the recorded SMILES of {entry.get('id')}.")
+        provenance = f"the SMILES recorded by select_ligands for {entry.get('id')}"
 
     root = ascii_work_root(ident["path"])
     work = Path(tempfile.mkdtemp(prefix="protein_mcp_dock_", dir=root))
@@ -643,14 +800,16 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
         shutil.copyfile(files["receptor"], work / "receptor_in.pdb")
         if hooks is not None:
             hooks.phase("preparing the ligand and the receptor (Meeko)")
-        ligand, lig_record = build_ligand(crystal, conformer, box, seed)
+        ligand, lig_record = build_ligand(crystal, conformer, box, seed, provenance)
         receptor = await asyncio.to_thread(prepare_receptor, work / "receptor_in.pdb", box, work)
         rec_text = (work / "receptor.pdbqt").read_text(encoding="utf-8", errors="replace")
         checks = guard(ligand, box, receptor_coords(rec_text), conformer)
         lig_text, torsions = prepare_ligand_pdbqt(ligand)
         (work / "ligand.pdbqt").write_text(lig_text, encoding="utf-8")
         lig_record["rotatable_torsions"] = torsions
-        rmsd_check = negative_control(crystal)
+        # the negative control measures the RMSD machinery against the crystal pose; with no crystal
+        # pose there is no RMSD to measure and inventing one would be the opposite of a control
+        rmsd_check = negative_control(crystal) if entry is None else None
         args = vina_args(ident["path"], box, exhaustiveness, seed)
         if hooks is not None:
             hooks.phase(f"Vina running (exhaustiveness {exhaustiveness})")
@@ -659,7 +818,7 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
             hooks.phase("reading the poses and writing the dossier")
         poses_text = (work / "poses.pdbqt").read_text(encoding="utf-8", errors="replace")
         poses, scores = read_poses(poses_text)
-        rmsds = rmsd_to_crystal(poses, crystal)
+        rmsds = rmsd_to_crystal(poses, crystal) if entry is None else [None] * len(scores)
         (work / "poses.sdf").write_text(poses_sdf(poses, scores), encoding="utf-8")
         if count_sdf_records(work / "poses.sdf") != len(scores):
             raise DockError("The poses SDF does not read back with every pose.")
@@ -668,7 +827,7 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
         # otherwise a kept block of the new manifest could point to overwritten files (reviewer 2026-11-05)
         _check_manifest(path, manifest)
         # copy to the dossier (Python file APIs handle non-ASCII paths)
-        run_id = f"{comp}_{conformer}"
+        run_id = run_id_of(comp, conformer, slug)
         out_dir = prep / "dock" / dock_dir_name(pdb, comp, label)
         out_dir.mkdir(parents=True, exist_ok=True)
         names = {"receptor.pdbqt": "receptor.pdbqt", "receptor_meeko.log": "receptor_meeko.log",
@@ -685,12 +844,27 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
     # the pre-registration (ESTADO 7.1) fixes the conformer AND exhaustiveness 32, seed 42
     control_valid = conformer == "regenerated" and exhaustiveness == DEFAULT_EXHAUSTIVENESS and seed == DEFAULT_SEED
     now = utc_now()
+    if entry is None:
+        lig_block = {"source": "crystal pose of this pocket", "comp_id": comp, "label_asym_id": label,
+                     "auth_asym_id": pk.get("auth_asym_id"), "name": pk.get("name"),
+                     "synonyms": pk.get("synonyms") or [],
+                     "sdf": files["sdf_record"].get("path"), "sdf_sha256": sha256(files["sdf"]), **lig_record}
+    else:
+        lig_block = {
+            "source": "SMILES recorded by select_ligands (not a ligand of this crystal)",
+            "compound_id": entry.get("id"), "name": entry.get("name"), "level": entry.get("level"),
+            "slug": slug, "inchikey": entry.get("inchikey"),
+            "smiles_as_recorded": entry.get("smiles"), "canonical_smiles": entry.get("canonical_smiles"),
+            "selection_recorded_at": (manifest.get("ligand_choice") or {}).get("chosen_at"),
+            "docked_into_pocket_of": f"{comp} {label}",
+            "identity_note": ("The SMILES is the compound as recorded by the user's selection. A salt or a "
+                              "protonation state different from the measured compound is the expected failure "
+                              "mode of an exact-SMILES match and is not corrected here."),
+            **lig_record}
     run = {
         "generated_by": "dock_ligand", "computed_at": now, "selected_by": origin,
         **({"user_choice_chosen_at": snap.get("user_choice_chosen_at")} if origin == "user_choice" else {}),
-        "ligand": {"source": "crystal pose of this pocket", "comp_id": comp, "label_asym_id": label,
-                   "auth_asym_id": pk.get("auth_asym_id"), "name": pk.get("name"), "synonyms": pk.get("synonyms") or [],
-                   "sdf": files["sdf_record"].get("path"), "sdf_sha256": sha256(files["sdf"]), **lig_record},
+        "ligand": lig_block,
         "receptor": {"source": snap["receptor"], "chains_auth": snap.get("receptor_chains_auth"),
                      "user_choice_chains": snap.get("user_chains"), "chains_note": _receptor_note(snap), **receptor,
                      "residue_ids": "chain:number as in the cleaned receptor PDB (auth numbering)"},
@@ -700,19 +874,26 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
                  **timing, "box": {"center": box["center"], "size": box["size"]}},
         "poses": [{"mode": i, "vina_score_kcal_mol": sc, "rmsd_to_crystal_pose_angstrom": r}
                   for i, (sc, r) in enumerate(zip(scores, rmsds), 1)],
-        "redocking": {
+        **({"redocking": {
             "top_pose_rmsd_angstrom": top, "criterion_angstrom": RMSD_CRITERION,
             "within_criterion": top <= RMSD_CRITERION,
             "is_preregistered_control": control_valid,
             "rmsd_method": "rdMolAlign.CalcRMS, heavy atoms, symmetry-corrected, in place (no superposition)",
             "rmsd_negative_control": rmsd_check,
             "scope": f"One re-docking of one ligand into one structure ({pdb} {comp} {label}); not the accuracy of the method.",
-        },
+        }} if entry is None else {"compound_docking": _compound_block(entry, slug, scores, fit, pdb, comp, label,
+                                                                     lig_record, control_valid)}),
         "files": written,
         "values": "calculated",
         "note": CALCULATED,
     }
-    if conformer == "crystal":
+    if entry is not None:
+        if not control_valid:
+            run["compound_docking"]["note"] = (
+                f"exhaustiveness {exhaustiveness} / seed {seed} differ from the pre-registered "
+                f"{DEFAULT_EXHAUSTIVENESS} / {DEFAULT_SEED}, so this score is not comparable with the other "
+                "compounds of the set, which the pre-registration requires to share every parameter.")
+    elif conformer == "crystal":
         run["redocking"]["note"] = ("Started from the crystal conformation: biased in favour, so it does not "
                                     "validate the set-up; use conformer 'regenerated' for the control.")
     elif not control_valid:
@@ -739,7 +920,107 @@ async def _dock(accession, structure, pocket, conformer, exhaustiveness, seed, p
     return compact(accession, path, pdb, pocket_key, run)
 
 
+def _rmsd_not_applicable(level: str) -> str:
+    """Why there is no RMSD, said differently for the two levels: for T1 a reference pose EXISTS
+    but is not computed yet, for T3 none exists at all. Never 0, never blank (ESTADO 7.4)."""
+    if (level or "").upper() == "T1":
+        return ("No RMSD: this compound has a crystallographic pose in another structure of the same target, "
+                "but moving it into this receptor's frame needs the superposition that is not implemented yet "
+                "(step 6b, cross-docking). The pose is kept, so the RMSD can be measured later without "
+                "docking again.")
+    return ("No RMSD: this compound is not in this crystal, so there is no reference pose to measure against. "
+            "A docking score alone says nothing about whether the pose is right.")
+
+
+def _compound_block(entry: dict, slug: str, scores: list, fit: dict, pdb: str, comp: str, label: str,
+                    lig_record: dict, control_valid: bool) -> dict:
+    """The step 6b counterpart of `redocking` for a compound that is not the pocket's crystal ligand."""
+    level = (entry.get("level") or "").upper()
+    heavy = lig_record.get("heavy_atoms")
+    top = scores[0] if scores else None
+    block = {
+        "compound_id": entry.get("id"), "name": entry.get("name"), "level": level, "slug": slug,
+        "top_pose_score_kcal_mol": top,
+        "heavy_atoms": heavy,
+        "ligand_efficiency_kcal_mol_per_heavy_atom": round(top / heavy, 4) if (top is not None and heavy) else None,
+        "ligand_efficiency_note": SIZE_BIAS_NOTE,
+        "rmsd_angstrom": None,
+        "rmsd_not_applicable": _rmsd_not_applicable(level),
+        "rmsd_negative_control": None,
+        "rmsd_negative_control_not_applicable": ("The permanent negative control measures the RMSD machinery "
+                                                 "against a crystal pose; with no reference pose there is "
+                                                 "nothing to control."),
+        "box_fit": fit,
+        "box_limited": bool(fit and fit.get("box_limited")),
+        "is_preregistered_control": False,
+        "not_a_control_reason": ("The pre-registered control of ESTADO 7.1 is the re-docking of a crystal "
+                                 "ligand into its own receptor. This run docks another compound into that "
+                                 "pocket: it has no pass/fail criterion."),
+        "parameters_as_preregistered": control_valid,
+        "scope": (f"One docking of one compound into one pocket ({pdb} {comp} {label}), with the box of that "
+                  "pocket unchanged. No reference pose, no affinity, and no inactive compounds in this run, "
+                  "so nothing here says whether the score separates actives from inactives (ESTADO 7.4)."),
+    }
+    if block["box_limited"]:
+        block["box_limited_note"] = BOX_LIMITED_NOTE
+    return block
+
+
+def _compact_compound(accession: str, path: Path, pdb: str, pocket_key: str, run: dict) -> dict:
+    """The chat reply for a step 6b compound run: no RMSD, no pass/fail, and the box-fit figures."""
+    cd, rec, lig = run["compound_docking"], run["receptor"], run["ligand"]
+    fit = cd.get("box_fit") or {}
+    return {
+        "ok": True, "uniprot_id": accession, "manifest_path": str(path),
+        "docked": (f"{cd.get('compound_id')}" + (f" ({cd['name']})" if cd.get("name") else "")
+                   + f", level {cd.get('level')}, into {pdb} pocket {pocket_key} (box unchanged)"
+                   + (" (pocket from user_choice)" if run["selected_by"] == "user_choice" else "")),
+        "compound_docking": {
+            "top_pose_score_kcal_mol": cd["top_pose_score_kcal_mol"],
+            "heavy_atoms": cd["heavy_atoms"],
+            "ligand_efficiency_kcal_mol_per_heavy_atom": cd["ligand_efficiency_kcal_mol_per_heavy_atom"],
+            "rmsd_angstrom": None,
+            "rmsd_not_applicable": cd["rmsd_not_applicable"],
+            "box_limited": cd["box_limited"],
+            **({"box_limited_note": cd["box_limited_note"]} if cd.get("box_limited_note") else {}),
+            **({"note": cd["note"]} if cd.get("note") else {}),
+            "scope": cd["scope"],
+        },
+        "box_fit": {k: fit.get(k) for k in ("min_clearance_angstrom", "threshold_angstrom",
+                                            "limiting_box_axis_angstrom", "limiting_ligand_extent_angstrom",
+                                            "clearance_per_axis_angstrom", "conformers_tried", "method")},
+        "poses": [f"mode {p['mode']}: {p['vina_score_kcal_mol']:.2f} kcal/mol (calculated), RMSD not applicable"
+                  for p in run["poses"]],
+        "poses_returned": f"{len(run['poses'])} of num_modes {run['vina']['num_modes']} "
+                          f"(energy_range {run['vina']['energy_range']} kcal/mol)",
+        "receptor_preparation": {
+            "receptor_chains": rec.get("chains_auth"),
+            **({"chains_note": rec["chains_note"]} if rec.get("chains_note") else {}),
+            **({"warning": rec["warning"]} if rec.get("warning") else {}),
+            "deleted_residues": [f"{d['residue']} ({d['outside_box_angstrom']:g} Å outside the box)" for d in rec["deleted"]],
+            "residues_without_template": rec["residues_without_template"],
+        },
+        "ligand": {"compound_id": lig.get("compound_id"), "name": lig.get("name"), "level": lig.get("level"),
+                   "inchikey": lig.get("inchikey"), "smiles": lig.get("canonical_smiles") or lig.get("smiles"),
+                   "heavy_atoms": lig["heavy_atoms"], "rotatable_torsions": lig["rotatable_torsions"],
+                   "source": lig["source"], "selection_recorded_at": lig.get("selection_recorded_at"),
+                   **({"translation_angstrom": lig["translation_angstrom"]} if "translation_angstrom" in lig else {})},
+        "guard": {k: v for k, v in run["guard"].items() if k != "note"},
+        "vina": {k: run["vina"][k] for k in ("version", "exhaustiveness", "seed", "wall_seconds",
+                                             "cpu_seconds", "cpu_seconds_note", "cpu_per_wall_second",
+                                             "logical_cpus")
+                 if k in run["vina"]},
+        "files": {k: v["path"] for k, v in run["files"].items()},
+        "replaced_run_computed_at": run.get("replaced_run_computed_at"),
+        "notes": [CALCULATED, SIZE_BIAS_NOTE, cd["not_a_control_reason"],
+                  "The receptor is rigid, protonated by Meeko templates; missing loops stay missing. "
+                  "Residue ids in receptor_preparation are chain:number of the cleaned receptor (auth numbering)."],
+    }
+
+
 def compact(accession: str, path: Path, pdb: str, pocket_key: str, run: dict) -> dict:
+    if "compound_docking" in run:
+        return _compact_compound(accession, path, pdb, pocket_key, run)
     rd = run["redocking"]
     rec = run["receptor"]
     lig = run["ligand"]
@@ -826,12 +1107,17 @@ def _read_json(path: Path):
         return None
 
 
-def run_id_of(comp: str, conformer: str) -> str:
-    return f"{comp}_{conformer}"
+def run_id_of(comp: str, conformer: str, slug: str = "") -> str:
+    """Step 6b: without a slug the id is the one of steps 1-2.1, so dossiers written before today
+    keep resolving (dock_status, build_md_package, build_md_job and analyze_admet all look a run up
+    by this id). With a compound, the slug is what stops the 5 candidates of one pocket from
+    colliding in the same id and overwriting each other's block, files and state."""
+    return f"{comp}_{conformer}_{slug}" if slug else f"{comp}_{conformer}"
 
 
-def state_path(prep: Path, pdb: str, comp: str, label: str, conformer: str) -> Path:
-    return prep / "dock" / dock_dir_name(pdb, comp, label) / f"run_{conformer}.state.json"
+def state_path(prep: Path, pdb: str, comp: str, label: str, conformer: str, slug: str = "") -> Path:
+    name = f"run_{conformer}_{slug}.state.json" if slug else f"run_{conformer}.state.json"
+    return prep / "dock" / dock_dir_name(pdb, comp, label) / name
 
 
 def stop_marker(state: Path) -> Path:
@@ -1031,12 +1317,21 @@ def release_lock(accession: str, token: str) -> None:
             log.warning("Could not remove the docking lock %s", path)
 
 
-def _inputs(accession: str, structure: str, pocket: str, conformer: str, exhaustiveness, seed) -> dict:
-    """Everything that can be checked without RDKit, Meeko or Vina: the same validation and the
-    same refusals as a synchronous run, so the launching call answers in seconds."""
+def _inputs(accession: str, structure: str, pocket: str, conformer: str, exhaustiveness, seed,
+            compound: str = "") -> dict:
+    """Everything that can be checked without Meeko or Vina: the same validation and the same
+    refusals as a synchronous run, so the launching call answers in seconds.
+
+    Step 6b: with a `compound` it also imports RDKit, to measure the compound's clearance against
+    the fixed box and refuse before the lock is taken and before anything is launched (a few
+    seconds; the alternative is finding out after a 3-minute run)."""
     conformer = (conformer or "").strip().lower()
+    compound = (compound or "").strip()
     if conformer not in CONFORMERS:
         raise DockError(f"conformer must be one of {', '.join(CONFORMERS)}.")
+    if compound and conformer != "regenerated":
+        raise DockError(f"conformer {conformer!r} is only for the crystal ligand of the pocket: a compound that "
+                        "is not in this crystal has no crystal pose, so it can only be 'regenerated'.")
     if isinstance(exhaustiveness, bool) or not isinstance(exhaustiveness, int) or not 1 <= exhaustiveness <= MAX_EXHAUSTIVENESS:
         raise DockError(f"exhaustiveness must be an integer from 1 to {MAX_EXHAUSTIVENESS}.")
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2**31 - 1:
@@ -1049,38 +1344,43 @@ def _inputs(accession: str, structure: str, pocket: str, conformer: str, exhaust
     except (OSError, ValueError) as exc:
         raise DockError(f"Could not read {path}: {exc}")
     s, snap, origin = _resolve(manifest, structure, pocket)
-    _refusals(s, snap)
+    entry = _compound(manifest, compound) if compound else None
+    fit = _refusals(s, snap, entry)
     prep = path.parent
-    files = _files(prep, s, snap)
+    files = _files(prep, s, snap, need_sdf=entry is None)
     vina = find_vina()
     if not vina["found"]:
         raise DockError(vina["error"])
     pk = snap["pocket"]
     return {"manifest_path": path, "manifest": manifest, "prep": prep, "structure_record": s,
             "snapshot": snap, "origin": origin, "files": files, "vina": vina, "conformer": conformer,
-            "pdb": snap["structure"], "comp": pk["comp_id"], "label": pk["label_asym_id"], "pocket": pk}
+            "pdb": snap["structure"], "comp": pk["comp_id"], "label": pk["label_asym_id"], "pocket": pk,
+            "compound": entry, "slug": (entry or {}).get("slug", ""), "box_fit": fit}
 
 
 async def start_dock(uniprot_id: str, structure: str = "", pocket: str = "", conformer: str = "regenerated",
-                     exhaustiveness: int = DEFAULT_EXHAUSTIVENESS, seed: int = DEFAULT_SEED) -> dict:
+                     exhaustiveness: int = DEFAULT_EXHAUSTIVENESS, seed: int = DEFAULT_SEED,
+                     compound: str = "") -> dict:
     """Validate, take the lock and launch this module as a detached process; answer at once."""
     accession, err = parse_accession(uniprot_id)
     if err:
         return err
     token, launched_ok = None, False
     try:
-        inp = _inputs(accession, structure, pocket, conformer, exhaustiveness, seed)
+        inp = _inputs(accession, structure, pocket, conformer, exhaustiveness, seed, compound)
         prep, pdb, comp, label = inp["prep"], inp["pdb"], inp["comp"], inp["label"]
         conformer = inp["conformer"]
-        state_file = state_path(prep, pdb, comp, label, conformer)
-        label_text = f"{accession} {pdb} {comp} {label} ({conformer})"
+        entry, slug = inp["compound"], inp["slug"]
+        state_file = state_path(prep, pdb, comp, label, conformer, slug)
+        label_text = (f"{accession} {pdb} {comp} {label} ({conformer})"
+                      + (f" compound {entry.get('id')}" if entry else ""))
         running = effective_state(_read_json(state_file) or {})
         if running in ("queued", "running"):
             raise DockError(f"Not launched: this run ({label_text}) is already in progress. "
                             "Check it with dock_status.")
         out_dir = state_file.parent
         out_dir.mkdir(parents=True, exist_ok=True)
-        result_file = out_dir / f"run_{conformer}.result.json"
+        result_file = out_dir / (f"run_{conformer}_{slug}.result.json" if slug else f"run_{conformer}.result.json")
         # nothing of the previous run is destroyed until this one is really going: a request
         # refused by the lock used to delete the previous result file (reviewer F5)
         token = acquire_lock(accession, {"label": label_text, "state_file": str(state_file)})
@@ -1090,7 +1390,9 @@ async def start_dock(uniprot_id: str, structure: str = "", pocket: str = "", con
         run_state = {
             "state": "queued", "uniprot_id": accession, "structure": pdb, "pocket": f"{comp} {label}",
             "conformer": conformer, "exhaustiveness": exhaustiveness, "seed": seed,
-            "run_id": run_id_of(comp, conformer), "pocket_key": f"{comp} {label}",
+            **({"compound": entry.get("id"), "compound_name": entry.get("name"),
+                "level": entry.get("level"), "slug": slug} if entry else {}),
+            "run_id": run_id_of(comp, conformer, slug), "pocket_key": f"{comp} {label}",
             "selected_by": inp["origin"], "launched_at": utc_now(), "launched_by": "dock_ligand",
             "manifest_created_at": inp["manifest"].get("created_at"),
             "box": {"center": inp["pocket"]["box"]["center"], "size": inp["pocket"]["box"]["size"]},
@@ -1103,6 +1405,7 @@ async def start_dock(uniprot_id: str, structure: str = "", pocket: str = "", con
         cmd = [sys.executable, "-m", "protein_mcp.files.dock", accession, "--structure", pdb,
                "--pocket", f"{comp} {label}", "--conformer", conformer,
                "--exhaustiveness", str(exhaustiveness), "--seed", str(seed),
+               *(["--compound", entry["id"]] if entry else []),
                "--state", str(state_file), "--json-out", str(result_file)]
         launch = await asyncio.to_thread(_launch_worker, cmd, out_dir, lock_path(accession).parent)
         if not launch["ok"]:
@@ -1125,8 +1428,18 @@ async def start_dock(uniprot_id: str, structure: str = "", pocket: str = "", con
             "box": run_state["box"],
             "receptor": {"file": inp["snapshot"]["receptor"], "chains_auth": inp["snapshot"].get("receptor_chains_auth"),
                          "chains_note": _receptor_note(inp["snapshot"])},
-            "ligand": {"comp_id": comp, "label_asym_id": label, "name": inp["pocket"].get("name"),
-                       "synonyms": inp["pocket"].get("synonyms") or []},
+            "ligand": ({"comp_id": comp, "label_asym_id": label, "name": inp["pocket"].get("name"),
+                        "synonyms": inp["pocket"].get("synonyms") or []} if not entry else
+                       {"compound_id": entry.get("id"), "name": entry.get("name"), "level": entry.get("level"),
+                        "inchikey": entry.get("inchikey"), "smiles": entry.get("canonical_smiles"),
+                        "source": "SMILES recorded by select_ligands (not a ligand of this crystal)",
+                        "docked_into_pocket_of": f"{comp} {label}",
+                        "box_fit": {k: (inp["box_fit"] or {}).get(k) for k in
+                                    ("min_clearance_angstrom", "threshold_angstrom", "box_limited",
+                                     "limiting_box_axis_angstrom", "limiting_ligand_extent_angstrom")},
+                        "rmsd_not_applicable": _rmsd_not_applicable(entry.get("level")),
+                        **({"box_limited_note": BOX_LIMITED_NOTE}
+                           if (inp["box_fit"] or {}).get("box_limited") else {})}),
             "vina_executable": inp["vina"]["path"],
             "state_file": state_file.relative_to(inp["prep"]).as_posix(),
             "next": f"Call dock_status('{accession}') to see whether it is still running or to get the result.",
@@ -1314,19 +1627,24 @@ def _runs_in_manifest(prep: Path, accession: str) -> list:
 
 
 async def dock_status(uniprot_id: str, structure: str = "", pocket: str = "", conformer: str = "",
-                      stop: bool = False) -> dict:
+                      stop: bool = False, compound: str = "") -> dict:
     """Read the state of the background docking runs of one protein, or stop the live one."""
     accession, err = parse_accession(uniprot_id)
     if err:
         return err
     prep = choice.manifest_path(accession).parent
     folder = prep / "dock"
-    wanted = (structure or "").strip().upper(), (pocket or "").strip(), (conformer or "").strip().lower()
+    wanted = ((structure or "").strip().upper(), (pocket or "").strip(), (conformer or "").strip().lower(),
+              (compound or "").strip().lower())
 
     def matches(pdb, pocket_key, run_id):
+        # step 6b: a compound run id is <comp>_<conformer>_<slug>, so the conformer is matched as a
+        # part of the id and not with endswith, which stopped matching when the slug was appended
+        parts = (run_id or "").split("_")
         return not ((wanted[0] and (pdb or "").upper() != wanted[0])
                     or (wanted[1] and wanted[1].lower() not in (pocket_key or "").lower())
-                    or (wanted[2] and not (run_id or "").endswith("_" + wanted[2])))
+                    or (wanted[2] and wanted[2] not in parts)
+                    or (wanted[3] and not any(wanted[3] in p for p in parts[2:])))
 
     all_states = sorted(folder.glob("*/run_*.state.json")) if folder.is_dir() else []
     runs, seen = [], set()
@@ -1428,7 +1746,7 @@ def _worker(a) -> dict:
                             "this run, so the box reported when it was launched is not the current one. "
                             "Nothing was written to the dossier; launch it again with dock_ligand.")
         result = asyncio.run(dock_ligand(a.uniprot_id, a.structure, a.pocket, a.conformer,
-                                         a.exhaustiveness, a.seed, hooks=state))
+                                         a.exhaustiveness, a.seed, hooks=state, compound=a.compound))
     except DockError as exc:
         result = {"ok": False, "error": str(exc), **exc.extra}
     except BaseException as exc:                       # never leave the state file saying "running"
@@ -1462,14 +1780,15 @@ def _cli(a) -> dict:
     accession, err = parse_accession(a.uniprot_id)
     if err:
         return err
-    label = f"{accession} {a.structure or 'user_choice'} {a.pocket} ({a.conformer}) [command line]"
+    label = (f"{accession} {a.structure or 'user_choice'} {a.pocket} ({a.conformer})"
+             + (f" compound {a.compound}" if a.compound else "") + " [command line]")
     try:
         token = acquire_lock(accession, {"label": label})
     except DockError as exc:
         return {"ok": False, "uniprot_id": accession, "error": str(exc), **exc.extra}
     try:
         return asyncio.run(dock_ligand(a.uniprot_id, a.structure, a.pocket, a.conformer,
-                                       a.exhaustiveness, a.seed))
+                                       a.exhaustiveness, a.seed, compound=a.compound))
     finally:
         release_lock(accession, token)
 
@@ -1484,6 +1803,9 @@ def main(argv=None):
     ap.add_argument("--conformer", default="regenerated", choices=CONFORMERS)
     ap.add_argument("--exhaustiveness", type=int, default=DEFAULT_EXHAUSTIVENESS)
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    ap.add_argument("--compound", default="", help="step 6b: id, name or slug of a compound recorded by "
+                                                   "select_ligands; docks that compound instead of the "
+                                                   "pocket's crystal ligand")
     ap.add_argument("--state", default="", help="state file of a background run: dock_ligand sets it when it "
                                                 "launches this module as a detached process (step 2.1)")
     ap.add_argument("--json-out", dest="json_out", default="", help="write the result as JSON to this file")

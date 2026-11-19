@@ -53,7 +53,8 @@ from protein_mcp import experiment_report, report, target_profile  # noqa: E402
 from protein_mcp.common import parse_accession, safe  # noqa: E402
 from protein_mcp.dossier import attach_dossier, dossier_name  # noqa: E402
 from protein_mcp.files import (  # noqa: E402
-    admet, choice, control, dock, interfaces, md_analyze, md_package, md_run, prepare, viewer,
+    admet, choice, control, crossdock, dock, interfaces, ligand_choice, md_analyze, md_package,
+    md_run, prepare, viewer,
 )
 from protein_mcp.sources import chembl, europepmc, uniprot  # noqa: E402
 from protein_mcp.sources.alphafold import fetch_alphafold  # noqa: E402
@@ -708,9 +709,12 @@ async def dock_ligand(
     conformer: str = "regenerated",
     exhaustiveness: int = 32,
     seed: int = 42,
+    compound: str = "",
 ) -> dict:
-    """Phase 3: START a re-docking of the crystal ligand of one pocket into its own receptor with
-    AutoDock Vina, in the background. Answers in seconds; the result comes from dock_status.
+    """Phase 3: START a docking in the background with AutoDock Vina. Without `compound`, a
+    re-docking of the crystal ligand of one pocket into its own receptor; with `compound`, one
+    compound of the user's recorded selection into that same pocket. Answers in seconds; the
+    result comes from dock_status.
 
     Docking takes minutes (Vina alone: 61-124 s measured for vemurafenib in 3OG7 with
     exhaustiveness 32) and a chat request is cut long before that (60 s or 240 s, measured in
@@ -734,6 +738,23 @@ async def dock_ligand(
     - exhaustiveness (1-64) and seed are recorded; num_modes 9, energy_range 3, min_rmsd 1 and
       scoring "vina" are fixed.
 
+    `compound` (step 6b) is the id, name or slug of a compound ALREADY recorded by select_ligands:
+    nothing is docked from a SMILES typed in the chat, and if nothing is recorded the call is
+    refused telling you to run select_ligands first. What changes in the reply, and what you must
+    say when you report it:
+    - There is NO RMSD and no pass/fail criterion: the compound is not in this crystal, so there
+      is no reference pose. Quote `ligand.rmsd_not_applicable`; never give it an RMSD, a 0 or a
+      blank, and never call a score a validation.
+    - conformer is forced to "regenerated" ("crystal" is refused: there is no crystal pose).
+    - The box is the pocket's box UNCHANGED. A compound is refused when its clearance against that
+      box is below the declared minimum, naming box axis and figure; the box is never enlarged.
+    - `box_fit.box_limited: true` means it fits but has little room to turn in one axis: quote
+      `box_limited_note` and do NOT rank that score with the others.
+    - Scores of different compounds are comparable only when every parameter and the box are the
+      same. Report heavy atoms and ligand efficiency beside the raw score, say that a raw score
+      favours the larger compound, and never present a ranking as a ranking of affinity.
+    - One compound per call, and one run at a time on this machine.
+
     Refused before anything is launched (`ok: false`, `launched: false`, with `options` when the
     pocket is not found): pockets marked large_box or spans_target_chains, receptors that kept a
     nucleotide/cofactor/metal (named), changed files, Vina not found (PROTEIN_MCP_VINA), and a
@@ -745,7 +766,87 @@ async def dock_ligand(
     `receptor.chains_note` when present), the ligand by `ligand.name`/`ligand.synonyms` only, and
     that it is running. Do not call dock_ligand again for the same pocket while it is live.
     """
-    return await dock.start_dock(uniprot_id, structure, pocket, conformer, exhaustiveness, seed)
+    return await dock.start_dock(uniprot_id, structure, pocket, conformer, exhaustiveness, seed, compound)
+
+
+@mcp.tool()
+async def select_ligands(
+    uniprot_id: str,
+    compounds: list = None,
+    reason: str = "",
+) -> dict:
+    """Phase 3 step 6b: record the RESEARCHER's compound selection and their reason in the
+    preparation manifest, BEFORE anything is docked. Mirror of select_structure, for compounds.
+
+    This tool does not choose and does not rank: the selection is the user's. Run
+    prepare_structures first; dock_ligand(compound=...) then docks one of these compounds.
+
+    `compounds` is a list of objects: `id` (a ChEMBL id or whatever identifier the user uses),
+    `smiles` (required: this tool has no network and resolves no id), `level` and optionally
+    `name`. `level` is "T1" when the compound has a crystallographic pose in another structure of
+    the same target (an RMSD becomes possible later) or "T3" when it has none (no RMSD is ever
+    possible). "T2" is refused: a declared sample of inactive compounds is out of step 6b.
+
+    `reason` is required and must be the USER's own words for why these compounds: never write one
+    yourself. If it is missing, the reply lists the valid compounds and asks for it; ask the user.
+
+    Nothing is recorded unless every compound passes: a readable single-component SMILES (a salt or
+    a mixture is refused naming the number of components) with at least one heavy atom, and a
+    unique identity. The reply gives the refusals one by one, `recorded` as "N of M given", and the
+    heavy-atom range of the set. Report that range: the Vina score is approximately additive over
+    atoms, so comparing raw scores across a set of different sizes favours the larger compounds.
+
+    Everything stored per compound (canonical SMILES, InChIKey, heavy atoms, charge, weight,
+    rotatable bonds) is CALCULATED by RDKit from the SMILES given, never measured, and none of it
+    ranks anything. Whether the SMILES is the compound that was measured cannot be checked here.
+    """
+    return await asyncio.to_thread(ligand_choice.select_ligands, uniprot_id, compounds, reason)
+
+
+@mcp.tool()
+async def cross_dock_rmsd(
+    uniprot_id: str,
+    compound: str = "",
+    structure: str = "",
+    pocket: str = "",
+    reference: str = "",
+) -> dict:
+    """Phase 3 step 6b: measure how far a docked T1 compound's pose is from its OWN
+    crystallographic pose, which exists in a different structure of the same target.
+
+    Only level T1 (as recorded by select_ligands) has a reference pose at all. For T3 this tool
+    refuses and says why: no crystal of this target holds that compound, so the RMSD is NOT
+    APPLICABLE -- a property of the experiment, not a missing measurement. Never report a 0, a
+    blank or a comparison against a different molecule in its place.
+
+    The reference pose is not an observation in the docked receptor's frame: it is a pose seen in
+    another crystal, carried over by superposing the two proteins. Report, together and never
+    separately:
+    - `top_pose_rmsd_angstrom` -- the top-SCORED pose, which is the result, because at prediction
+      time the score is all there is to choose with. `best_pose` is also given and is NOT the
+      result;
+    - `shift_bar_angstrom` -- how far that same reference pose moves if the superposition is built
+      on the pocket residues instead of the whole chain. The RMSD without this bar is more precise
+      than the data allows;
+    - `superposition_rmsd_angstrom` over `superposition_pairs` CA -- the protein fit itself;
+    - `decides`: when false, the RMSD plus and minus the bar falls on BOTH sides of the criterion,
+      so this run does not decide whether the pose was reproduced. Say exactly that; do not call it
+      a pass.
+
+    Pass on `criterion_note` whenever the criterion is mentioned: for a cross-docking between two
+    conformations of the same kinase it sits at the edge of the noise, so below it is not strong
+    evidence and above it is not a defect of the pipeline. `scope` says what the number does not
+    cover: it is one compound from one crystal into one other, and it says nothing about the
+    compounds that have no reference pose.
+
+    The reference instance is found by InChIKey, never by a name or a three-letter code; if several
+    crystals hold the compound the tool refuses and lists them, because which one is used changes
+    the number. `rmsd_negative_control` must show the reference moved 5 A measuring 5 A -- if it
+    ever fails, the measurement is not to be trusted and nothing else in the reply should be quoted.
+    """
+    return await asyncio.to_thread(
+        lambda: crossdock.compact(crossdock.cross_dock_rmsd(uniprot_id, compound, structure,
+                                                            pocket, reference)))
 
 
 @mcp.tool()
@@ -755,9 +856,12 @@ async def dock_status(
     pocket: str = "",
     conformer: str = "",
     stop: bool = False,
+    compound: str = "",
 ) -> dict:
     """Phase 3: read what the background docking runs of a protein are doing, and the result of
     the ones that finished. With stop=True, stop the run that is live.
+
+    `compound` filters to the runs of one compound of the user's selection (step 6b).
 
     Each run reports a `state`: "running" (or "queued") with its `phase` and `elapsed_seconds`;
     "finished" with the full result; "failed" or "stopped" with the reason in `error`;
@@ -784,6 +888,13 @@ async def dock_status(
       docking for this target. If `is_preregistered_control` is false, quote `redocking.note`:
       "biased" only for conformer "crystal"; other exhaustiveness/seed is "not the
       pre-registered control", not biased.
+    - A run with `compound_docking` instead of `redocking` is step 6b: a compound of the user's
+      selection docked into the pocket. It has NO RMSD (quote `rmsd_not_applicable`) and no
+      criterion. Report the score with `heavy_atoms` and
+      `ligand_efficiency_kcal_mol_per_heavy_atom`, quote `box_limited_note` when present, and if
+      you compare several of them say that they share the box and every parameter, that a raw
+      score favours the larger compound, and that without inactive compounds in the set nothing
+      here says whether the score separates actives from inactives.
     - Name every residue in `receptor_preparation.deleted_residues` (Meeko removed them because
       they match no template and lie outside the box; auth numbering). If
       `receptor_preparation.warning` is present, quote it: the list may be incomplete.
@@ -796,7 +907,7 @@ async def dock_status(
       the docking: report them only if asked about speed, and if `vina.cpu_seconds_note` is
       present say nothing about speed at all (it could not be measured; it is not a slow run).
     """
-    return await dock.dock_status(uniprot_id, structure, pocket, conformer, stop)
+    return await dock.dock_status(uniprot_id, structure, pocket, conformer, stop, compound)
 
 
 @mcp.tool()
@@ -806,6 +917,7 @@ async def build_md_package(
     pocket: str = "",
     conformer: str = "",
     pose: int = 1,
+    compound: str = "",
 ) -> dict:
     """Phase 3: write the folder the USER uploads to CHARMM-GUI to build a molecular dynamics
     system for a docked complex (receptor + one pose, in solution).
@@ -817,6 +929,15 @@ async def build_md_package(
     `structure` and `pocket` as in dock_ligand (with no `structure`, the user's choice is used).
     `conformer` names the run when the pocket has more than one. `pose` is 1-based over the
     poses of that run, 1 (best scored) by default.
+
+    `compound` (step 6b) names a compound of the selection recorded by select_ligands, by ChEMBL
+    id, slug or name, and packages THAT compound's run instead of the crystal ligand's. Each
+    compound gets its own folder, so the packages of one pocket do not overwrite each other. Say
+    out loud what the README repeats: the ligand in the package is the researcher's compound and
+    NOT the crystallographic ligand of the entry, and its pose has no RMSD against anything,
+    because the compound has no crystallographic pose in this target. It is a hypothesis being
+    simulated, not a reproduced pose. With several runs in a pocket and no `compound`, the tool
+    refuses and lists them rather than guess.
 
     Tell the user, from this reply and nothing else:
     - the two files of `upload` and the folder `package_dir`, and that the PDB must keep its
@@ -839,7 +960,7 @@ async def build_md_package(
     `conformer`, a pose index outside the range, files changed since the manifest, or a written
     PDB and SDF that do not agree atom by atom.
     """
-    return md_package.build_md_package(uniprot_id, structure, pocket, conformer, pose)
+    return md_package.build_md_package(uniprot_id, structure, pocket, conformer, pose, compound)
 
 
 @mcp.tool()
@@ -848,12 +969,15 @@ async def check_charmm_gui_output(
     archive: str,
     structure: str = "",
     pocket: str = "",
+    compound: str = "",
 ) -> dict:
     """Phase 3: verify the .tgz CHARMM-GUI returns against the package build_md_package handed
     over, BEFORE any simulation is submitted.
 
     `archive` is the path to the .tgz on this machine. Nothing is sent anywhere; the archive is
-    read into a temporary folder and deleted.
+    read into a temporary folder and deleted. `compound` names which package the archive belongs
+    to when the pocket has one package per compound (step 6b): without it the archive would be
+    checked against another compound's package, which is how a mixed-up job passes.
 
     Read the answer like this:
     - `passes: true` means every check that COULD run passed. It is not "everything is fine":
@@ -873,7 +997,7 @@ async def check_charmm_gui_output(
     (shape, pocket contacts and clashes are, so a rigid shift of about 1.5 A or less would not be
     caught) and the values under `system`, which are reported without any threshold.
     """
-    return md_package.check_charmm_gui_output(uniprot_id, archive, structure, pocket)
+    return md_package.check_charmm_gui_output(uniprot_id, archive, structure, pocket, compound)
 
 
 @mcp.tool()
@@ -1180,6 +1304,7 @@ async def analyze_admet(
     pocket: str = "",
     conformer: str = "",
     pose: int = 1,
+    compound: str = "",
 ) -> dict:
     """Phase 3: retrieved ADME records and measurements plus locally calculated properties for the
     ligand of one pocket. NOTHING HERE IS PREDICTED and NO RISK IS ASSESSED: there is no hERG
@@ -1195,6 +1320,16 @@ async def analyze_admet(
     from the crystallographic SDF otherwise; `compound_identity.source` says which, and
     `identity_check` says whether the two files agree. Nothing is downloaded except the ChEMBL
     query.
+
+    `compound` (step 6b) names a compound of the selection recorded by select_ligands, by ChEMBL
+    id, slug or name, and describes THAT compound instead of the crystal ligand. Then the
+    comparison against the crystallographic SDF does not apply -- it is another molecule by design,
+    and `crystallographic_comparison` says so -- and the identity check is against the InChIKey the
+    researcher recorded. With several runs in a pocket and no `compound` the tool refuses and lists
+    them: answering about the crystal ligand when a compound was asked about is the error this
+    refusal exists to prevent. ADMET is a property of the molecule, so it does not depend on the
+    docking at all: a compound whose docking run is flagged `box_limited` has an ADMET result that
+    is in no way affected by it.
 
     THE THREE BLOCKS ARE THREE DIFFERENT KINDS OF STATEMENT AND MUST NOT BE MIXED IN ONE
     SENTENCE, ONE TABLE OR ONE LIST:
@@ -1255,7 +1390,8 @@ async def analyze_admet(
     whose row counts are UNKNOWN for those two different reasons -- a slow source, not an empty
     one. Any count that comes with `truncated` true is a LOWER BOUND.
     """
-    return admet.compact(await admet.analyze_admet(uniprot_id, structure, pocket, conformer, pose))
+    return admet.compact(await admet.analyze_admet(uniprot_id, structure, pocket, conformer, pose,
+                                                   compound))
 
 
 def detach_stdin() -> None:

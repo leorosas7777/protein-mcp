@@ -17,7 +17,7 @@ import httpx
 
 from protein_mcp import dossier
 from protein_mcp.common import log, parse_accession, short, utc_now
-from protein_mcp.files import choice, clean, dock, interfaces
+from protein_mcp.files import choice, clean, dock, interfaces, ligand_choice
 from protein_mcp.files.download import check_fasta, check_mmcif, check_sdf, download
 from protein_mcp.sources import rcsb
 from protein_mcp.sources.uniprot import UNIPROT_FASTA
@@ -328,6 +328,8 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
     docking_status = dock.carry_over(latest, manifest)
     if docking_status["dropped"]:
         warnings.append("Docking results dropped (run dock_ligand again): " + "; ".join(docking_status["dropped"]))
+    # the researcher's compound selection (step 6b) does not depend on any structure, so it is kept
+    ligand_choice_status = ligand_choice.carry_over(latest, manifest)
     try:
         choice.write_manifest(manifest_path, manifest)
     except OSError as exc:
@@ -347,6 +349,7 @@ async def prepare_structures(uniprot_id: str, mutation: str = "", pdb_ids=None,
         "user_choice": choice_status,
         "interfaces": interfaces_status if (interfaces_status["kept"] or interfaces_status["dropped"]) else None,
         "docking": docking_status if (docking_status["kept"] or docking_status["dropped"]) else None,
+        "ligand_choice": ligand_choice_status,
         "sequence": {k: fasta.get(k) for k in ("ok", "path", "header", "length", "error") if k in fasta},
         "structures": [compact_structure(r) for r in structures],
         "alphafold": ({"entry_id": alphafold["entry_id"], "file": alphafold["file"].get("path"),
