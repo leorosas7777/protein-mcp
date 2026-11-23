@@ -535,7 +535,35 @@ def test_thresholds_separate_the_real_jobs():
     assert all(count > 0 for count in REAL_BROKEN["garbage_atoms"])
 
 
+def test_lone_heteroatoms_lose_their_index_but_an_ambiguous_one_is_not_guessed():
+    """CGenFF drops the index of an element there is only one of (real: 8C7Y LY-3009120, where
+    the lone O1 and F1 came back as O and F, 2026-11-22; and vemurafenib's S1/CL1). A rename is
+    refused when it cannot be told apart, because an unaccounted system must keep failing."""
+    ly = ["C1", "C2", "C3", "N1", "N2", "N3", "N4", "N5", "N6", "O1", "F1", "H1", "H2"]
+    system = {n: None for n in ["C1", "C2", "C3", "N1", "N2", "N3", "N4", "N5", "N6", "O", "F",
+                                "H1", "H2"]}
+    assert md_package.lone_atom_renames(ly, system) == {"O1": "O", "F1": "F"}
+    # the pair this used to carry as a fixed table is the same rule, not a special case
+    vem = ["S1", "CL1", "C1", "C2"]
+    assert md_package.lone_atom_renames(vem, {"S": None, "CL": None, "C1": None, "C2": None}) == \
+        {"S1": "S", "CL1": "CL"}
+    # CONTROL 1: two fluorines and one F in the system is ambiguous, so NEITHER is matched and
+    # the check must keep failing. Without the counts[e] == 1 guard this returns a guess.
+    two_f = ["F1", "F2", "C1", "C2"]
+    assert md_package.lone_atom_renames(two_f, {"F": None, "C1": None, "C2": None}) == {}
+    # CONTROL 2: a name that IS in the system is never re-pointed at the bare element
+    assert md_package.lone_atom_renames(["O1"], {"O1": None, "O": None}) == {}
+    # CONTROL 3: nothing is invented when the bare name is absent
+    assert md_package.lone_atom_renames(["O1"], {"O2": None}) == {}
+    # the rule is about names, not elements, so a lone hydrogen maps too; it never reaches the
+    # pairing because the check filters hydrogens out before asking for the renames
+    assert md_package.lone_atom_renames(["H1", "C1", "C2"],
+                                        {"H": None, "C1": None, "C2": None}) == {"H1": "H"}
+    print("ok  a lone heteroatom loses its index; an ambiguous rename is refused, not guessed")
+
+
 def main():
+    test_lone_heteroatoms_lose_their_index_but_an_ambiguous_one_is_not_guessed()
     test_zero_occupancy_residues_are_not_called_missing()
     test_a_missing_category_is_not_the_same_as_no_gaps()
     test_remark465_matches_the_rcsb_block()

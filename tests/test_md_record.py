@@ -316,7 +316,7 @@ def test_the_report_heads_each_run_with_its_control_and_draws_from_the_file():
     job = next(x for x in m["structures"] if x["pdb_id"] == "3OG7")["md_job"][POCKET]
     # the hashes left section 2 for the audit trail at the end; the set-up a reader interprets
     # stays here, and the trail must carry the run's name so it can be found again
-    audit = md.index("## 5. Reproducibility and audit trail")
+    audit = md.index("## 6. Reproducibility and audit trail")
     assert job["psf"]["sha256"] in md[audit:] and job["psf"]["sha256"] not in sec
     assert job["job_id"] in md[audit:]
     assert "### MD set-up · 3OG7 pocket 032 C" in md[audit:]

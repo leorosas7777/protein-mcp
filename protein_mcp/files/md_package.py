@@ -16,7 +16,9 @@ Measured on four real CHARMM-GUI jobs (ESTADO 8.4) and enforced here:
 - the file must be named <PDB_ID>.pdb: CHARMM-GUI takes the entry id from the file name and asks
   RCSB for that sequence ("Fail to get the chain sequence from RCSB" with 3OG7_complex.pdb);
 - the ligand goes in HETATM with CONECT and a SDF in the SAME atom order (job 9418739369 kept the
-  33 heavy atoms to 0.0000 A and renamed only S1->S, CL1->CL plus equivalent hydrogens).
+  33 heavy atoms to 0.0000 A and renamed only S1->S, CL1->CL plus equivalent hydrogens). CGenFF
+  drops the index of an element the molecule has only one of, so which names change depends on the
+  compound: see lone_atom_renames, measured again on LY-3009120 (O1->O, F1->F) on 2026-11-22.
 
 check_charmm_gui_output exists because two of those four jobs "finished" with a broken system (one
 without the ligand, one with the protein expanded), so reaching the end of the wizard proves
@@ -387,6 +389,33 @@ def malformed_atom_lines(path: Path) -> int:
 def radius_of_gyration(coords) -> float:
     xyz = np.asarray(coords, dtype=float)
     return float(np.sqrt(((xyz - xyz.mean(0)) ** 2).sum(1).mean()))
+
+
+def lone_atom_renames(names, system_names) -> dict:
+    """Map a delivered atom name onto the name CGenFF gave it when it dropped the index.
+
+    CGenFF numbers an element only when the molecule has more than one of it: an atom that is the
+    molecule's ONLY sulfur, chlorine, fluorine, oxygen... loses its index ("S1" -> "S"). Measured
+    on two real CHARMM-GUI jobs of this dossier: 8C7Y TXV U vemurafenib, where S1 and CL1 were the
+    only two renamed (step 4, 2026-11-08, the pair this used to carry as a fixed table), and 8C7Y
+    TXV U LY-3009120 (CHEMBL3577124, job charmm-gui-9504050621, 2026-11-22), whose lone O1 and F1
+    came back as O and F while N1..N6 and C1..C23 kept their index.
+
+    A rename is only taken when it cannot be ambiguous: the bare name must be in the system, the
+    delivered name must NOT be (so nothing that matched directly is re-pointed), and the element
+    must appear exactly ONCE among the delivered names. With two fluorines (F1, F2) and a single F
+    in the system there is no way to tell which one it is, so neither is matched and the check
+    fails, which is the outcome we want: a system we cannot account for is not simulated.
+    """
+    import re
+    element_of, counts = {}, {}
+    for n in names:
+        m = re.fullmatch(r"([A-Za-z]{1,2})(\d+)", n or "")
+        if m:
+            element_of[n] = m.group(1)
+            counts[m.group(1)] = counts.get(m.group(1), 0) + 1
+    return {n: e for n, e in element_of.items()
+            if counts[e] == 1 and e in system_names and n not in system_names}
 
 
 def internal_distance_change(before, after) -> dict:
@@ -879,8 +908,8 @@ def _check_job(job: Path, delivered: Path, package: dict) -> dict:
 
     # 3. ligand present and its pose untouched
     names = package["ligand"]["atom_names"]
-    renamed = {"S1": "S", "CL1": "CL"}       # CGenFF strips the index of a lone sulfur/chlorine
     out_ligand = {a["name"]: a["xyz"] for a in read_atoms(final) if a["resname"] == LIGAND_RESNAME}
+    renamed = lone_atom_renames(names, out_ligand)
     checks["ligand_atoms_in_namd_system"] = len(out_ligand)
     checks["ligand_atoms_delivered"] = package["ligand"]["atoms"]
     if not out_ligand:
@@ -891,6 +920,16 @@ def _check_job(job: Path, delivered: Path, package: dict) -> dict:
         pairs = [(package["ligand"]["coordinates"][i], out_ligand[renamed.get(n, n)])
                  for i, n in heavy if renamed.get(n, n) in out_ligand]
         checks["ligand_heavy_atoms_matched"] = f"{len(pairs)} of {len(heavy)}"
+        # which of those pairs were matched by inference rather than by an identical name. The
+        # count alone would hide it: with the rename table in the code it was auditable by
+        # reading, and a rule that depends on the compound is not (reviewer H9, 2026-11-22).
+        checks["ligand_atoms_matched_after_rename"] = {
+            n: renamed[n] for _i, n in heavy if n in renamed} or None
+        if checks["ligand_atoms_matched_after_rename"]:
+            checks["ligand_atoms_matched_after_rename_note"] = (
+                "CGenFF drops the index of an element the molecule has only one of. These names were "
+                "matched to the system's bare element name; each was the compound's only atom of that "
+                "element, and the pose check below was measured over the matched pairs.")
         if len(pairs) < len(heavy):
             failures.append(f"only {len(pairs)} of {len(heavy)} ligand heavy atoms were found by name in the system")
         if len(pairs) >= 2:

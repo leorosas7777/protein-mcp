@@ -787,7 +787,10 @@ def _render_section_three(prep: Path) -> str:
     res = er.build_experiment_report("P15056")
     assert res.get("ok"), res
     md = Path(res["markdown_path"]).read_text(encoding="utf-8")
-    return md[md.index("## 3. ADMET"):md.index("## 4.")], md
+    # sliced against the heading that FOLLOWS section 3, which is the compound-set table
+    # since 2026-11-22 and was methods before: named in full so a renumbering fails here
+    # instead of silently handing back a slice that spans another section
+    return md[md.index("## 3. ADMET"):md.index("## 4. The compound set side by side")], md
 
 
 def test_the_report_section_three_is_rendered_from_the_block():
@@ -801,7 +804,7 @@ def test_the_report_section_three_is_rendered_from_the_block():
         assert heading in sec, heading
     # the identity evidence is not deleted: it leaves section 3 entirely and lives in the audit
     # trail at the end of the document, under the name of the compound it belongs to
-    audit = md.index("## 5. Reproducibility and audit trail")
+    audit = md.index("## 6. Reproducibility and audit trail")
     heads = [l for l in md[audit:].splitlines() if l.startswith("### ADMET ·")]
     assert heads, "the audit trail has no ADMET block"
     # never the comp_id placeholder: a compound of the selection has no comp_id, and printing
@@ -870,7 +873,7 @@ def test_the_record_defaults_are_marked_in_the_tool_and_the_report():
         sec, md = _render_section_three(prep)
     # the raw fields with their default marks live in the audit trail; the warning about reading
     # them as findings stays in the reading path, where the sentence about the compound is
-    audit = md.index("## 5. Reproducibility and audit trail")
+    audit = md.index("## 6. Reproducibility and audit trail")
     assert "(False, a default)" in md[audit:] and "(-1, a default)" in md[audit:]
     assert "neither value means the compound lacks the property" in sec
     # and no invented name reached the document

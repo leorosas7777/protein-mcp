@@ -1,7 +1,9 @@
 """build_experiment_report: prep/manifest.json -> Markdown + PDF record of the in-silico experiments.
 
 A document of its own, separate from build_report (decided 2026-11-05), with the three
-sections present from the start: docking, molecular dynamics, ADMET. Sections with no run
+result sections present from the start: docking, molecular dynamics, ADMET, joined on
+2026-11-22 by section 4, which lays the selected compounds side by side without ranking
+them (methods moved to 5 and the audit trail to 6). Sections with no run
 say "not run" and name the tool that would fill them, exactly as build_report does with
 missing dossier sections.
 
@@ -226,7 +228,7 @@ def _vina_items(run: dict) -> list:
 
 
 def _repro(audit: list, title: str, items: list):
-    """Collect one audit entry. It is NOT printed here: section 5 prints them all at the end.
+    """Collect one audit entry. It is NOT printed here: section 6 prints them all at the end.
 
     Nothing measured is dropped from this document -- a hash, a Meeko option or a guard check is
     what lets someone else repeat the run, and removing it would break the audit. But none of it
@@ -1256,8 +1258,239 @@ def _md(doc, m: dict, accession: str, prep: Path, audit: list) -> int:
     return len(runs)
 
 
+def _set_docking(m: dict, compound_id: str) -> list:
+    """Every recorded run of `compound_id`, each with the structure and pocket it belongs to.
+
+    The run is found by the compound_id the run itself recorded, never by the run id, whose slug
+    is a naming convention and not evidence of which compound was docked. ALL of them are
+    returned, and the caller says which one it prints and how many there were: returning the
+    first match silently made a second run of the same compound invisible, and with it the fact
+    that one of the two may be the biased `conformer="crystal"` run (reviewer H2, 2026-11-22).
+    """
+    out = []
+    for s in m.get("structures") or []:
+        for pocket_key, block in sorted((s.get("docking") or {}).items()):
+            for run_id, run in (block.get("runs") or {}).items():
+                cd = (run or {}).get("compound_docking") or {}
+                if cd.get("compound_id") == compound_id:
+                    # the conformer is recorded on the run's ligand block, which is where
+                    # dock_ligand writes it; it is not a field of `vina`
+                    out.append({"cd": cd, "pdb": s.get("pdb_id"), "pocket": pocket_key,
+                                "run_id": run_id,
+                                "conformer": ((run or {}).get("ligand") or {}).get("conformer"),
+                                "cross_docking": (run or {}).get("cross_docking") or {}})
+    return out
+
+
+def _key_is_of(key: str, compound_id: str) -> bool:
+    """Whether a manifest key of the form "<pocket> <CHEMBL id>" belongs to this compound."""
+    return bool(key) and str(key).endswith(" " + compound_id)
+
+
+def _set_md(m: dict, compound_id: str) -> list:
+    """Every recorded PRODUCTION analysis of `compound_id`, with the structure and pocket.
+
+    Matched on the `compound` block analyze_md writes since step 6b AND on the "<pocket> <CHEMBL
+    id>" key, because a record written before 6b has no compound block: keyed only on the block,
+    a trajectory that was in fact analysed was printed as "not run" while section 2 of the same
+    document described it (reviewer H3, 2026-11-22). "not run" is a claim about what was run.
+    """
+    out = []
+    for s in m.get("structures") or []:
+        for key, analysis in sorted((s.get("md_analysis") or {}).items()):
+            if not isinstance(analysis, dict):
+                continue
+            for stage_name, stage in analysis.items():
+                if (stage or {}).get("stage_label") != "production":
+                    continue
+                comp = ((stage or {}).get("compound") or {})
+                if comp.get("id") == compound_id or (not comp and _key_is_of(key, compound_id)):
+                    out.append({"stage": stage, "key": key, "stage_name": stage_name,
+                                "pdb": s.get("pdb_id"),
+                                "pocket": (stage or {}).get("pocket")
+                                or str(key).rsplit(" ", 1)[0],
+                                "identified_by": ("the compound block of the record" if comp
+                                                  else "the manifest key, which ends in this "
+                                                       "ChEMBL id (record written before the "
+                                                       "compound block existed)")})
+    return out
+
+
+def _set_admet(m: dict, compound_id: str) -> list:
+    """Every recorded ADMET block of `compound_id`, with the structure and pocket of its key."""
+    out = []
+    for s in m.get("structures") or []:
+        for key, block in sorted((s.get("admet") or {}).items()):
+            ident = (block or {}).get("compound_identity") or {}
+            if ident.get("compound_id") == compound_id or (not ident and _key_is_of(key, compound_id)):
+                out.append({"block": block, "pdb": ident.get("pdb_id") or s.get("pdb_id"),
+                            "pocket": ident.get("pocket") or str(key).rsplit(" ", 1)[0]})
+    return out
+
+
+def _compound_set(doc, m: dict, accession: str) -> int:
+    """Section 4: one row per selected compound, with the holes declared and NO ranking.
+
+    The researcher asked for the set side by side (2026-11-22). It is a coverage map, not a
+    verdict: the rows are in the order select_ligands recorded them, and the document says in
+    the open why the columns must not be read as an order of merit. Three reasons, all of them
+    measured and none of them a matter of taste: a raw Vina score favours the larger compound
+    (so ligand efficiency travels beside it and neither re-ranks the set); a box_limited run
+    scores the fit of the box as much as the fit of the pocket; and an MD column built on one
+    replica of one length has no error bar, so a difference between two compounds cannot be
+    told from noise. Any compound whose MD or ADMET was not run says so in its own cell.
+    """
+    doc.h(2, "4. The compound set side by side")
+    choice_block = m.get("ligand_choice") or {}
+    compounds = choice_block.get("compounds") or []
+    if not compounds:
+        doc.p("Not run. No compound selection is recorded in prep/manifest.json, so there is no set "
+              f"to lay side by side. Run select_ligands(\"{accession}\", compounds, reason) to record "
+              "one, and build this record again.")
+        return 0
+    rows, with_md, with_dock, with_admet = [], 0, 0, 0
+    heavy_seen, levels_seen, limited, no_negative_control = [], [], [], False
+    for c in compounds:
+        cid = c.get("id")
+        docks, mds, admets = _set_docking(m, cid), _set_md(m, cid), _set_admet(m, cid)
+        if c.get("heavy_atoms") is not None:
+            heavy_seen.append(c["heavy_atoms"])
+        if c.get("level") and c["level"] not in levels_seen:
+            levels_seen.append(c["level"])
+        if docks:
+            with_dock += 1
+            first = docks[0]
+            cd = first["cd"]
+            where = f"{first['pdb']} {first['pocket']}" + _of_n(docks, "run")
+            score, le = (_num(cd.get("top_pose_score_kcal_mol")),
+                         _num(cd.get("ligand_efficiency_kcal_mol_per_heavy_atom")))
+            dock_cell = f"{score} ({where})" if score else f"{NO_RECORD} ({where})"
+            if (first.get("conformer") or "") == "crystal":
+                dock_cell += (" — started from the crystal conformation: biased in favour of the "
+                              "crystal pose, not comparable with a regenerated run")
+            fit = cd.get("box_fit") or {}
+            if cd.get("box_limited"):
+                limited.append(_v(c.get("name")) or cid)
+                dock_cell += (f" — box_limited: {_num(fit.get('min_clearance_angstrom'))} A clearance "
+                              f"on the {_num(fit.get('limiting_box_axis_angstrom'))} A axis against a "
+                              f"{_num(fit.get('limiting_ligand_extent_angstrom'))} A extent, over a "
+                              f"threshold of {_num(fit.get('threshold_angstrom'))} A. The score measures "
+                              "the fit of the box as much as the fit of the pocket and is NOT "
+                              "comparable with the rest")
+            if "no inactive compounds" in str(cd.get("scope") or ""):
+                no_negative_control = True
+            le_cell = f"{le} over {_v(cd.get('heavy_atoms'))} heavy atoms" if le else NO_RECORD
+            xd = first.get("cross_docking") or {}
+            if xd.get("top_pose_rmsd_angstrom") is not None:
+                bar = (xd.get("reference_pose_uncertainty") or {}).get("shift_angstrom")
+                # `within_criterion_with_bar` is a BLOCK, not a flag: its `decides` field is what
+                # says whether the criterion settles anything once the superposition bar is
+                # applied. Read as a boolean it is always truthy, and the cell then printed the
+                # figure beside the criterion as if it had passed.
+                with_bar = xd.get("within_criterion_with_bar") or {}
+                span = with_bar.get("range_angstrom") or []
+                rmsd_cell = (f"{_num(xd['top_pose_rmsd_angstrom'])} ± {_num(bar)} vs a criterion of "
+                             f"{_num(xd.get('criterion_angstrom'))} A"
+                             + ("" if with_bar.get("decides") is not False else
+                                (f" — DECIDES NOTHING: with the bar applied the value spans "
+                                 f"{_num(span[0])}-{_num(span[1])} A, both sides of the criterion"
+                                 if len(span) == 2 else
+                                 " — DECIDES NOTHING once the superposition bar is applied")))
+            else:
+                rmsd_cell = ("not applicable: no crystallographic pose of this compound in another "
+                             "structure of this target (level "
+                             f"{_v(c.get('level'))}), so there is nothing to measure against")
+        else:
+            dock_cell = le_cell = rmsd_cell = "not run (dock_ligand)"
+        if mds:
+            with_md += 1
+            first_md = mds[0]
+            result = (first_md["stage"].get("result") or {})
+            lig = result.get("ligand_rmsd") or {}
+            control = ((result.get("reading") or {}).get("equilibration_control") or {})
+            where_md = (f"{_v(first_md.get('pdb'))} {_v(first_md.get('pocket'))}"
+                        + _of_n(mds, "production run"))
+            md_cell = ((f"{_num(lig.get('mean'))} mean over {_v(lig.get('n'))} frames ({where_md})")
+                       if lig.get("mean") is not None else f"{NO_RECORD} ({where_md})")
+            control_cell = (f"{_v(control.get('status'))} (drift {_num(control.get('drift_angstrom'))} A "
+                            f"vs {_num(control.get('threshold_angstrom'))} A)"
+                            if control else NO_RECORD)
+        else:
+            md_cell = control_cell = "not run (build_md_package, then analyze_md)"
+        if admets:
+            with_admet += 1
+            rec = (admets[0]["block"].get("chembl_record") or {})
+            status = str(rec.get("status") or "")
+            admet_cell = (("ChEMBL entry retrieved; its ADME records and calculated properties are "
+                           f"in section 3 ({_v(admets[0].get('pdb'))} {_v(admets[0].get('pocket'))}"
+                           + _of_n(admets, "result") + ")")
+                          if status.startswith("RECORD") else
+                          ("No entry for this compound in ChEMBL: nothing is recorded there. That is "
+                           "an absence of DATA, not an absence of liabilities"
+                           if status else NO_RECORD))
+        else:
+            admet_cell = "not run (analyze_admet)"
+        rows.append([f"{_v(c.get('name')) if c.get('name') else NO_RECORD}\n{cid}\n{_v(c.get('level'))}",
+                     dock_cell, le_cell, rmsd_cell, md_cell, control_cell, admet_cell])
+    doc.p(f"{len(compounds)} compound(s) in the selection select_ligands recorded. "
+          f"Docking recorded for {with_dock} of {len(compounds)}, molecular dynamics for "
+          f"{with_md} of {len(compounds)}, ADMET for {with_admet} of {len(compounds)}. The rows are "
+          "in the order the selection recorded them.")
+    # the reason in full, never clipped: the clipped version cut the sentence that says which of
+    # these compounds is the anchor rather than a candidate, and the row count then read as a
+    # count of candidates (reviewer H7, 2026-11-22)
+    if choice_block.get("reason"):
+        doc.p("Why these compounds, as the researcher recorded it: "
+              + str(choice_block["reason"]), small=True)
+    doc.p("THIS TABLE IS NOT A RANKING, and the columns must not be read as an order of merit. "
+          + (f"The set spans levels {', '.join(levels_seen)}, which are NOT comparable with each "
+             "other and are not ranked together: a level T1 compound has a crystallographic pose "
+             "to measure against and a T3 compound has none, so the same column means a different "
+             "thing in their rows. " if len(levels_seen) > 1 else "")
+          + "A Vina score is approximately additive over atoms, so a raw score favours the larger "
+          "compound for being larger"
+          + (f"; across this set the heavy-atom count runs from {min(heavy_seen)} to "
+             f"{max(heavy_seen)}" if heavy_seen else "")
+          + ". Ligand efficiency is printed beside it and neither value re-ranks the set, because "
+          "no threshold for an interpretable difference has been measured in this project. "
+          + ("NO NEGATIVE CONTROL: the set holds no compound known to be inactive against this "
+             "target, so nothing here says whether the score separates actives from inactives, and "
+             "no ordering of these scores is supported (pre-registered consequence, ESTADO 7.4). "
+             if no_negative_control else "")
+          + (f"The run of {', '.join(limited)} is marked box_limited, with its clearance in the cell. "
+             if limited else "")
+          + "The dynamics column comes from ONE replica per compound, so it carries no error bar "
+          "and a difference between two compounds cannot be told from noise; where the equilibration "
+          "control says NOT MET, the protein was still drifting over the trajectory and nothing "
+          "about the ligand is settled. A compound whose dynamics or ADMET was not run says so in "
+          "its own cell: an empty cell is a gap in what was run, never a result about the compound.",
+          small=True)
+    doc.table(["Compound / ChEMBL id / level", "Top pose score (kcal/mol, calculated)",
+               "Ligand efficiency (calculated)", "Cross-docking RMSD (A, calculated)",
+               "Ligand RMSD, production (A, calculated)", "Equilibration control (calculated)",
+               "ADMET (retrieved)"],
+              rows, [0.15, 0.16, 0.12, 0.15, 0.15, 0.14, 0.13])
+    doc.p("THE THREE PROVENANCES IN THIS TABLE DO NOT MEAN THE SAME THING. The scores, ligand "
+          "efficiencies and RMSD values are CALCULATED by AutoDock Vina and RDKit; the dynamics "
+          "columns are CALCULATED by NAMD and MDAnalysis; the ADMET column is RETRIEVED from "
+          "ChEMBL. A calculated value is not a measurement and none of them is a measured "
+          "affinity: measured potency against the target is in the research report, "
+          f"report_{accession}.pdf. Nothing in this table comes from a trained model. Every figure "
+          "is quoted from the same manifest blocks the sections above print in full, where each one "
+          "travels with its own selection and criterion, and the structure and pocket each figure "
+          "belongs to is named in its cell.", small=True)
+    return len(compounds)
+
+
+def _of_n(found: list, what: str) -> str:
+    """", 1 of N <what>s recorded" when more than one was found. The table prints the first and
+    must say so: silently printing one of several hides the others, and one of them may be the
+    biased crystal-conformer run or another pocket entirely (reviewer H2)."""
+    return "" if len(found) <= 1 else f", 1 of {len(found)} {what}s recorded — see section 1 to 3"
+
+
 def _methods(doc, m: dict):
-    doc.h(2, "4. Methods and limitations")
+    doc.h(2, "5. Methods and limitations")
     doc.p("This record is generated deterministically from prep/manifest.json: every value and every identifier is "
           f"quoted from the manifest, fields without data are shown as '{NO_RECORD}', and nothing is recomputed or "
           "inferred here. No text of a Vina log is copied into this document.")
@@ -1282,13 +1515,13 @@ def _methods(doc, m: dict):
 
 
 def _audit_section(doc, audit: list):
-    """Section 5: the whole audit trail, after everything a reader interprets.
+    """Section 6: the whole audit trail, after everything a reader interprets.
 
     Collected by _repro while sections 1-3 are written, so the order here follows the order of
     the runs above and each entry keeps the name of the run it belongs to. Nothing is summarised
     and nothing is dropped: this is the part that lets someone else repeat the work.
     """
-    doc.h(2, "5. Reproducibility and audit trail")
+    doc.h(2, "6. Reproducibility and audit trail")
     if not audit:
         doc.p("Nothing to record: no run above wrote files, hashes or tool options into the manifest.")
         return
@@ -1307,7 +1540,7 @@ def _audit_section(doc, audit: list):
 
 
 def build_document(accession: str, m: dict, generated: str, prep: Path = None) -> tuple:
-    """(Doc, number of docking runs recorded, number of ADMET results recorded).
+    """(Doc, docking runs recorded, ADMET results recorded, compounds in the selection).
 
     `prep` is the folder the manifest's relative paths start from (the series files of section 2);
     it defaults to the dossier's prep folder."""
@@ -1323,18 +1556,20 @@ def build_document(accession: str, m: dict, generated: str, prep: Path = None) -
           "trained model. Measured potency against the target (ChEMBL activities) is not part of this document; it "
           f"is in the research report, report_{accession}.pdf. Interpretation is not part of either.", small=True)
     doc.p("HOW THIS DOCUMENT IS ORDERED. Sections 1 to 3 hold what a researcher reads to interpret "
-          "the experiments: what was run, on what, and what came out. Section 4 states the methods "
+          "the experiments: what was run, on what, and what came out. Section 4 lays the selected "
+          "compounds side by side, with the holes declared and no ranking. Section 5 states the methods "
           "and the limits. Everything needed to REPEAT or AUDIT a run -- file paths and hashes, tool "
           "options, pre-flight checks, raw database fields, the thresholds behind a reading -- is in "
-          "section 5 at the end, grouped by run. Nothing was deleted to get it out of the way.",
+          "section 6 at the end, grouped by run. Nothing was deleted to get it out of the way.",
           small=True)
     audit = []
     n = _docking(doc, m, accession, audit)
     _md(doc, m, accession, prep or choice.manifest_path(accession).parent, audit)
     n_admet = _admet(doc, m, accession, audit)
+    n_set = _compound_set(doc, m, accession)
     _methods(doc, m)
     _audit_section(doc, audit)
-    return doc, n, n_admet
+    return doc, n, n_admet, n_set
 
 
 def _section_inventory(doc) -> list:
@@ -1374,7 +1609,7 @@ def build_experiment_report(uniprot_id: str) -> dict:
         return {"ok": False, "uniprot_id": accession,
                 "error": f"prep/manifest.json could not be read ({m['unreadable']})."}
     generated = utc_now()
-    doc, n_runs, n_admet = build_document(accession, m, generated)
+    doc, n_runs, n_admet, n_set = build_document(accession, m, generated)
     folder = dossier.DOSSIER_DIR / accession
     md_path = folder / f"experiments_{accession}.md"
     pdf_path = folder / f"experiments_{accession}.pdf"
@@ -1415,6 +1650,8 @@ def build_experiment_report(uniprot_id: str) -> dict:
         "sections_not_run": (["molecular dynamics (no analyze_md result in the manifest)"]
                              if not _md_runs(m) else [])
                             + (["ADMET (no analyze_admet result in the manifest)"] if not n_admet else [])
-                            + (["docking (no run in the manifest)"] if not n_runs else []),
+                            + (["docking (no run in the manifest)"] if not n_runs else [])
+                            + (["compound set (no select_ligands selection in the manifest)"]
+                               if not n_set else []),
         **({"font_warning": font_note} if font_note else {}),
     }

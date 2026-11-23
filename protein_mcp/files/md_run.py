@@ -1274,7 +1274,8 @@ def _record_in_manifest(path: Path, manifest: dict, pdb_id: str, pocket_key: str
     try:
         s = next(x for x in current["structures"] if x.get("pdb_id") == pdb_id)
         block = s.setdefault("md_job", {})
-        block[pocket_key] = {k: job[k] for k in ("generated_by", "generated_at", "archive", "psf",
+        block[pocket_key] = {k: job[k] for k in ("generated_by", "generated_at", "compound",
+                                                 "archive", "psf",
                                                  "job_id", "job_folder", "site",
                                                  "verified", "scheme", "inputs", "inputs_edited",
                                                  "slurm", "to_confirm", "files")}
@@ -1289,11 +1290,17 @@ def _record_in_manifest(path: Path, manifest: dict, pdb_id: str, pocket_key: str
 def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str = "",
                  gpu_resident: bool = False, site_report: str = "", partition: str = "",
                  account: str = "", time_limit: str = "", cpus_per_task: int = 0, gpus: int = 1,
-                 gpu_type: str = "", namd_module: str = "", namd_binary: str = "") -> dict:
+                 gpu_type: str = "", namd_module: str = "", namd_binary: str = "",
+                 compound: str = "") -> dict:
     """Write the SLURM job folder for a checked CHARMM-GUI archive. See the module docstring.
 
     Without `site_report` nothing about the cluster is known, so no script is written and the
     commands to paste come back instead.
+
+    `compound` (step 6b) names a compound of the selection recorded by select_ligands, as in
+    build_md_package and check_charmm_gui_output: each compound has its own package folder and its
+    own `md_job` key, so a second compound of the same pocket does not overwrite the first. Added
+    2026-11-19, the same collision `dock.run_id_of` and `build_md_package` were given a slug for.
     """
     accession, err = parse_accession(uniprot_id)
     if err:
@@ -1313,11 +1320,24 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
         s, snap, origin = dock._resolve(manifest, structure, pocket)
         pdb_id = s["pdb_id"].upper()
         pocket_key = f"{snap['pocket']['comp_id']} {snap['pocket']['label_asym_id']}"
-        pkg_dir = prep / "md" / dock.dock_dir_name(pdb_id, snap["pocket"]["comp_id"],
-                                                   snap["pocket"]["label_asym_id"])
+        # one folder and one manifest key per compound, exactly as build_md_package writes them:
+        # without this the second compound of a pocket would overwrite the first job
+        entry = dock._compound(manifest, compound) if compound else None
+        slug = entry["slug"] if entry else ""
+        manifest_key = f"{pocket_key} {entry['id']}" if entry else pocket_key
+        dir_name = dock.dock_dir_name(pdb_id, snap["pocket"]["comp_id"],
+                                      snap["pocket"]["label_asym_id"])
+        pkg_dir = prep / "md" / (f"{dir_name}_{slug}" if slug else dir_name)
         pkg_file = pkg_dir / "package.json"
         if not pkg_file.is_file():
-            raise MdRunError(f"No package at {pkg_file}: run build_md_package first, then CHARMM-GUI.")
+            # which compound folders ARE there, so the refusal says what to pass instead of
+            # leaving the caller to guess that this pocket's packages are per compound
+            others = sorted(p.parent.name for p in (prep / "md").glob(f"{dir_name}_*/package.json"))
+            raise MdRunError(
+                f"No package at {pkg_file}: run build_md_package first, then CHARMM-GUI."
+                + (f" This pocket has packages of its own compounds ({', '.join(others)}); name "
+                   "one with `compound`." if others and not compound else ""),
+                **({"compound_packages": others} if others and not compound else {}))
         package = json.loads(pkg_file.read_text(encoding="utf-8"))
         delivered = md_package._inside(prep, package["files"][f"{pdb_id}.pdb"]["path"])
 
@@ -1352,7 +1372,7 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
             # for `run` when the keyword it just wrote is there
             values = input_values(namd, scheme)
 
-        job_name = f"{pdb_id}_{snap['pocket']['comp_id']}_{snap['pocket']['label_asym_id']}_md"
+        job_name = f"{dir_name}_{slug}_md" if slug else f"{dir_name}_md"
         run_dir = pkg_dir / "run"
         # built beside the final folder and swapped in only when it is complete: a call that
         # fails half way must not destroy a verified job that was already there (build_md_package
@@ -1370,7 +1390,7 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
                       {"file": None, "sha256": None,
                        "source": "the archive holds no namd/step3_input.psf"})
         shutil.move(str(job), str(new_dir / "system"))
-        mine = system_entry("system/namd", f"{pdb_id} {pocket_key}", scheme, values)
+        mine = system_entry("system/namd", f"{pdb_id} {manifest_key}", scheme, values)
         parsed = parse_site_report(site_report)
         site = resolve_site(parsed, 1, partition=partition, account=account,
                             time_limit=time_limit, cpus_per_task=cpus_per_task, gpus=gpus,
@@ -1380,6 +1400,11 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
         record = {
             "generated_by": "build_md_job", "generated_at": utc_now(), "uniprot_id": accession,
             "pdb_id": pdb_id, "pocket": pocket_key, "selected_by": origin,
+            # the compound that was docked into it, or None for the pocket's crystal ligand
+            "compound": ({"id": entry["id"], "name": entry.get("name"), "slug": slug,
+                          "level": entry.get("level"),
+                          "source": "the selection select_ligands recorded in the manifest"}
+                         if entry else None),
             "archive": {"path": str(archive_path), "sha256": dock.sha256(archive_path)},
             "psf": psf_record,
             # the folder name as it comes, and the numeric id only when the name really carries
@@ -1424,7 +1449,7 @@ def build_md_job(uniprot_id: str, archive: str, structure: str = "", pocket: str
         new_dir.rename(run_dir)
         if replaced:
             shutil.rmtree(old_dir, ignore_errors=True)
-        manifest_note = _record_in_manifest(path, manifest, pdb_id, pocket_key, record, run_dir, prep)
+        manifest_note = _record_in_manifest(path, manifest, pdb_id, manifest_key, record, run_dir, prep)
         # the shared array script is rebuilt from the manifest as it stands AFTER this run was
         # recorded, so it lists exactly the verified systems and nothing else
         array = write_array_script(prep, _read_json(path) or manifest, site)
@@ -1493,8 +1518,11 @@ f"--time is {site['fields']['time']['value']} ({site['fields']['time']['source']
     return {
         "ok": True, "uniprot_id": accession, "run_dir": str(run_dir),
         "job_id": record["job_id"], "job_folder": record["job_folder"],
-        "built": f"{pdb_id} pocket {pocket_key}, CHARMM-GUI job "
-                 f"{record['job_id'] or record['job_folder']}",
+        "built": f"{pdb_id} pocket {pocket_key}"
+                 + (f", compound {entry.get('name') or entry['id']} ({entry['id']})" if entry else
+                    ", the pocket's crystal ligand")
+                 + f", CHARMM-GUI job {record['job_id'] or record['job_folder']}",
+        "recorded_under": f"structures[{pdb_id}].md_job[{manifest_key}]",
         # from the measurement, never a literal: the verdict and this flag cannot disagree
         "verified": {"passes": verified["passes"], "verdict": verified["verdict"],
                      "not_checked": verified["not_checked"]},
@@ -1574,6 +1602,8 @@ def main(argv=None):
                                                                       "the partition has several")
     build.add_argument("--namd-module", dest="namd_module", default="")
     build.add_argument("--namd-binary", dest="namd_binary", default="")
+    build.add_argument("--compound", default="", help="ChEMBL id, slug or name of a compound of "
+                                                     "the recorded selection (step 6b)")
     a = ap.parse_args(argv)
     report = ""
     if a.site_report == "-":
@@ -1582,7 +1612,7 @@ def main(argv=None):
         report = Path(a.site_report).expanduser().read_text(encoding="utf-8", errors="replace")
     result = build_md_job(a.uniprot_id, a.archive, a.structure, a.pocket, a.gpu_resident, report,
                           a.partition, a.account, a.time_limit, a.cpus_per_task, a.gpus,
-                          a.gpu_type, a.namd_module, a.namd_binary)
+                          a.gpu_type, a.namd_module, a.namd_binary, a.compound)
     sys.stdout.buffer.write((json.dumps(result, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
     return 0 if result.get("ok") else 1
 

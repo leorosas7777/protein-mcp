@@ -340,7 +340,26 @@ async def build_experiment_report(uniprot_id: str) -> dict:
     drawn from the recorded series file, and the offered reading. With no MD
     recorded, section 2 says "not run".
 
+    Section 4 (step 6b) lays the compounds of the select_ligands selection side
+    by side: one row each, with the score, ligand efficiency, cross-docking
+    RMSD, production ligand RMSD, equilibration control and ADMET, and the
+    structure and pocket each figure belongs to named in its own cell. With no
+    selection recorded it says "not run" and `sections_not_run` carries
+    "compound set". Methods is section 5 and the audit trail section 6.
+
     Rules for using the result:
+    - SECTION 4 IS NOT A RANKING and must not be turned into one: do not name a
+      "best" compound from it, do not sort the rows, and do not read a lower
+      score as a better compound. The set has no inactive compound, so nothing
+      in it says whether the score separates actives from inactives; a raw Vina
+      score favours the larger compound; levels T1 and T3 are not comparable
+      with each other; a run marked box_limited is not comparable with the rest;
+      and the dynamics columns come from one replica, so a difference between
+      two compounds cannot be told from noise. The section prints each of these
+      limits: repeat the ones that apply instead of summarising them away.
+    - A cell that says "not run" is a gap in what was run, never a result about
+      the compound, and "No entry for this compound in ChEMBL" is an absence of
+      data, not an absence of liabilities.
     - Give the user `pdf_path` (and `markdown_path`), and name the runs in
       `docking_runs`, the MD runs in `md_runs` (each with its equilibration
       control status) and the compounds in `admet_compounds` as they come. When
@@ -1198,9 +1217,18 @@ async def build_md_job(
     gpu_type: str = "",
     namd_module: str = "",
     namd_binary: str = "",
+    compound: str = "",
 ) -> dict:
     """Phase 3: write the SLURM job the USER submits on THEIR cluster to run the molecular
     dynamics of a CHARMM-GUI system.
+
+    `compound` (step 6b) names a compound of the selection recorded by select_ligands, by ChEMBL
+    id, slug or name, and IS NEEDED whenever the pocket was packaged per compound: each compound
+    has its own package folder and its own `md_job` key (`recorded_under` says which), so a second
+    compound of the same pocket does not overwrite the first job. Without it the crystal ligand's
+    package is used, and if the pocket has none the refusal lists the compound folders that are
+    there, so pass one of THOSE rather than guessing. analyze_md needs the same `compound` later
+    to find this job.
 
     `archive` is the path to the .tgz on this machine. The archive is re-checked here with the
     same measurements as check_charmm_gui_output and the job is REFUSED if they fail, so a
@@ -1271,7 +1299,7 @@ async def build_md_job(
     """
     return md_run.build_md_job(uniprot_id, archive, structure, pocket, gpu_resident, site_report,
                                partition, account, time_limit, cpus_per_task, gpus, gpu_type,
-                               namd_module, namd_binary)
+                               namd_module, namd_binary, compound)
 
 
 @mcp.tool()
@@ -1288,6 +1316,7 @@ async def analyze_md(
     uniprot_id: str = "",
     structure: str = "",
     pocket: str = "",
+    compound: str = "",
 ) -> dict:
     """Phase 3: measure a FINISHED molecular dynamics trajectory that the user has brought back
     from their cluster, and report five metrics with the selection and the criterion behind each.
@@ -1468,6 +1497,15 @@ async def analyze_md(
     what changed meanwhile (a trajectory file, the manifest, the job), and the measurements in
     the reply are NOT in the dossier: say so. "production" and "equilibration" are the labels the
     recorded job gives those stages (`recording.stage_label_source`), not words this tool infers.
+    `compound` (step 6b) names a compound of the selection recorded by select_ligands, by ChEMBL
+    id, slug or name, and IS NEEDED to record a trajectory of a compound run: the key then ends in
+    the ChEMBL id (md_analysis["<pocket> <CHEMBL id>"]) and the folder is that compound's, so two
+    compounds of one pocket do not overwrite each other's record. It is the SAME compound that was
+    passed to build_md_package and build_md_job; pass it whenever the trajectory is of a selected
+    compound rather than the pocket's crystal ligand. Without it, when the pocket has compound
+    jobs, the refusal lists the keys recorded for that pocket, so pass one of THOSE instead of
+    guessing. It only says where to record and changes no measurement.
+
     `reading.equilibration_control.status` is the equilibration control as one field (MET, NOT
     MET, NO EVIDENCE when the backbone was held, or CANNOT BE ASSESSED); it belongs to the offered
     reading and carries its threshold.
@@ -1476,7 +1514,8 @@ async def analyze_md(
         folder, topology=topology or None, ligand_resname=ligand_resname,
         ligand_segid=ligand_segid, pocket_cutoff=pocket_cutoff, skip_frames=skip_frames,
         reference_frame=reference_frame, include_series=include_series,
-        stage=stage or None, uniprot_id=uniprot_id, structure=structure, pocket=pocket)
+        stage=stage or None, uniprot_id=uniprot_id, structure=structure, pocket=pocket,
+        compound=compound)
 
 
 @mcp.tool()

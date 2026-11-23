@@ -88,7 +88,10 @@ def test_no_runs():
 
 def test_real_run(prep: Path):
     """One real docking run (3OG7 032 C, regenerated, the pre-registered control)."""
-    assert run("3OG7", "032 C")["ok"]
+    # the result travels into the assert: a refusal here used to abort the suite with a bare
+    # AssertionError and no way to tell a real regression from a flaky launch
+    r0 = run("3OG7", "032 C")
+    assert r0["ok"], r0
     manifest_text = choice.manifest_path(ACC).read_text(encoding="utf-8")
     man = json.loads(manifest_text)
     rec = next(s for s in man["structures"] if s["pdb_id"] == "3OG7")["docking"]["032 C"]["runs"]["032_regenerated"]
@@ -138,13 +141,14 @@ def test_real_run(prep: Path):
     # files with their SHA-256, straight from the manifest. They moved out of the reading path
     # into the reproducibility block, but not one of them may be dropped: the hash is what proves
     # a file on disk is the file this run wrote.
-    audit = md.index("## 5. Reproducibility and audit trail")
-    assert md.index("## 4. Methods") < audit, "the audit trail must come after the methods"
+    audit = md.index("## 6. Reproducibility and audit trail")
+    assert md.index("## 4. The compound set") < md.index("## 5. Methods") < audit, \
+        "the set table goes after the three result sections, and the audit trail last"
     assert "### Docking · 3OG7 · pocket 032 C · run 032_regenerated" in md[audit:]
     for name, f in rec["files"].items():
         assert f"{name}: {f['path']} (SHA-256 {f['sha256']})" in md[audit:], name
         # and NOT in the reading path, which is the whole point of moving it
-        assert f["sha256"] not in md[:audit], f"{name}: a hash leaked into sections 1-4"
+        assert f["sha256"] not in md[:audit], f"{name}: a hash leaked into sections 1-5"
 
     # the Vina log in the dossier really has the header; the report does not copy it
     log = (prep / rec["files"][f"vina_032_regenerated.log"]["path"]).read_text(encoding="utf-8")
@@ -187,7 +191,8 @@ def test_user_choice_is_quoted_only_where_it_applies():
 
 def test_more_runs():
     """A biased run and a run that is not the pre-registered control are listed as such."""
-    assert run("3OG7", "032 C", conformer="crystal")["ok"]
+    r0 = run("3OG7", "032 C", conformer="crystal")
+    assert r0["ok"], r0
     md = md_of(build())
     assert "run 032_crystal" in md and "run 032_regenerated" in md
     assert "Started from the crystal conformation: biased in favour" in md
@@ -335,11 +340,11 @@ def test_the_section_inventory_is_read_from_the_document():
     r = build()
     assert r["ok"], r
     sections = r["sections"]
-    doc, _n, _n_admet = experiment_report.build_document(
+    doc, _n, _n_admet, _n_set = experiment_report.build_document(
         ACC, report.load_manifest(ACC), "2026-11-12T00:00:00Z")
     headings = [b[2] for b in doc.blocks if b[0] == "h" and b[1] == 2]
-    assert len(sections) == len(headings) == 5, (sections, headings)
-    assert [s["number"] for s in sections] == ["1", "2", "3", "4", "5"], sections
+    assert len(sections) == len(headings) == 6, (sections, headings)
+    assert [s["number"] for s in sections] == ["1", "2", "3", "4", "5", "6"], sections
     assert "reproducibility" in sections[-1]["title"].lower(), "the audit trail must be the last section"
     assert [s["heading"] for s in sections] == headings
     by_number = {s["number"]: s for s in sections}
@@ -349,7 +354,12 @@ def test_the_section_inventory_is_read_from_the_document():
     assert by_number["2"]["title"] == "Molecular dynamics"
     assert by_number["2"]["status"] == "DECLARED HOLE (not run)", by_number["2"]
     assert by_number["2"]["says"].startswith("Not run."), by_number["2"]
-    assert by_number["4"]["status"] == "has content"
+    assert by_number["5"]["status"] == "has content"
+    # section 4 (the compound set) is a hole here too: this manifest records no
+    # select_ligands selection, and a table of the set with nothing in it would be a claim
+    assert by_number["4"]["title"] == "The compound set side by side"
+    assert by_number["4"]["status"] == "DECLARED HOLE (not run)", by_number["4"]
+    assert "select_ligands" in by_number["4"]["says"], by_number["4"]
     # a section with no content must not be reported as having any. This manifest records no
     # ADMET result, so section 3 IS a hole -- asserted flatly, because the first version of this
     # test asked `if "Not run." in md: ... else: assert "has content"`, and that `else` ACCEPTED
@@ -364,8 +374,8 @@ def test_the_section_inventory_is_read_from_the_document():
     # while sections_not_run calls it empty is a contradiction the analyst would be handed, and
     # this is what catches a placeholder whose wording drifts away from the inventory's rule
     not_run = " ".join(r["sections_not_run"]).lower()
-    keyword = {"1": "docking", "2": "dynamics", "3": "admet", "4": "methods",
-               "5": "reproducibility"}
+    keyword = {"1": "docking", "2": "dynamics", "3": "admet", "4": "compound set",
+               "5": "methods", "6": "reproducibility"}
     for s in sections:
         named = keyword[s["number"]] in not_run
         assert named == (s["status"] != "has content"), (s, r["sections_not_run"])
@@ -419,6 +429,171 @@ def test_the_cluster_install_path_stays_out_of_the_report():
     print("ok  the report names the NAMD release, not the cluster's install path")
 
 
+SET_REASON = ("five candidates by the agreed criteria; VEMURAFENIB is the control/anchor, not a "
+              "candidate: it is the crystal ligand of 3OG7")
+# the column order of section 4, so the assertions below name what they read
+COMPOUND, SCORE, LE, XRMSD, MDRMSD, CONTROL, ADMET = range(7)
+
+
+def _set_manifest():
+    """A manifest with a selection of 3: one with docking+MD+ADMET and a cross-docking RMSD whose
+    error bar decides nothing, one docking-only and box_limited, one with no name in ChEMBL, no
+    ChEMBL entry at all, and TWO runs of which the first inserted is the biased crystal one."""
+    return {
+        "created_at": "2026-11-22T00:00:00Z",
+        "ligand_choice": {"reason": SET_REASON, "compounds": [
+            {"id": "CHEMBL1229517", "name": "VEMURAFENIB", "level": "T1", "heavy_atoms": 33},
+            {"id": "CHEMBL1336", "name": "SORAFENIB", "level": "T3", "heavy_atoms": 32},
+            {"id": "CHEMBL525191", "name": None, "level": "T3", "heavy_atoms": 25}]},
+        "structures": [{"pdb_id": "8C7Y", "docking": {"TXV U": {"runs": {
+            "r1": {"ligand": {"conformer": "regenerated"}, "compound_docking": {
+                "compound_id": "CHEMBL1229517", "name": "VEMURAFENIB", "level": "T1",
+                "top_pose_score_kcal_mol": -11.191, "heavy_atoms": 33,
+                "ligand_efficiency_kcal_mol_per_heavy_atom": -0.3391, "box_limited": False,
+                "scope": "...no inactive compounds in this run, so nothing here says whether the "
+                         "score separates actives from inactives (ESTADO 7.4)."},
+                "cross_docking": {
+                    "top_pose_rmsd_angstrom": 1.9152, "criterion_angstrom": 2.0,
+                    "within_criterion": True,
+                    "reference_pose_uncertainty": {"shift_angstrom": 0.767},
+                    "within_criterion_with_bar": {"range_angstrom": [1.148, 2.682],
+                                                  "decides": False}}},
+            "r2": {"ligand": {"conformer": "regenerated"}, "compound_docking": {
+                "compound_id": "CHEMBL1336", "name": "SORAFENIB", "level": "T3",
+                "top_pose_score_kcal_mol": -11.337, "heavy_atoms": 32,
+                "ligand_efficiency_kcal_mol_per_heavy_atom": -0.3543, "box_limited": True,
+                "box_fit": {"min_clearance_angstrom": 1.99, "limiting_box_axis_angstrom": 22.0,
+                            "limiting_ligand_extent_angstrom": 20.01, "threshold_angstrom": 1.5}}},
+            # the biased run is inserted FIRST, so a table that prints "the first match" prints
+            # this one: it must then say which it printed, of how many, and that it is biased
+            "r3_crystal": {"ligand": {"conformer": "crystal"}, "compound_docking": {
+                "compound_id": "CHEMBL525191", "name": None, "level": "T3",
+                "top_pose_score_kcal_mol": -13.5, "heavy_atoms": 25,
+                "ligand_efficiency_kcal_mol_per_heavy_atom": -0.54, "box_limited": False}},
+            "r3": {"ligand": {"conformer": "regenerated"}, "compound_docking": {
+                "compound_id": "CHEMBL525191", "name": None, "level": "T3",
+                "top_pose_score_kcal_mol": -8.72, "heavy_atoms": 25,
+                "ligand_efficiency_kcal_mol_per_heavy_atom": -0.3488, "box_limited": False}}}}},
+            "md_analysis": {"TXV U CHEMBL1229517": {"production": {
+                "stage_label": "production", "pocket": "TXV U",
+                "compound": {"id": "CHEMBL1229517", "name": "VEMURAFENIB"},
+                "result": {"ligand_rmsd": {"mean": 1.5799, "n": 100},
+                           "reading": {"equilibration_control": {
+                               "status": "NOT MET", "drift_angstrom": 2.9923,
+                               "threshold_angstrom": 0.5}}}}}},
+            "admet": {"TXV U CHEMBL1229517": {
+                "compound_identity": {"compound_id": "CHEMBL1229517", "pdb_id": "8C7Y",
+                                      "pocket": "TXV U"},
+                "chembl_record": {"status": "RECORD (facts of the ChEMBL entry)"}},
+                "TXV U CHEMBL525191": {
+                    "compound_identity": {"compound_id": "CHEMBL525191", "pdb_id": "8C7Y",
+                                          "pocket": "TXV U"},
+                    "chembl_record": {"status": "NO RECORD: no entry for this InChIKey"}}}}],
+    }
+
+
+def test_the_compound_set_table_declares_its_holes_and_ranks_nothing():
+    """Section 4 (researcher's request 2026-11-22): the set side by side, WITHOUT a ranking.
+
+    CONTROLS: the rows must stay in the order select_ligands recorded them (a table sorted by
+    score would be a ranking even with no verdict written); a compound with no MD must say so
+    instead of leaving the cell empty; a box_limited run must carry its warning AND its clearance;
+    a compound ChEMBL does not name must print "no record" rather than borrow a name; a figure
+    printed out of several runs must say so; and an error bar that straddles the criterion must
+    say it decides nothing instead of standing beside the criterion as if it had passed.
+    """
+    m = _set_manifest()
+    doc = experiment_report.Doc()
+    n = experiment_report._compound_set(doc, m, ACC)
+    assert n == 3, n
+    table = next(b for b in doc.blocks if b[0] == "table")
+    rows = table[2]
+    assert len(table[1]) == len(rows[0]) == 7, (table[1], rows[0])
+    # CONTROL: the order is the selection's, not the scores'. Sorted by score the first row
+    # would be CHEMBL525191 (-13.5), and by ligand efficiency it would be CHEMBL525191 too.
+    assert [r[COMPOUND].split("\n")[1] for r in rows] == [
+        "CHEMBL1229517", "CHEMBL1336", "CHEMBL525191"], rows
+    md = report.render_markdown(doc)
+    assert "THIS TABLE IS NOT A RANKING" in md
+    assert "Docking recorded for 3 of 3, molecular dynamics for 1 of 3, ADMET for 2 of 3" in md, md
+    # the reason is printed WHOLE: the clipped version cut the sentence that says the anchor is
+    # not a candidate, leaving "five candidates" beside a count of three rows
+    assert SET_REASON in md, "the recorded reason was clipped"
+    assert "is the control/anchor, not a candidate" in md
+    # the limits the pre-registration (ESTADO 7.4) obliges this table to print
+    assert "NO NEGATIVE CONTROL" in md and "separates actives from inactives" in md
+    assert "levels T1, T3" in md and "not ranked together" in md
+    # the range of the SET (33, 32, 25 in this fixture), which is what makes a raw score
+    # incomparable across it; the figure is the selection's, not one compound's
+    assert "heavy-atom count runs from 25 to 33" in md, md
+    assert "ONE replica per compound" in md
+    # the three provenances are labelled, in the headers and in the closing note
+    assert all("calculated" in h for h in table[1][SCORE:CONTROL + 1]), table[1]
+    assert "retrieved" in table[1][ADMET].lower()
+    assert "THE THREE PROVENANCES IN THIS TABLE DO NOT MEAN THE SAME THING" in md
+    # the compound with no dynamics says which tools would fill it, in its own cell
+    assert "not run (build_md_package, then analyze_md)" in rows[1][MDRMSD]
+    # the one that was run carries the figure, its provenance AND the control that qualifies it
+    assert "1.5799 mean over 100 frames" in rows[0][MDRMSD] and "8C7Y TXV U" in rows[0][MDRMSD]
+    assert "NOT MET" in rows[0][CONTROL] and "2.9923" in rows[0][CONTROL]
+    # the cross-docking RMSD of the T1 anchor does not pose as a pass
+    assert "1.9152" in rows[0][XRMSD] and "0.767" in rows[0][XRMSD]
+    assert "DECIDES NOTHING" in rows[0][XRMSD] and "1.148-2.682" in rows[0][XRMSD], rows[0][XRMSD]
+    # a T3 compound has no reference pose: not applicable, not missing
+    assert "not applicable" in rows[1][XRMSD] and "level T3" in rows[1][XRMSD]
+    # box_limited is not silently comparable, and the clearance travels with the mark
+    assert "box_limited" in rows[1][SCORE] and "1.99 A clearance" in rows[1][SCORE], rows[1][SCORE]
+    assert "box_limited" not in rows[0][SCORE], rows[0][SCORE]
+    # one of several runs: which one, of how many, and that this one is the biased crystal run
+    assert "1 of 2 runs recorded" in rows[2][SCORE], rows[2][SCORE]
+    assert "biased in favour of the crystal pose" in rows[2][SCORE], rows[2][SCORE]
+    # a compound ChEMBL does not name is not given one
+    assert rows[2][COMPOUND].startswith(experiment_report.NO_RECORD), rows[2][COMPOUND]
+    # no ChEMBL entry is an absence of DATA: in an ADMET column, silence reads as "no liabilities"
+    assert "absence of DATA, not an absence of liabilities" in rows[2][ADMET], rows[2][ADMET]
+    assert "ChEMBL entry retrieved" in rows[0][ADMET]
+    # and with no selection recorded the section is a declared hole, not an empty table
+    empty = experiment_report.Doc()
+    assert experiment_report._compound_set(empty, {"structures": []}, ACC) == 0
+    text = report.render_markdown(empty)
+    assert "Not run." in text and "select_ligands" in text
+    assert not [b for b in empty.blocks if b[0] == "table"], "an empty set still drew a table"
+    print("ok  the compound set is laid side by side with its holes declared and no ranking")
+
+
+def test_a_dynamics_record_written_before_step_6b_is_not_called_not_run():
+    """A record from before the compound block existed is matched by its key instead.
+
+    "not run" is a claim about what was run. Keyed only on the compound block, a trajectory that
+    HAD been analysed was printed as "not run" in section 4 while section 2 of the same document
+    described it, and the coverage count said 0 of 1 (reviewer H3, 2026-11-22).
+    """
+    m = _set_manifest()
+    legacy = m["structures"][0]["md_analysis"]["TXV U CHEMBL1229517"]["production"]
+    legacy.pop("compound")
+    legacy.pop("pocket")
+    doc = experiment_report.Doc()
+    experiment_report._compound_set(doc, m, ACC)
+    md = report.render_markdown(doc)
+    rows = next(b for b in doc.blocks if b[0] == "table")[2]
+    assert "molecular dynamics for 1 of 3" in md, md
+    assert "1.5799 mean over 100 frames" in rows[0][MDRMSD], rows[0][MDRMSD]
+    assert "not run" not in rows[0][MDRMSD], rows[0][MDRMSD]
+    # and the pocket still travels with the figure, read off the key
+    assert "TXV U" in rows[0][MDRMSD], rows[0][MDRMSD]
+    # CONTROL: a record of ANOTHER compound's key is not borrowed for this row
+    m2 = _set_manifest()
+    m2["structures"][0]["md_analysis"] = {"TXV U CHEMBL9999999": {"production": {
+        "stage_label": "production",
+        "result": {"ligand_rmsd": {"mean": 0.4, "n": 10}, "reading": {}}}}}
+    doc2 = experiment_report.Doc()
+    experiment_report._compound_set(doc2, m2, ACC)
+    md2 = report.render_markdown(doc2)
+    assert "molecular dynamics for 0 of 3" in md2, md2
+    assert "0.4 mean" not in md2, "a record keyed to another compound was printed in this row"
+    print("ok  an MD record written before step 6b counts, and another compound's does not")
+
+
 def main():
     record = make_fake_vina(Path(tempfile.mkdtemp()))
     prep = test_no_runs()
@@ -432,6 +607,8 @@ def main():
     test_the_section_inventory_is_read_from_the_document()
     test_open_pdf_error()
     test_the_cluster_install_path_stays_out_of_the_report()
+    test_the_compound_set_table_declares_its_holes_and_ranks_nothing()
+    test_a_dynamics_record_written_before_step_6b_is_not_called_not_run()
     assert calls(record), "the Vina stand-in was never called: the run was not real"
     print(json.dumps({"pages": build()["pages"], "runs": len(build()["docking_runs"]),
                       "top_pose_rmsd": rec["redocking"]["top_pose_rmsd_angstrom"]}))

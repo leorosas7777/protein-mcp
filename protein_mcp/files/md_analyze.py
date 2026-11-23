@@ -169,7 +169,14 @@ def find_inputs(folder, topology=None, stage=None) -> dict:
             f"Looked in: {', '.join(str(p) for p in places)}")
     # step3_input.psf is the one CHARMM-GUI hands to NAMD; prefer it over the earlier stages
     # (step1_pdbreader.psf, step2.2_ions.psf), which describe a system that was not simulated.
-    psf = given or next((p for p in psfs if "step3" in p.name), psfs[0])
+    # It is matched by EXACT NAME first: "step3" also matches step3_pbcsetup.psf, which sits in
+    # the job root and was therefore found before namd/step3_input.psf. Both describe the same
+    # atoms, but only step3_input.psf is the file build_md_job hashed, so the hash check then
+    # refused the trajectory with "this trajectory was not simulated from the system this
+    # pocket's job describes" — a false statement about the user's own run (reviewer H8,
+    # 2026-11-22). The name of the file NAMD was pointed at is the fact; a substring is not.
+    psf = given or next((p for p in psfs if p.name == "step3_input.psf"),
+                        next((p for p in psfs if "step3" in p.name), psfs[0]))
     # Trajectories are grouped by the STAGE they belong to, and one stage is analysed.
     #
     # The earlier rule asked whether a name ended in `_<number>`, which is what build_md_job's own
@@ -1703,7 +1710,8 @@ def reading(result: dict) -> dict:
 def analyze_md(folder, *, topology=None, ligand_resname: str = "LIG", ligand_segid: str = "",
                pocket_cutoff: float = POCKET_CUTOFF, skip_frames: int = -1,
                reference_frame: int = -1, include_series: bool = True, stage=None,
-               uniprot_id: str = "", structure: str = "", pocket: str = "") -> dict:
+               uniprot_id: str = "", structure: str = "", pocket: str = "",
+               compound: str = "") -> dict:
     """Measure the trajectory in `folder` and return every metric with its selection and criterion.
 
     `skip_frames` defaults to the minimization frames declared by the NAMD inputs, which is the
@@ -1729,10 +1737,11 @@ def analyze_md(folder, *, topology=None, ligand_resname: str = "LIG", ligand_seg
     try:
         ctx = None
         if uniprot_id:
-            ctx = record_context(uniprot_id, structure, pocket, folder, topology, stage)
-        elif (structure or "").strip() or (pocket or "").strip():
+            ctx = record_context(uniprot_id, structure, pocket, folder, topology, stage,
+                                 compound)
+        elif (structure or "").strip() or (pocket or "").strip() or (compound or "").strip():
             raise MdAnalyzeError(
-                "structure and pocket only say WHERE to record the result, and that needs "
+                "structure, pocket and compound only say WHERE to record the result, and that needs "
                 "uniprot_id as well. Pass uniprot_id too, or leave all three out to measure "
                 "without recording.")
         out = _analyze(folder, topology=topology, ligand_resname=ligand_resname,
@@ -1748,6 +1757,7 @@ def analyze_md(folder, *, topology=None, ligand_resname: str = "LIG", ligand_seg
         arguments = {"ligand_resname": ligand_resname, "ligand_segid": ligand_segid,
                      "pocket_cutoff": pocket_cutoff, "skip_frames": skip_frames,
                      "reference_frame": reference_frame, "stage": stage,
+                     "compound": compound or None,
                      "topology": str(topology) if topology else None}
         out["recording"] = record_result(ctx, out, arguments)
         if not include_series:
@@ -2036,7 +2046,7 @@ def _psf_reference(job: dict) -> dict:
                       "md_job block predates the PSF hash)"}
 
 
-def record_context(uniprot_id, structure, pocket, folder, topology, stage) -> dict:
+def record_context(uniprot_id, structure, pocket, folder, topology, stage, compound="") -> dict:
     """Every check that can run BEFORE the analysis. Raises MdAnalyzeError with the reason."""
     import json
     from protein_mcp.common import parse_accession
@@ -2057,17 +2067,33 @@ def record_context(uniprot_id, structure, pocket, folder, topology, stage) -> di
         raise MdAnalyzeError(f"Not recorded: {exc}", **(getattr(exc, "extra", {}) or {})) from None
     pk = snap["pocket"]
     pdb_id = s["pdb_id"].upper()
-    pocket_key = f"{pk['comp_id']} {pk['label_asym_id']}"
-    pkg_dir = prep / "md" / dock.dock_dir_name(pdb_id, pk["comp_id"], pk["label_asym_id"])
-    job = (s.get("md_job") or {}).get(pocket_key)
+    pocket_label = f"{pk['comp_id']} {pk['label_asym_id']}"
+    # One folder and one key PER COMPOUND, as build_md_package and build_md_job write them: two
+    # compounds of the same pocket are two different simulations and must not share a record.
+    try:
+        entry = dock._compound(manifest, compound) if compound else None
+    except dock.DockError as exc:
+        raise MdAnalyzeError(f"Not recorded: {exc}", **(getattr(exc, "extra", {}) or {})) from None
+    slug = entry["slug"] if entry else ""
+    pocket_key = f"{pocket_label} {entry['id']}" if entry else pocket_label
+    dir_name = dock.dock_dir_name(pdb_id, pk["comp_id"], pk["label_asym_id"])
+    pkg_dir = prep / "md" / (f"{dir_name}_{slug}" if slug else dir_name)
+    jobs = s.get("md_job") or {}
+    job = jobs.get(pocket_key)
     if not job:
+        # the keys of THIS pocket, so the refusal says which compound to name instead of leaving
+        # the caller to guess that the records are per compound
+        here = sorted(k for k in jobs if k == pocket_label or k.startswith(pocket_label + " "))
         raise MdAnalyzeError(
-            f"Not recorded: no md_job is recorded for {pdb_id} pocket {pocket_key}, so there is "
-            "no registered package to tie this trajectory to. Run build_md_job first.")
+            f"Not recorded: no md_job is recorded for {pdb_id} {pocket_key}, so there is "
+            "no registered package to tie this trajectory to. Run build_md_job first"
+            + (f" (jobs recorded for this pocket: {', '.join(here)}; name one with `compound`)."
+               if here and not compound else "."),
+            md_jobs_recorded_for_this_pocket=here)
     if not _inside_dir(folder, pkg_dir):
         raise MdAnalyzeError(
             f"Not recorded: the trajectory folder {Path(folder)} is not inside {pkg_dir}, the "
-            f"folder of {pdb_id} pocket {pocket_key}. Copy the files from the cluster under it "
+            f"folder of {pdb_id} {pocket_key}. Copy the files from the cluster under it "
             "(for instance into a 'cluster' subfolder) and pass that path.",
             expected_under=str(pkg_dir))
     found = find_inputs(folder, topology, stage)
@@ -2099,14 +2125,27 @@ def record_context(uniprot_id, structure, pocket, folder, topology, stage) -> di
     reference = _psf_reference(job)
     psf_sha = _sha256_file(found["psf"])
     if psf_sha != reference["sha256"]:
+        # Which of the two it is cannot be told from here, so BOTH readings are given. Saying
+        # only the first one made the tool blame the user's trajectory for its own choice of
+        # file when a CHARMM-GUI folder holds several PSFs (reviewer H8, 2026-11-22).
         raise MdAnalyzeError(
             f"Not recorded: the topology {found['psf'].name} has SHA-256 {psf_sha}, and the PSF "
-            f"of the registered package has {reference['sha256']} ({reference['source']}). This "
-            "trajectory was not simulated from the system this pocket's job describes.",
-            psf_sha256=psf_sha, registered_psf_sha256=reference["sha256"])
+            f"of the registered package has {reference['sha256']} ({reference['source']}). Either "
+            "this trajectory was not simulated from the system this pocket's job describes, or "
+            f"{found['psf'].name} is not the PSF the run used: a CHARMM-GUI folder also holds the "
+            "earlier stages (step1_pdbreader.psf, step2_solvator.psf, step3_pbcsetup.psf), and the "
+            "file NAMD was pointed at is usually namd/step3_input.psf. Check which one the job "
+            "used and pass it as `topology` if it is not the one named here.",
+            psf_sha256=psf_sha, registered_psf_sha256=reference["sha256"],
+            psf_used=found["psf"].name, psf_selection=found.get("psf_selection"))
     return {
         "accession": accession, "manifest_path": path, "created_at": manifest.get("created_at"),
         "prep": prep, "pkg_dir": pkg_dir, "pdb_id": pdb_id, "pocket_key": pocket_key,
+        "pocket_label": pocket_label,
+        "compound": ({"id": entry["id"], "name": entry.get("name"), "slug": slug,
+                      "level": entry.get("level"),
+                      "source": "the selection select_ligands recorded in the manifest"}
+                     if entry else None),
         "selected_by": origin, "job_generated_at": job.get("generated_at"),
         "label": label, "stage": found["stage"],
         "label_source": (f"md_job.scheme names {prod!r} as production and {equi!r} as "
@@ -2180,6 +2219,7 @@ def record_result(ctx: dict, out: dict, arguments: dict) -> dict:
             "generated_by": "analyze_md", "generated_at": now,
             "stage_label": ctx["label"], "stage": ctx["stage"],
             "stage_label_source": ctx["label_source"],
+            "pocket": ctx["pocket_label"], "compound": ctx["compound"],
             "selected_by": ctx["selected_by"],
             "folder": rel(out["folder"]),
             "topology": {"file": rel(ctx["psf"]), "sha256": ctx["psf_sha256"],
@@ -2211,4 +2251,9 @@ def record_result(ctx: dict, out: dict, arguments: dict) -> dict:
             "series_file": str(series_path), "series_sha256": series_sha,
             "psf_check": f"{ctx['psf'].name} SHA-256 matches the registered package "
                          f"({ctx['psf_reference']['source']})",
-            "replaced_only": f"this pocket's {ctx['label']} record; any other stage is kept"}
+            # named by the key that was actually replaced: with two compounds in one pocket this
+            # record is the COMPOUND's, not the pocket's, and the old wording would have told the
+            # user the other compound's record had been overwritten (reviewer H10, 2026-11-22)
+            "replaced_only": (f"the {ctx['label']} record of {ctx['pocket_key']}"
+                              + (f" (compound {ctx['compound']['id']})" if ctx.get("compound") else "")
+                              + "; any other stage, pocket or compound is kept")}
