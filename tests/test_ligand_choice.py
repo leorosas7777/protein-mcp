@@ -94,12 +94,12 @@ def test_refusals_write_nothing():
 
 def test_records_the_selection():
     prep, _ = make_prep()
-    r = ligand_choice.select_ligands(ACC, SEL, reason="los eligió el investigador")
+    r = ligand_choice.select_ligands(ACC, SEL, reason="the researcher picked them")
     assert r["ok"] and r["recorded"] == "2 of 2 compounds given", r
     assert r["levels"] == {"T1": ["CHEMBL1229517"], "T3": ["CHEMBL1336"]}, r["levels"]
     assert r["heavy_atom_range"] == [32, 33], r["heavy_atom_range"]   # sorafenib 32, vemurafenib 33
     rec = manifest(prep)["ligand_choice"]
-    assert rec["reason"] == "los eligió el investigador" and rec["recorded_by"] == "select_ligands"
+    assert rec["reason"] == "the researcher picked them" and rec["recorded_by"] == "select_ligands"
     assert [c["slug"] for c in rec["compounds"]] == ["chembl1229517", "chembl1336"]
     vem = rec["compounds"][0]
     assert len(vem["inchikey"]) == 27 and vem["inchikey"].count("-") == 2, vem["inchikey"]
@@ -110,7 +110,7 @@ def test_records_the_selection():
     assert r2["ok"] and r2["previous_selections"] == 1 and "2 compounds recorded" in r2["replaced_selection"]
     m = manifest(prep)
     assert len(m["ligand_choice"]["compounds"]) == 1
-    assert m["ligand_choice_history"][0]["reason"] == "los eligió el investigador"
+    assert m["ligand_choice_history"][0]["reason"] == "the researcher picked them"
     assert m["ligand_choice_history"][0]["superseded_at"]
     # carry_over: prepare_structures replaces the manifest, the selection does not depend on it
     new = {"created_at": "2026-11-19T00:00:00Z"}

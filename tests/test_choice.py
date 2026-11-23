@@ -210,11 +210,11 @@ def test_report(base: dict):
     assert "Structure preparation rules" in md and "## 6. Structure" in md
 
     choice.select_structure(ACC, "3OG7", "032", reason="Pose de vemurafenib")
-    choice.select_structure(ACC, "8C7Y", "TXV U", reason="V600E en la cadena del bolsillo")
+    choice.select_structure(ACC, "8C7Y", "TXV U", reason="V600E in the pocket chain")
     md = Path(report.build_report(ACC)["markdown_path"]).read_text(encoding="utf-8")
     sec = md.split("### Structure chosen by the user")[1].split("## 7. Methods")[0]
     assert "- Choice: 8C7Y chain A, pocket TXV U" in sec and "- Construct mutations: title: V600E" in sec
-    assert 'Reason recorded by select_structure: "V600E en la cadena del bolsillo"' in sec
+    assert 'Reason recorded by select_structure: "V600E in the pocket chain"' in sec
     assert "1 earlier choice(s) in user_choice_history: 3OG7 chain A, pocket 032 C (replaced)" in sec
     assert "Ligand pose (SDF): ligands/8C7Y_TXV_U.sdf" in sec
     # anti-hallucination: every link in section 6 is in the manifest

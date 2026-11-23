@@ -233,9 +233,9 @@ def _repro(audit: list, title: str, items: list):
     Nothing measured is dropped from this document -- a hash, a Meeko option or a guard check is
     what lets someone else repeat the run, and removing it would break the audit. But none of it
     helps anyone INTERPRET a result, so the whole audit trail leaves the reading path and becomes
-    an appendix (user request 2026-11-18: "todo aquello que sirva para auditar los experimentos
-    vaya hasta el final... al principio solo los datos que le sirven al investigador para
-    interpretar"). The entry keeps the heading it had, so a reader who wants the trail of one
+    an appendix (user request 2026-11-18, translated from Spanish: "everything that serves to
+    audit the experiments goes to the end... at the beginning, only the data the researcher needs
+    in order to interpret"). The entry keeps the heading it had, so a reader who wants the trail of one
     run finds it under that run's name.
     """
     kept = [i for i in items if i]
