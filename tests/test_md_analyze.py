@@ -900,10 +900,18 @@ def test_the_thresholds_match_their_pre_registration():
     used = md_analyze.reading(fake)["thresholds_used"]
     assert used == {"protein_plateau_angstrom": 0.5, "ligand_stable_angstrom": 2.0,
                     "com_stable_range_angstrom": 2.0, "hbond_persistent_occupancy": 0.5}, used
-    for number in ("0,5 Å", "2,0 Å", "≥ 0,5"):
-        assert number in section, f"{number} is not in the pre-registration"
+    # The document moved to English on 2026-11-23 (decimal point, not decimal comma).
+    # Each threshold is looked for in ITS OWN sentence, not anywhere in the section: the four
+    # values repeat (0.5/2.0/2.0/0.5), so a loose search passed even when one of them had been
+    # changed. That weakness was in the Spanish original too, and it is the same defect the
+    # reviewer found on 2026-11-15 in `_source_is_self_contained` (section 8, task 11).
+    for phrase in ("Plateau of the protein backbone: drift ≤ 0.5 Å",
+                   "Ligand RMSD: ≤ 2.0 Å",
+                   "Range of the centre-of-mass distance: ≤ 2.0 Å",
+                   "Persistent hydrogen-bond occupancy: ≥ 0.5"):
+        assert phrase in section, f"the pre-registration does not say {phrase!r}"
     assert "2026-11-11" in section
-    assert "no se consultó ninguna" in section, "the section must say no literature was consulted"
+    assert "none was consulted" in section, "the section must say no literature was consulted"
     print("ok  the four thresholds in the code are the four pre-registered in section 7.2")
 
 
